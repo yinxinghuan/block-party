@@ -46,6 +46,10 @@ export const GRACE_PERIOD = 3.0;
 // Hero auto-locks the nearest non-fleeing monster within AIM_RANGE and fires
 // every FIRE_COOLDOWN seconds. The bullet is a fast linear projectile.
 export const AIM_RANGE = 14.0;
+// Forward fire cone — only zombies within ±55° of body facing can be
+// targeted. Body turns toward the locked target each shot, so to engage a
+// zombie behind you, you must move/face that way first.
+export const FIRE_ARC_HALF = (110 * Math.PI / 180) / 2;
 export const FIRE_COOLDOWN = 0.32;     // seconds between shots — feels lively at ~3/s
 export const BULLET_SPEED = 28;        // world units / sec
 export const BULLET_TTL = 1.2;         // seconds before despawn

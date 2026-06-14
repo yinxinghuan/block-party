@@ -150,3 +150,22 @@ export function makePistol(): THREE.Group {
   finish(g);
   return g;
 }
+
+// Maglite-style flashlight prop — short stubby barrel + a hot emissive lens
+// at the tip. Lives in the survivor's left hand and points along +Z so a
+// SpotLight attached at the lens position throws its cone forward.
+export function makeFlashlight(): THREE.Group {
+  const g = new THREE.Group();
+  const body = darken(P.steel, 0.45);
+  const rim = darken(P.steel, 0.30);
+  // grip (rear)
+  g.add(box(0.10, 0.10, 0.16, body, 0, 0, -0.04));
+  // barrel
+  g.add(box(0.11, 0.11, 0.20, body, 0, 0, 0.08));
+  // head ring (slightly larger so the silhouette reads as a torch)
+  g.add(box(0.16, 0.13, 0.07, rim, 0, 0, 0.20));
+  // lit lens — bright warm-white emissive at the tip
+  g.add(box(0.12, 0.10, 0.03, 0xfff0c8, 0, 0, 0.25, { e: 0xffd070, ei: 3.4 }));
+  finish(g);
+  return g;
+}

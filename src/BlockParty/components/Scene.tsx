@@ -9,7 +9,7 @@ import {
 import { useGameLoop, GameRef, PickupKind, SfxKey } from '../hooks/useGameLoop';
 import type { Stick } from '../types';
 import { makeZombie, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
-import { makeSurvivor, makePistol, type CharacterGroup } from '../builders/characters';
+import { makeSurvivor, makePistol, makeFlashlight, type CharacterGroup } from '../builders/characters';
 
 interface SceneProps {
   state: React.MutableRefObject<GameRef>;
@@ -49,9 +49,10 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
   return null;
 }
 
-// Player — survivor archetype (cop for now) with a pistol prop in the right
-// hand. Walking shamble via leg pivots; right-arm raises forward on the
-// muzzle-flash window so the player can read each shot from the body too.
+// Player — survivor archetype (cop for now) with a pistol in the right hand
+// and a flashlight in the left. The left arm is locked forward so the
+// flashlight cone tracks the player's facing; the right arm tracks the
+// current aim target dynamically inside the 110° fire arc.
 function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
   const rootRef = useRef<THREE.Group>(null);
   const survivorRef = useRef<CharacterGroup | null>(null);
@@ -59,17 +60,62 @@ function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
     const root = rootRef.current;
     if (!root) return;
     const survivor = makeSurvivor('cop');
-    // Attach a pistol prop to the survivor's right shoulder pivot so it
-    // tracks the arm during the fire pose.
+
+    // Right arm — pistol prop. Position is shoulder-local; when the arm
+    // rotates forward + swings, the gun follows. YXZ order so rotation.y
+    // (target tracking) is applied AFTER rotation.x (forward lift), letting
+    // the gun swing left/right inside the firing arc.
+    survivor.userData.rig.armR.rotation.order = 'YXZ';
     const pistol = makePistol();
-    pistol.position.set(0.03, -0.95, 0.15);     // hand height in shoulder-local space
-    pistol.rotation.set(0, 0, 0);
+    pistol.position.set(0.03, -0.95, 0.15);
     survivor.userData.rig.armR.add(pistol);
+
+    // Left arm — flashlight prop. Hangs at the wrist (shoulder-local Y is
+    // arm length), points along +Z by default; when the arm rotates forward
+    // the flashlight points where the survivor's body faces.
+    const flashlight = makeFlashlight();
+    flashlight.position.set(0, -1.0, 0);
+    survivor.userData.rig.armL.add(flashlight);
+
+    // SpotLight at the flashlight lens — narrow cone, warm color, long
+    // reach. Cast shadow is off (cheap), penumbra 0.45 for a soft edge.
+    const spot = new THREE.SpotLight(0xfff0d0, 140, 18, Math.PI / 5.4, 0.45, 2);
+    spot.position.set(0, 0, 0.25);             // at the lens, in flashlight-local
+    flashlight.add(spot);
+    // Target — child of the survivor (NOT the arm) so it doesn't sway with
+    // the arm pose. Placed forward + slightly down in survivor-local space
+    // so the cone hits the asphalt ahead.
+    const spotTarget = new THREE.Object3D();
+    spotTarget.position.set(0, -2.5, 8.5);
+    survivor.add(spotTarget);
+    spot.target = spotTarget;
+
+    // Volumetric beam — a translucent additive cone with apex at the lens
+    // and base 5u forward. Sells the flashlight visually for the top-down
+    // camera, even where the SpotLight has nothing to hit.
+    const beamH = 5.0;
+    const beamGeom = new THREE.ConeGeometry(1.3, beamH, 18, 1, true);
+    beamGeom.translate(0, -beamH / 2, 0);       // apex now at local origin
+    beamGeom.rotateX(-Math.PI / 2);             // base swings to +Z
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0xfff0c8,
+      transparent: true,
+      opacity: 0.10,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const beam = new THREE.Mesh(beamGeom, beamMat);
+    beam.position.set(0, 0, 0.25);
+    beam.rotation.x = -0.20;                    // dip toward the asphalt
+    flashlight.add(beam);
+
     root.add(survivor);
     survivorRef.current = survivor;
     return () => {
       root.remove(survivor);
-      survivor.userData.rig.armR.remove(pistol);
+      beamGeom.dispose();
+      beamMat.dispose();
       survivorRef.current = null;
     };
   }, []);
@@ -86,21 +132,31 @@ function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
     const moveFactor = Math.min(1, d.speed / PLAYER_SPEED);
     const rig = survivor.userData.rig;
 
-    // Leg swing — runs faster when moving, ~idle micro-shift when standing.
+    // Leg swing — runs faster when moving, idle micro-shift when standing.
     const walkFreq = 5.5 + moveFactor * 2.0;
     const swing = Math.sin(t * walkFreq) * (0.10 + moveFactor * 0.55);
     rig.legL.rotation.x =  swing;
     rig.legR.rotation.x = -swing;
 
-    // Left arm — counter-swing with legs while moving; rests at side idle.
-    rig.armL.rotation.x = -swing * 0.55;
+    // Left arm — LOCKED forward so the flashlight always aims where the
+    // survivor faces. Tiny downward dip so the cone hits the ground in
+    // front rather than going off into the fog.
+    const flashAim = -Math.PI / 2 + 0.22;
+    rig.armL.rotation.x = flashAim;
 
-    // Right arm — holds the pistol. Forward-aim pose locks during the muzzle
-    // flash window (just fired) then relaxes back to a low-ready angle.
-    const flash01 = Math.min(1, d.muzzleFlashT / 0.07);
-    const lowReady = -0.35;          // ~20° forward of straight down
-    const aimedFwd = -Math.PI / 2 + 0.08;  // straight forward + tiny dip
-    rig.armR.rotation.x = lowReady + (aimedFwd - lowReady) * flash01;
+    // Right arm — tracks the current fire target inside the 110° arc.
+    // d.aimYaw is the bearing of the locked target relative to body facing
+    // (radians, [-0.96, +0.96] ≈ ±55°); when there's no target it's null,
+    // and the arm relaxes to low-ready.
+    const aimedFwd = -Math.PI / 2 + 0.08;
+    const lowReady = -0.35;
+    const hasAim = d.aimYaw != null;
+    const targetX = hasAim ? aimedFwd : lowReady;
+    rig.armR.rotation.x += (targetX - rig.armR.rotation.x) * 0.45;     // smooth
+    // Swing the gun arm left/right inside the firing arc. Smoothed so the
+    // arm tracks rather than snaps.
+    const targetY = hasAim ? (d.aimYaw as number) : 0;
+    rig.armR.rotation.y += (targetY - rig.armR.rotation.y) * 0.35;
 
     // Hit response — if the player just took damage, briefly flash the body.
     // (iframesT > 0 while invulnerable.) Lerp body emissive toward red.
@@ -294,6 +350,59 @@ function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
           color="#ffffff"
           intensity={0}
           distance={8}
+          decay={2}
+        />
+      ))}
+    </>
+  );
+}
+
+// Pool of PointLights that track the nearest streetlamp pillars (variant
+// 'spike'). Each frame we sort the lamps by distance² to the player and
+// assign the top N to the pool, fading intensity with distance so the
+// shadows roll on as the player approaches. Same pattern as CrystalLights
+// — single allocation, no per-lamp light spamming.
+function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> }) {
+  const POOL = 4;
+  const refs = useRef<(THREE.PointLight | null)[]>([]);
+  const tmpVec = useMemo(() => new THREE.Vector3(), []);
+  useFrame(() => {
+    const d = state.current;
+    const lamps = d.pillars.filter(p => p.variant === 'spike');
+    if (lamps.length === 0) {
+      for (const l of refs.current) if (l) l.intensity = 0;
+      return;
+    }
+    // Sort by squared distance to the player.
+    const sorted = lamps
+      .map(p => ({
+        p,
+        d2: (p.position.x - d.pos.x) ** 2 + (p.position.z - d.pos.z) ** 2,
+      }))
+      .sort((a, b) => a.d2 - b.d2)
+      .slice(0, POOL);
+    for (let i = 0; i < POOL; i++) {
+      const light = refs.current[i];
+      if (!light) continue;
+      const entry = sorted[i];
+      if (!entry) { light.intensity = 0; continue; }
+      // Streetlamp head sits ~3.25u up; light should fall just below it.
+      tmpVec.set(entry.p.position.x, 3.1 * entry.p.scale, entry.p.position.z);
+      light.position.copy(tmpVec);
+      const falloff = Math.max(0.2, 1 - entry.d2 / 360);
+      light.intensity = 18 * falloff;
+      light.distance = 9 * entry.p.scale;
+    }
+  });
+  return (
+    <>
+      {Array.from({ length: POOL }).map((_, i) => (
+        <pointLight
+          key={i}
+          ref={el => { refs.current[i] = el; }}
+          color="#ffc070"
+          intensity={0}
+          distance={9}
           decay={2}
         />
       ))}
@@ -709,13 +818,25 @@ export function Scene(props: SceneProps) {
   return (
     <>
       <FollowCamera state={state} />
-      {/* Per-level palette: each level recolors the cave to give descent
-          a visual narrative — warm surface → wet pools → amber vault →
-          purple abyss. Driven by the `level` prop. */}
-      <fog attach="fog" args={[palette.fog, 14, 58]} />
-      <ambientLight intensity={0.38} color={palette.ambient} />
-      <hemisphereLight args={[palette.hemiSky, palette.hemiGround, 0.32]} />
+      {/* City-night lighting design — the flashlight is the hero, the rest
+          of the scene leans into darkness so the cone actually reads.
+          - fog pulled in tighter so the playfield fades to night
+          - ambient dropped from 0.38 → 0.14
+          - hemisphere dropped from 0.32 → 0.16
+          - cold-blue moonlight directional fills the silhouettes from above
+          - streetlamp pool + crystal pool + the cop's flashlight cover the
+            warm hotspots */}
+      <fog attach="fog" args={[palette.fog, 9, 46]} />
+      <ambientLight intensity={0.14} color={palette.ambient} />
+      <hemisphereLight args={[palette.hemiSky, palette.hemiGround, 0.16]} />
+      {/* Moonlight — cold directional from above, no shadow (perf). */}
+      <directionalLight
+        color="#9bb4dc"
+        intensity={0.55}
+        position={[6, 22, -4]}
+      />
       <Fireflies />
+      <StreetlampLights state={state} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[ARENA_HALF * 4, ARENA_HALF * 4]} />
         <meshStandardMaterial color={palette.floor} roughness={0.85} />

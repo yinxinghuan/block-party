@@ -9,7 +9,7 @@ import {
   SCORE_GOLD,
   GRACE_PERIOD,
   getLevelTuning, LEVELS,
-  AIM_RANGE, FIRE_COOLDOWN, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS, BULLET_DMG,
+  AIM_RANGE, FIRE_ARC_HALF, FIRE_COOLDOWN, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS, BULLET_DMG,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
@@ -33,6 +33,10 @@ export interface GameRef {
   hp: number;              // hearts remaining (max 3)
   maxHp: number;
   iframesT: number;        // invulnerability window after a bite (sec)
+  /** Bearing of the current auto-fire target relative to body facing
+   *  (radians, in the ±55° = ±0.96rad fire arc). null when no target is
+   *  in arc — the right arm relaxes to low-ready in that case. */
+  aimYaw: number | null;
   time: number;            // total game time (across nights) — used for cooldowns
   levelT: number;          // time elapsed within the current night
   score: number;
@@ -64,6 +68,7 @@ export function createGameState(): GameRef {
     hp: 3,
     maxHp: 3,
     iframesT: 0,
+    aimYaw: null,
     time: 0,
     levelT: 0,
     score: 0,
@@ -379,42 +384,69 @@ export function useGameLoop(p: GameLoopParams) {
     }
     d.nearestMonsterDist = nearestDist;
 
-    // ---- AUTO-FIRE (Vampire Survivors / Brotato model) ----
-    // Decrement cooldown. When ready, lock the nearest monster within
-    // AIM_RANGE and spawn a linear bullet aimed at its current position.
-    // No tap-to-shoot — the player only controls movement.
+    // ---- AUTO-FIRE (Vampire Survivors model + a 110° forward fire arc) ----
+    // The hero can only shoot enemies inside a ±55° cone of where the body
+    // is facing — turn (i.e. move) to put a zombie in front before the gun
+    // can hit it. Bullets spawn from the gun's world position (right-hand
+    // offset), not the body's centre, so muzzle flash + tracers line up
+    // with the held pistol.
     d.fireCooldown = Math.max(0, d.fireCooldown - c);
     d.muzzleFlashT = Math.max(0, d.muzzleFlashT - c);
     d.iframesT = Math.max(0, d.iframesT - c);
-    if (d.fireCooldown <= 0 && d.monsters.length > 0) {
-      let target: Monster | null = null;
-      let bestD2 = AIM_RANGE * AIM_RANGE;
-      for (const m of d.monsters) {
-        const dxm = m.position.x - d.pos.x;
-        const dzm = m.position.z - d.pos.z;
-        const dd = dxm * dxm + dzm * dzm;
-        if (dd < bestD2) { bestD2 = dd; target = m; }
-      }
-      if (target) {
-        const tdx = target.position.x - d.pos.x;
-        const tdz = target.position.z - d.pos.z;
-        const inv = 1 / Math.max(Math.hypot(tdx, tdz), 0.001);
-        const dirX = tdx * inv;
-        const dirZ = tdz * inv;
-        d.bullets.push({
-          id: nextId(),
-          position: new THREE.Vector3(d.pos.x, 0.9, d.pos.z),
-          dirX,
-          dirZ,
-          bornAt: d.time,
-          dmg: BULLET_DMG,
-        });
-        d.fireCooldown = FIRE_COOLDOWN;
-        d.muzzleFlashT = 0.07;
-        d.rot = Math.atan2(dirX, dirZ);
-        emitFx(d, 'muzzle_flash', d.pos.x, d.pos.z);
-        p.playSfx('shoot');
-      }
+
+    // Find the nearest monster inside both range AND arc. yaw = bearing of
+    // monster relative to body facing, signed; |yaw| < FIRE_ARC_HALF passes.
+    let target: Monster | null = null;
+    let targetYaw = 0;
+    let bestD2 = AIM_RANGE * AIM_RANGE;
+    for (const m of d.monsters) {
+      const dxm = m.position.x - d.pos.x;
+      const dzm = m.position.z - d.pos.z;
+      const dd = dxm * dxm + dzm * dzm;
+      if (dd >= bestD2) continue;
+      // atan2(dxm, dzm) yields the bearing FROM the player TO the monster
+      // measured in the same convention as d.rot. The signed delta wraps
+      // to [-π, π] via the standard atan2/sin/cos trick.
+      const bearing = Math.atan2(dxm, dzm);
+      const yaw = Math.atan2(Math.sin(bearing - d.rot), Math.cos(bearing - d.rot));
+      if (Math.abs(yaw) > FIRE_ARC_HALF) continue;
+      bestD2 = dd;
+      target = m;
+      targetYaw = yaw;
+    }
+    d.aimYaw = target ? targetYaw : null;
+
+    if (target && d.fireCooldown <= 0) {
+      const tdx = target.position.x - d.pos.x;
+      const tdz = target.position.z - d.pos.z;
+      const inv = 1 / Math.max(Math.hypot(tdx, tdz), 0.001);
+      const dirX = tdx * inv;
+      const dirZ = tdz * inv;
+      // Bullet origin = gun world position. The pistol sits at the
+      // survivor's right hand; in body-local that's ~(0.30, 0.95, 0.45).
+      // Rotate the (X, Z) offsets by d.rot to get the world delta.
+      const cosR = Math.cos(d.rot);
+      const sinR = Math.sin(d.rot);
+      const gunLocalX = 0.30;
+      const gunLocalZ = 0.45;
+      const gunWorldDx = gunLocalX * cosR + gunLocalZ * sinR;
+      const gunWorldDz = -gunLocalX * sinR + gunLocalZ * cosR;
+      d.bullets.push({
+        id: nextId(),
+        position: new THREE.Vector3(d.pos.x + gunWorldDx, 0.95, d.pos.z + gunWorldDz),
+        dirX,
+        dirZ,
+        bornAt: d.time,
+        dmg: BULLET_DMG,
+      });
+      d.fireCooldown = FIRE_COOLDOWN;
+      d.muzzleFlashT = 0.07;
+      // Smoothly turn the body toward the target so the next shot can hit
+      // wider angles without snap-turning. Use the standard wrap-aware lerp.
+      const facingDelta = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
+      d.rot += facingDelta * 0.55;
+      emitFx(d, 'muzzle_flash', d.pos.x + gunWorldDx, d.pos.z + gunWorldDz);
+      p.playSfx('shoot');
     }
 
     // ---- BULLET UPDATE + COLLISION ----
