@@ -639,8 +639,9 @@ export function useGameLoop(p: GameLoopParams) {
           const kb = m.tier === 'boss' ? 0.10 : m.tier === 'stalker' ? 0.32 : 0.45;
           m.position.x += b.dirX * kb;
           m.position.z += b.dirZ * kb;
-          // Light shake on each impact.
-          shakeCamera(d, 0.18, 0.07);
+          // NB: no shake on per-bullet hits — auto-fire shoots ~3/s and the
+          // stacked jitter felt like the whole camera was vibrating. The
+          // blood splats + knockback already sell the impact.
           if (b.pierceLeft > 0) {
             b.pierceLeft -= 1;
           } else {
@@ -656,10 +657,12 @@ export function useGameLoop(p: GameLoopParams) {
             const splats = m.tier === 'boss' ? 32 : m.tier === 'stalker' ? 14 : 10;
             const intensity = m.tier === 'boss' ? 1.6 : 1.0;
             spawnBloodSplats(d, m.position.x, m.position.z, splats, intensity);
+            // Only the boss kill is really felt; the rest are gentle nudges
+            // so a surge of dying zombies doesn't churn the screen.
             shakeCamera(
               d,
-              m.tier === 'boss' ? 0.95 : m.tier === 'stalker' ? 0.45 : 0.28,
-              m.tier === 'boss' ? 0.55 : 0.14,
+              m.tier === 'boss' ? 0.95 : m.tier === 'stalker' ? 0.18 : 0.08,
+              m.tier === 'boss' ? 0.55 : 0.10,
             );
             // Drop an XP gem where the zombie fell (capped by CRYSTAL_MAX).
             if (d.crystals.length < CRYSTAL_MAX) {
