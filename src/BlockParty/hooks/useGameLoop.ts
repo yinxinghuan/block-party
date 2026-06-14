@@ -14,7 +14,8 @@ import {
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
-import type { BloodSplat, Bullet, Crystal, FxEvent, Monster, MonsterTier, Pillar, PillarVariant, Stick } from '../types';
+import type { BloodSplat, Bullet, Crystal, EnemyProjectile, FxEvent, Monster, MonsterTier, PerkDrop, Pillar, PillarVariant, Stick } from '../types';
+import { getPerk, rollOnePerk } from '../perks';
 import { WEAPONS, DROPPABLE_WEAPONS } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
 import type { SurvivorId } from '../builders/characters';
@@ -64,11 +65,15 @@ export interface GameRef {
   // Multipliers/adders applied on top of the survivor's base weapon spec.
   // All defaults are the identity so an unbuilt run plays at baseline.
   xp: number;              // total XP gems collected (display only)
-  xpInLevel: number;       // gems collected toward the current level
-  xpNeededForLevel: number;// gems needed to clear the current level
-  xpLevel: number;         // current perk level (starts at 0)
-  perkPending: boolean;    // flips true on level-up; UI shows the modal and
-                           // the loop pauses until the player picks a card
+  xpInLevel: number;       // gems collected toward the next perk drop
+  xpNeededForLevel: number;// gems needed to trigger the next perk drop
+  xpLevel: number;         // perk-drops earned so far
+  perkDrops: PerkDrop[];   // power-ups on the street awaiting pickup
+  enemyProjectiles: EnemyProjectile[];   // spit globs from ranged stalkers
+  // Latest perk auto-applied — drives the HUD toast. id + applyAt let the
+  // UI fade the toast out after a couple of seconds.
+  lastAppliedPerkId: string | null;
+  lastAppliedPerkAt: number;
   perkFireRateMul: number; // <1 = faster fire (cooldown × this)
   perkDmgMul: number;      // bullet damage × this
   perkExtraProjectiles: number; // adds N projectiles per burst
@@ -121,7 +126,10 @@ export function createGameState(): GameRef {
     xpInLevel: 0,
     xpNeededForLevel: 5,
     xpLevel: 0,
-    perkPending: false,
+    perkDrops: [],
+    enemyProjectiles: [],
+    lastAppliedPerkId: null,
+    lastAppliedPerkAt: 0,
     perkFireRateMul: 1,
     perkDmgMul: 1,
     perkExtraProjectiles: 0,
@@ -226,9 +234,20 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
     hp,
     maxHp: hp,
     hitFlashT: 0,
+    knockbackVX: 0,
+    knockbackVZ: 0,
+    knockbackT: 0,
     isBoss: tier === 'boss',
   });
 }
+
+// Ranged stalker — stops at SPITTER_OPTIMAL_RANGE and spits a green
+// projectile every (telegraph + cooldown). Lurkers + boss stay melee.
+const SPITTER_OPTIMAL_RANGE = 7.5;
+const SPITTER_RETREAT_RANGE = 4.0;   // if player gets closer than this, back away
+const PROJECTILE_SPEED = 12;
+const PROJECTILE_TTL = 1.4;
+const PROJECTILE_HIT_RADIUS = 0.65;
 
 // Reset everything that changes per night (monsters, crystals, pillars)
 // while preserving cumulative score. Pillars re-shuffle each night so the
@@ -325,8 +344,6 @@ export function useGameLoop(p: GameLoopParams) {
   useFrame((_, delta) => {
     const d = p.state.current;
     if (!p.playing || d.gameOver || d.levelCleared || d.victory) return;
-    // Perk-card modal pauses the loop — no time, no spawns, no fire.
-    if (d.perkPending) return;
     const c = Math.min(delta, 0.05);
     d.time += c;
     d.levelT += c;
@@ -418,6 +435,94 @@ export function useGameLoop(p: GameLoopParams) {
       const myTelegraph = tuning.strikeTelegraph * telegraphK;
       const myRangeMax  = tuning.strikeRangeMax  * rangeK;
 
+      // KNOCKBACK — when knockbackT > 0, the AI movement code below is
+      // suppressed and the zombie skids along its current knockback
+      // velocity. The velocity decays each frame so the slide is short.
+      if (m.knockbackT > 0) {
+        m.knockbackT = Math.max(0, m.knockbackT - c);
+        m.position.x += m.knockbackVX * c;
+        m.position.z += m.knockbackVZ * c;
+        m.knockbackVX *= 0.86;
+        m.knockbackVZ *= 0.86;
+        m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+        m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+        continue;       // skip AI this frame while flying back
+      }
+
+      // STALKER = RANGED SPITTER. Stops at SPITTER_OPTIMAL_RANGE, keeps
+      // distance, and spits at the player. Distinct from melee lurkers
+      // and the boss who must close to bite.
+      if (m.tier === 'stalker') {
+        if (m.state === 'cooldown') {
+          m.cooldownT -= c;
+          // Keep a comfortable spit distance during cooldown.
+          if (dist > SPITTER_OPTIMAL_RANGE + 1.5) {
+            const n = 1 / Math.max(dist, 0.001);
+            m.velocity.x = dx * n * monsterBaseSpeed * 0.6;
+            m.velocity.z = dz * n * monsterBaseSpeed * 0.6;
+          } else if (dist < SPITTER_RETREAT_RANGE) {
+            const n = 1 / Math.max(dist, 0.001);
+            m.velocity.x = -dx * n * monsterBaseSpeed * 0.9;
+            m.velocity.z = -dz * n * monsterBaseSpeed * 0.9;
+          } else {
+            m.velocity.x *= 0.7;
+            m.velocity.z *= 0.7;
+          }
+          if (m.cooldownT <= 0) m.state = 'lurking';
+        } else if (m.state === 'lurking') {
+          // Drift to optimal spit distance.
+          if (dist > SPITTER_OPTIMAL_RANGE + 0.5) {
+            const n = 1 / Math.max(dist, 0.001);
+            m.velocity.x = dx * n * monsterBaseSpeed * 0.7;
+            m.velocity.z = dz * n * monsterBaseSpeed * 0.7;
+          } else if (dist < SPITTER_RETREAT_RANGE) {
+            const n = 1 / Math.max(dist, 0.001);
+            m.velocity.x = -dx * n * monsterBaseSpeed * 0.9;
+            m.velocity.z = -dz * n * monsterBaseSpeed * 0.9;
+          } else {
+            m.velocity.x *= 0.6;
+            m.velocity.z *= 0.6;
+          }
+          // Enter telegraph when at a decent distance.
+          if (dist > SPITTER_RETREAT_RANGE && dist < 12) {
+            m.state = 'striking';
+            m.strikeT = 0;
+            const inv = 1 / Math.max(dist, 0.001);
+            m.strikeAimX = dx * inv;
+            m.strikeAimZ = dz * inv;
+            emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+            p.playSfx('strike_telegraph');
+          }
+        } else if (m.state === 'striking') {
+          m.velocity.x *= 0.7;
+          m.velocity.z *= 0.7;
+          m.strikeT += c;
+          if (m.strikeT >= myTelegraph) {
+            // FIRE — spawn a projectile that flies along the locked aim.
+            d.enemyProjectiles.push({
+              id: nextId(),
+              position: new THREE.Vector3(m.position.x, 1.1, m.position.z),
+              dirX: m.strikeAimX,
+              dirZ: m.strikeAimZ,
+              bornAt: d.time,
+              ttl: PROJECTILE_TTL,
+            });
+            p.playSfx('strike_hit');
+            m.state = 'cooldown';
+            m.cooldownT = tuning.strikeCooldown * 1.4;   // longer between spits
+            m.strikeT = 0;
+          }
+        }
+
+        m.position.x += m.velocity.x * c;
+        m.position.z += m.velocity.z * c;
+        if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+        m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+        m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+        continue;
+      }
+
+      // MELEE — lurkers and boss must close to touch range.
       if (m.state === 'cooldown') {
         m.cooldownT -= c;
         if (dist > 0.001) {
@@ -427,7 +532,7 @@ export function useGameLoop(p: GameLoopParams) {
         }
         if (m.cooldownT <= 0) m.state = 'lurking';
       } else if (m.state === 'lurking') {
-        if (dist > MONSTER_STRIKE_RANGE_MIN + 0.4) {
+        if (dist > MONSTER_STRIKE_RANGE_MIN + 0.2) {
           if (dist > 0.001) {
             const n = 1 / dist;
             m.velocity.x = dx * n * monsterBaseSpeed;
@@ -638,11 +743,18 @@ export function useGameLoop(p: GameLoopParams) {
           emitFx(d, 'bullet_hit', b.position.x, b.position.z);
           // Splatter — small spray for damage hits, big shower on kill below.
           spawnBloodSplats(d, b.position.x, b.position.z, 4, 0.9);
-          // Knockback — push the zombie a short distance along the bullet's
-          // travel direction so each shot has a visible "kah!" reaction.
-          const kb = m.tier === 'boss' ? 0.10 : m.tier === 'stalker' ? 0.32 : 0.45;
-          m.position.x += b.dirX * kb;
-          m.position.z += b.dirZ * kb;
+          // Knockback IMPULSE — set a velocity so the zombie SKIDS back
+          // visibly rather than teleporting one step. The knockback timer
+          // suppresses AI movement while > 0 and the velocity decays each
+          // frame so the slide is short + readable. Mass-based: boss
+          // barely budges, lurker flies, stalker is in between.
+          const kbSpeed =
+            m.tier === 'boss'    ? 2.0 :
+            m.tier === 'stalker' ? 6.0 :
+                                   11.0;
+          m.knockbackVX = b.dirX * kbSpeed;
+          m.knockbackVZ = b.dirZ * kbSpeed;
+          m.knockbackT  = m.tier === 'boss' ? 0.10 : 0.20;
           // NB: no shake on per-bullet hits — auto-fire shoots ~3/s and the
           // stacked jitter felt like the whole camera was vibrating. The
           // blood splats + knockback already sell the impact.
@@ -690,6 +802,41 @@ export function useGameLoop(p: GameLoopParams) {
           // walking the monster list looking for the next pierce target;
           // without pierce, `alive` was flipped above and the next j
           // iteration breaks early.
+        }
+      }
+    }
+
+    // ---- ENEMY PROJECTILES ----
+    // Spitter globs fly straight; they hit on player overlap or expire
+    // at ttl. Damage is one heart (matches melee). Player iframes block
+    // damage same as melee bites.
+    for (let i = d.enemyProjectiles.length - 1; i >= 0; i--) {
+      const proj = d.enemyProjectiles[i];
+      proj.position.x += proj.dirX * PROJECTILE_SPEED * c;
+      proj.position.z += proj.dirZ * PROJECTILE_SPEED * c;
+      const age = d.time - proj.bornAt;
+      if (age > proj.ttl
+          || Math.abs(proj.position.x) > ARENA_HALF
+          || Math.abs(proj.position.z) > ARENA_HALF) {
+        d.enemyProjectiles.splice(i, 1);
+        continue;
+      }
+      const pdx = proj.position.x - d.pos.x;
+      const pdz = proj.position.z - d.pos.z;
+      if (Math.hypot(pdx, pdz) < PROJECTILE_HIT_RADIUS + PLAYER_RADIUS && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+        d.hp -= 1;
+        d.iframesT = 1.2;
+        emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+        p.playSfx('strike_hit');
+        p.haptic?.('heavy');
+        p.onStrikeHit?.();
+        shakeCamera(d, 0.85, 0.32);
+        d.enemyProjectiles.splice(i, 1);
+        if (d.hp <= 0) {
+          p.playSfx('game_over');
+          d.gameOver = true;
+          setTimeout(() => p.onGameOver(Math.floor(d.score)), 600);
+          return;
         }
       }
     }
@@ -746,6 +893,27 @@ export function useGameLoop(p: GameLoopParams) {
       }
     }
 
+    // ---- PERK DROP PICKUP ----
+    // Walking over a power-up auto-applies the perk + sets the toast
+    // window. Drops never expire — the player has the whole night to
+    // grab them. Pickup radius matches the weapon drops.
+    for (let i = d.perkDrops.length - 1; i >= 0; i--) {
+      const drop = d.perkDrops[i];
+      const dx = drop.position.x - d.pos.x;
+      const dz = drop.position.z - d.pos.z;
+      if (Math.hypot(dx, dz) < 1.5) {
+        const perk = getPerk(drop.perkId);
+        if (perk) {
+          perk.apply(d);
+          d.lastAppliedPerkId = perk.id;
+          d.lastAppliedPerkAt = d.time;
+          p.playSfx('pickup_red');
+          p.haptic?.('light');
+        }
+        d.perkDrops.splice(i, 1);
+      }
+    }
+
     // ---- XP GEM PICKUP + MAGNET ----
     // Single pickup branch — every gem feeds XP/score. Gems within the
     // magnet radius slide toward the player so you don't have to walk
@@ -772,15 +940,29 @@ export function useGameLoop(p: GameLoopParams) {
         d.score += SCORE_GOLD;
         d.xp += 1;
         d.xpInLevel += 1;
-        // Level-up — surface the perk modal and pause the loop. The UI
-        // observes perkPending; picking a card unblocks via setting it
-        // back to false. Overflow gems roll into the next level.
+        // Level threshold reached — spawn a perk power-up on the street
+        // instead of pausing the run for a modal. The drop lands next to
+        // the player so they walk into it (or not) and the run keeps
+        // flowing. The XP bar still tracks toward the next drop.
         if (d.xpInLevel >= d.xpNeededForLevel) {
           d.xpInLevel -= d.xpNeededForLevel;
           d.xpLevel += 1;
-          // Threshold grows arithmetically: 5, 8, 11, 14, 17, ...
           d.xpNeededForLevel = 5 + d.xpLevel * 3;
-          d.perkPending = true;
+          const perk = rollOnePerk();
+          // Spawn a few units in a random direction so the player has to
+          // step toward it — visible reward, no flow-break.
+          const dropAngle = Math.random() * Math.PI * 2;
+          const dropDist = 2.6 + Math.random() * 1.2;
+          d.perkDrops.push({
+            id: nextId(),
+            position: new THREE.Vector3(
+              Math.max(-ARENA_HALF + 1, Math.min(ARENA_HALF - 1, d.pos.x + Math.cos(dropAngle) * dropDist)),
+              0,
+              Math.max(-ARENA_HALF + 1, Math.min(ARENA_HALF - 1, d.pos.z + Math.sin(dropAngle) * dropDist)),
+            ),
+            perkId: perk.id,
+            bornAt: d.time,
+          });
         }
         p.playSfx('pickup_gold');
         emitFx(d, 'pickup_gold', cr.position.x, cr.position.z);

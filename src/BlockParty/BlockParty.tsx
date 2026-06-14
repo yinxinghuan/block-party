@@ -9,7 +9,7 @@ import { createGameState, startLevel } from './hooks/useGameLoop';
 import type { PickupKind, SfxKey } from './hooks/useGameLoop';
 import type { SurvivorId } from './builders/characters';
 import { WEAPONS, type WeaponId } from './builders/weapons';
-import { rollPerks, type Perk } from './perks';
+import { PERKS } from './perks';
 import { getLevelTuning, LEVELS } from './constants';
 import { useJoystick } from './hooks/useJoystick';
 import { playSfx, setBgmTension, setHeartbeatRate, startBgm, stopBgm, stopHeartbeat, unlockAudio } from './utils/audio';
@@ -53,10 +53,9 @@ export function BlockParty() {
     setStoreStateRaw(s);
     saveStore(s);
   }, []);
-  // Perk modal state — surfaces 3 random cards on level-up. The cards
-  // themselves are rolled once when the modal opens so they don't shuffle
-  // mid-decision.
-  const [perkChoices, setPerkChoices] = useState<Perk[] | null>(null);
+  // Perk toast — fades after a few seconds. Set on every perk-drop
+  // pickup. The actual perk is auto-applied by the game loop.
+  const [perkToast, setPerkToast] = useState<{ id: string; key: number } | null>(null);
   // XP bar HUD readouts.
   const [xpInLevel, setXpInLevel] = useState(0);
   const [xpNeededForLevel, setXpNeededForLevel] = useState(5);
@@ -147,13 +146,6 @@ export function BlockParty() {
     setHeartbeatRate(0);
   }, [victory]);
 
-  const applyPerk = useCallback((perk: Perk) => {
-    const d = stateRef.current;
-    perk.apply(d);
-    d.perkPending = false;
-    setPerkChoices(null);
-  }, []);
-
   const start = useCallback((survivorPick?: SurvivorId) => {
     // CRITICAL: set the playing phase synchronously BEFORE touching audio.
     // Resolve which survivor to play as: explicit pick wins, else the
@@ -164,7 +156,7 @@ export function BlockParty() {
     setScore(0);
     setKills(0);
     setHp(3);
-    setPerkChoices(null);
+    setPerkToast(null);
     setXpInLevel(0);
     setXpNeededForLevel(5);
     setXpLevel(0);
@@ -203,10 +195,12 @@ export function BlockParty() {
       setCurrentWeaponId(d.currentWeaponId);
 
       // Perk modal — open with 3 fresh cards when the loop signals a
-      // pending level-up. Functional setter so we only roll once; the
-      // current value isn't captured in the interval closure.
-      if (d.perkPending) {
-        setPerkChoices(prev => prev ?? rollPerks(3));
+      // Perk toast — pop a fresh toast whenever the loop records a new
+      // perk pickup. We compare the timestamp so we never re-fire while a
+      // toast is still up.
+      if (d.lastAppliedPerkId) {
+        const ts = d.lastAppliedPerkAt;
+        setPerkToast(prev => (prev && prev.key === ts ? prev : { id: d.lastAppliedPerkId!, key: ts }));
       }
       // Drive the BGM eerie-melody cadence from the night's tension knob.
       setBgmTension(tuning.bgmTension);
@@ -503,25 +497,21 @@ export function BlockParty() {
       {/* Perk modal — pauses the loop (d.perkPending). Three cards rolled
           fresh on each level-up; the player picks one and the loop
           resumes. */}
-      {perkChoices && (
-        <div className="bp__perk-overlay">
-          <div className="bp__perk-eyebrow">LEVEL UP · {xpLevel}</div>
-          <div className="bp__perk-title">PICK A PERK</div>
-          <div className="bp__perk-cards">
-            {perkChoices.map(perk => (
-              <button
-                key={perk.id}
-                className="bp__perk-card"
-                style={{ ['--perk-tint' as string]: perk.tint }}
-                onPointerDown={() => applyPerk(perk)}
-              >
-                <div className="bp__perk-card-label">{perk.label}</div>
-                <div className="bp__perk-card-desc">{perk.description}</div>
-              </button>
-            ))}
+      {perkToast && (() => {
+        const perk = PERKS.find(p => p.id === perkToast.id);
+        if (!perk) return null;
+        return (
+          <div
+            key={perkToast.key}
+            className="bp__perk-toast"
+            style={{ ['--perk-tint' as string]: perk.tint }}
+          >
+            <span className="bp__perk-toast-dot" />
+            <span className="bp__perk-toast-label">{perk.label}</span>
+            <span className="bp__perk-toast-desc">{perk.description}</span>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

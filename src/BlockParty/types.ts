@@ -28,9 +28,36 @@ export interface Monster {
   hp: number;             // remaining health — depleted by bullets
   maxHp: number;          // for the per-tier HP bar reset
   hitFlashT: number;      // visual: counts down from a small value on each bullet hit
+  // Knockback velocity — set on bullet hit; integrated each frame, decays.
+  // While > 0 the AI movement code is suppressed so the zombie SKIDS back
+  // visibly instead of just teleporting one step over.
+  knockbackVX: number;
+  knockbackVZ: number;
+  knockbackT: number;
   // Cached compat aliases — keep `isBoss` for any external code still
   // reading it; new code should switch on `tier`.
   isBoss?: boolean;
+}
+
+// Enemy ranged projectile — spitters (the stalker tier) lob these. Linear
+// travel, no homing; player must sidestep the path.
+export interface EnemyProjectile {
+  id: number;
+  position: THREE.Vector3;
+  dirX: number;
+  dirZ: number;
+  bornAt: number;
+  ttl: number;
+}
+
+// Power-up dropped on the street. Walking into it auto-applies the perk;
+// no modal, no pause. Each perk type has its own tint + label so the
+// world tells the player what they're picking up.
+export interface PerkDrop {
+  id: number;
+  position: THREE.Vector3;
+  perkId: string;
+  bornAt: number;
 }
 
 // Hero auto-fired projectile. Linear travel along (dirX, dirZ), expires

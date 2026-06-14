@@ -12,6 +12,7 @@ import { makeZombie, flashWhite, type ZombieGroup, type ZombieTier } from '../bu
 import { makeSurvivor, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
 import { makeWeapon, WEAPONS } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
+import { PERKS } from '../perks';
 
 interface SceneProps {
   state: React.MutableRefObject<GameRef>;
@@ -76,6 +77,168 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
     camera.lookAt(smoothLook);
   });
   return null;
+}
+
+// Neon perimeter signs — 12 emissive boxes mounted on the inside face of
+// each wall. Each one flickers on its own sine + per-sign offset so the
+// scene reads "alive but neglected." Doubles as the main ambient color
+// fill in the dark periphery.
+const NEON_SIGNS: Array<{ pos: [number, number, number]; col: number; size: [number, number, number]; freq: number }> = [
+  // South wall (z = -ARENA_HALF)
+  { pos: [-19, 2.6, -ARENA_HALF - 0.05], col: 0xff3870, size: [3.4, 1.0, 0.05], freq: 2.3 },
+  { pos: [-8,  2.2, -ARENA_HALF - 0.05], col: 0x2bc2ff, size: [2.0, 0.7, 0.05], freq: 1.7 },
+  { pos: [ 5,  2.6, -ARENA_HALF - 0.05], col: 0xffa030, size: [2.6, 1.0, 0.05], freq: 2.0 },
+  { pos: [ 18, 2.3, -ARENA_HALF - 0.05], col: 0xf0e030, size: [2.2, 0.8, 0.05], freq: 2.7 },
+  // North wall (z = +ARENA_HALF)
+  { pos: [-22, 2.4,  ARENA_HALF + 0.05], col: 0x2bff80, size: [2.6, 0.9, 0.05], freq: 1.9 },
+  { pos: [-9,  2.7,  ARENA_HALF + 0.05], col: 0xff5040, size: [3.0, 1.2, 0.05], freq: 2.2 },
+  { pos: [ 6,  2.3,  ARENA_HALF + 0.05], col: 0xa030ff, size: [2.4, 0.8, 0.05], freq: 1.6 },
+  { pos: [ 20, 2.5,  ARENA_HALF + 0.05], col: 0x40e0ff, size: [2.6, 1.0, 0.05], freq: 2.5 },
+  // West wall (x = -ARENA_HALF)
+  { pos: [-ARENA_HALF - 0.05, 2.5,  6],  col: 0xff3870, size: [0.05, 1.0, 2.6], freq: 2.1 },
+  { pos: [-ARENA_HALF - 0.05, 2.5, -10], col: 0xffa030, size: [0.05, 1.1, 3.0], freq: 1.8 },
+  // East wall (x = +ARENA_HALF)
+  { pos: [ ARENA_HALF + 0.05, 2.5, -4],  col: 0xff5040, size: [0.05, 1.2, 3.2], freq: 2.4 },
+  { pos: [ ARENA_HALF + 0.05, 2.5,  10], col: 0x40e0ff, size: [0.05, 1.0, 2.4], freq: 2.0 },
+];
+
+function NeonSigns() {
+  const matsRef = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    for (let i = 0; i < NEON_SIGNS.length; i++) {
+      const mat = matsRef.current[i];
+      if (!mat) continue;
+      const sign = NEON_SIGNS[i];
+      // Slow sinusoidal pulse + a periodic random "dead bulb" dip every
+      // few seconds so the neon feels real, not metronomic.
+      const slow = 0.85 + Math.sin(t * sign.freq + i) * 0.30;
+      const flicker = Math.sin(t * 17 + i * 1.3) > 0.96 ? 0.3 : 1;   // brief dim
+      mat.emissiveIntensity = Math.max(0.2, 2.6 * slow * flicker);
+    }
+  });
+  return (
+    <>
+      {NEON_SIGNS.map((s, i) => (
+        <mesh key={`neon-${i}`} position={s.pos}>
+          <boxGeometry args={s.size} />
+          <meshStandardMaterial
+            ref={el => { matsRef.current[i] = el; }}
+            color={s.col}
+            emissive={s.col}
+            emissiveIntensity={2.4}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+// Enemy projectiles — green spit globs from ranged stalkers. Linear travel,
+// pulsing emissive so the player tracks them across the dark asphalt.
+function EnemyProjectiles({ state }: { state: React.MutableRefObject<GameRef> }) {
+  const POOL = 30;
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  useFrame(() => {
+    const d = state.current;
+    const m = meshRef.current;
+    if (!m) return;
+    const projs = d.enemyProjectiles;
+    const n = Math.min(POOL, projs.length);
+    for (let i = 0; i < n; i++) {
+      const p = projs[i];
+      dummy.position.set(p.position.x, 1.05 + Math.sin((d.time - p.bornAt) * 12) * 0.06, p.position.z);
+      dummy.scale.setScalar(0.32);
+      dummy.rotation.set((d.time - p.bornAt) * 4, (d.time - p.bornAt) * 5, 0);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    for (let i = n; i < POOL; i++) {
+      dummy.position.set(0, -100, 0);
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    m.instanceMatrix.needsUpdate = true;
+    m.count = POOL;
+  });
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, POOL]}>
+      <icosahedronGeometry args={[1, 0]} />
+      <meshStandardMaterial color="#9bff60" emissive="#48ff48" emissiveIntensity={3.0} roughness={0.4} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
+// Perk drops — small spinning crystal in the perk's tint + a ground halo.
+// Walk over to auto-apply the perk (no modal interrupt).
+function PerkDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
+  type Slot = { group: THREE.Group; crystal: THREE.Mesh; haloMat: THREE.MeshBasicMaterial };
+  const slots = useRef<Map<number, Slot>>(new Map());
+  const rootRef = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const d = state.current;
+    const root = rootRef.current;
+    if (!root) return;
+    const t = clock.getElapsedTime();
+    const live = new Set<number>();
+    for (const drop of d.perkDrops) {
+      live.add(drop.id);
+      const perk = PERKS.find(pp => pp.id === drop.perkId);
+      const tint = perk?.tint ?? '#ffd060';
+      let slot = slots.current.get(drop.id);
+      if (!slot) {
+        const group = new THREE.Group();
+        group.position.set(drop.position.x, 0, drop.position.z);
+        const crystal = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.35, 0),
+          new THREE.MeshStandardMaterial({
+            color: tint,
+            emissive: tint,
+            emissiveIntensity: 1.8,
+            roughness: 0.3,
+            metalness: 0.5,
+            toneMapped: false,
+          }),
+        );
+        crystal.position.y = 1.0;
+        group.add(crystal);
+        const halo = new THREE.Mesh(
+          new THREE.RingGeometry(0.55, 0.95, 32),
+          new THREE.MeshBasicMaterial({
+            color: tint,
+            transparent: true,
+            opacity: 0.65,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          }),
+        );
+        halo.rotation.x = -Math.PI / 2;
+        halo.position.y = 0.06;
+        group.add(halo);
+        slot = { group, crystal, haloMat: halo.material as THREE.MeshBasicMaterial };
+        slots.current.set(drop.id, slot);
+        root.add(group);
+      }
+      slot.crystal.position.y = 1.0 + Math.sin(t * 2.4 + drop.id) * 0.12;
+      slot.crystal.rotation.y = t * 1.8;
+      slot.crystal.rotation.z = t * 0.6;
+      const pulse = 0.7 + Math.sin(t * 4 + drop.id) * 0.3;
+      slot.haloMat.opacity = 0.55 + pulse * 0.35;
+    }
+    for (const [id, slot] of slots.current) {
+      if (!live.has(id)) {
+        root.remove(slot.group);
+        slot.crystal.geometry.dispose();
+        slot.haloMat.dispose();
+        slots.current.delete(id);
+      }
+    }
+  });
+  return <group ref={rootRef} />;
 }
 
 // Weapon drops — small floating prop + tinted halo ring on the ground.
@@ -1074,18 +1237,22 @@ export function Scene(props: SceneProps) {
       {/* Neon perimeter signs — bright emissive boxes on the inside face
           of each wall. Colors vary by side so the player can orient by
           the dominant neon glow even at the edge of vision. */}
-      {[
-        { pos: [-15, 2.6, -ARENA_HALF - 0.05] as [number, number, number], col: 0xff3870, size: [3.2, 1.0, 0.05] as [number, number, number] },
-        { pos: [ 12, 2.6, -ARENA_HALF - 0.05] as [number, number, number], col: 0x2bc2ff, size: [2.4, 0.8, 0.05] as [number, number, number] },
-        { pos: [-18, 2.4,  ARENA_HALF + 0.05] as [number, number, number], col: 0xffa030, size: [2.8, 1.2, 0.05] as [number, number, number] },
-        { pos: [ 14, 2.4,  ARENA_HALF + 0.05] as [number, number, number], col: 0xa030ff, size: [2.2, 0.8, 0.05] as [number, number, number] },
-        { pos: [-ARENA_HALF - 0.05, 2.5,  4] as [number, number, number], col: 0x2bff80, size: [0.05, 1.0, 2.6] as [number, number, number] },
-        { pos: [ ARENA_HALF + 0.05, 2.5, -6] as [number, number, number], col: 0xff5040, size: [0.05, 1.2, 3.2] as [number, number, number] },
-      ].map((s, i) => (
-        <mesh key={`neon-${i}`} position={s.pos}>
-          <boxGeometry args={s.size} />
-          <meshStandardMaterial color={s.col} emissive={s.col} emissiveIntensity={2.4} toneMapped={false} />
-        </mesh>
+      <NeonSigns />
+
+      {/* Crosswalk stripes — white parallel rectangles flanking the
+          central street crossings, adds urban detail to the asphalt. */}
+      {[-12, 0, 12].map(zPos => (
+        [-3, -1.2, 0.6, 2.4].map((xPos, i) => (
+          <mesh
+            key={`crosswalk-${zPos}-${i}`}
+            position={[xPos, 0.03, zPos]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[1.0, 2.6]} />
+            <meshStandardMaterial color="#d8d8e0" emissive="#404048" emissiveIntensity={0.3} roughness={0.7} />
+          </mesh>
+        ))
       ))}
 
       {/* Cave walls (outer ring) — taller dark cylinders around perimeter */}
@@ -1117,6 +1284,8 @@ export function Scene(props: SceneProps) {
       <MuzzleFlash state={state} />
       <BloodSplats state={state} />
       <WeaponDrops state={state} />
+      <PerkDrops state={state} />
+      <EnemyProjectiles state={state} />
     </>
   );
 }

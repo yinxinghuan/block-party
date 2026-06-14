@@ -73,8 +73,12 @@ export const PERKS: Perk[] = [
   },
 ];
 
-// Roll N distinct perks for the modal. Picks without replacement.
-export function rollPerks(count = 3): Perk[] {
-  const shuffled = [...PERKS].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, Math.min(count, PERKS.length));
+// Lookup by id — used to apply a perk picked up off the street.
+const PERK_BY_ID = new Map(PERKS.map(p => [p.id, p]));
+export function getPerk(id: string): Perk | undefined { return PERK_BY_ID.get(id); }
+
+// Roll a single random perk — used when a perk drop spawns. Each perk is
+// equally likely; no bias yet.
+export function rollOnePerk(): Perk {
+  return PERKS[Math.floor(Math.random() * PERKS.length)];
 }

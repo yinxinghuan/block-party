@@ -47,8 +47,10 @@ interface TierLook {
 const TIER_LOOK: Record<ZombieTier, TierLook> = {
   // height ≈ ~1.6u after scale (block-party world)
   lurker:  { scale: 0.66, eyeGlow: MP.glowYel, fleshTint: MP.rot },
-  // smaller + faster — different silhouette so the player can read it
-  stalker: { scale: 0.55, eyeGlow: MP.glowGrn, fleshTint: darken(MP.rot, 0.85) },
+  // SPITTER (ranged) — bigger headswollen acid-green tint so the player
+  // can read "that one's the shooter" at a glance. Slightly larger than
+  // a lurker so the silhouette pops in a crowd.
+  stalker: { scale: 0.72, eyeGlow: MP.glowGrn, fleshTint: 0x6fb850 },
   // ~2.2x lurker, red eyes, darker rot
   boss:    { scale: 1.45, eyeGlow: MP.glowRed, fleshTint: darken(MP.rot, 0.78) },
 };

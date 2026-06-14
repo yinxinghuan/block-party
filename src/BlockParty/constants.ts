@@ -15,7 +15,7 @@ export const PLAYER_RADIUS = 0.65;
 export const MONSTER_BASE_SPEED = 2.6;
 export const MONSTER_FLEE_SPEED = 4.5;        // unused now (no flee), kept for type compat
 export const MONSTER_FLEE_TIME = 1.5;
-export const MONSTER_STRIKE_RANGE_MIN = 1.5;
+export const MONSTER_STRIKE_RANGE_MIN = 0.4;
 export const MONSTER_STRIKE_LIVE = 0.30;
 export const MONSTER_STRIKE_HIT_RADIUS = 1.0;
 
@@ -113,21 +113,21 @@ export interface LevelTuning {
 //   N2  deep dusk — colder blue, more zombies, neon shop signs muted
 //   N3  blackout — bloody red ambient, boss enters
 const PALETTE: Record<string, LevelPalette> = {
-  twilight: { floor: '#181d2a', fog: '#0a0d18', ambient: '#2a2042', hemiSky: '#3a2e5a', hemiGround: '#0c0e1a', pillar: '#2c2e44' },
-  dusk:     { floor: '#13182a', fog: '#06080f', ambient: '#1a2440', hemiSky: '#264268', hemiGround: '#08101c', pillar: '#1f2a3c' },
-  blackout: { floor: '#1a0e10', fog: '#0a0608', ambient: '#3a1418', hemiSky: '#48181c', hemiGround: '#0c0608', pillar: '#3a1e22' },
+  twilight: { floor: '#23283d', fog: '#0a0d18', ambient: '#322856', hemiSky: '#46367a', hemiGround: '#101220', pillar: '#2c2e44' },
+  dusk:     { floor: '#1c233a', fog: '#06080f', ambient: '#1f2c52', hemiSky: '#2e4e7a', hemiGround: '#0a1322', pillar: '#1f2a3c' },
+  blackout: { floor: '#26161c', fog: '#0a0608', ambient: '#421824', hemiSky: '#542026', hemiGround: '#100810', pillar: '#3a1e22' },
 };
 
 export const LEVELS: LevelTuning[] = [
   // Night 1 — busy opening so the screen is already crowded when you draw
   // your first breath. Lower-tier mix with one stalker mixed in.
-  { level: 1, name: 'Night 1', timeLimit: 45, lurkerCount: 8,  stalkerCount: 1,  monsterMax: 22, monsterSpeed: 0.90, monsterFleeSpeed: 0.90, monsterSpawnInterval: 1.3, stalkerSpawnRatio: 0.18, strikeTelegraph: 1.20, strikeRangeMax: 5.5, strikeCooldown: 2.8, crystalInitial: 4, pillarCount: 30, pillarScaleBias: 1.0,  isBoss: false, palette: PALETTE.twilight, bgmTension: 0.40 },
+  { level: 1, name: 'Night 1', timeLimit: 45, lurkerCount: 14, stalkerCount: 1, monsterMax: 38, monsterSpeed: 0.90, monsterFleeSpeed: 0.90, monsterSpawnInterval: 0.55, stalkerSpawnRatio: 0.10, strikeTelegraph: 1.20, strikeRangeMax: 1.0, strikeCooldown: 2.8, crystalInitial: 4, pillarCount: 30, pillarScaleBias: 1.0,  isBoss: false, palette: PALETTE.twilight, bgmTension: 0.40 },
   // Night 2 — stalkers take over; everything moves faster, fewer beats
   // of safety. Spawn interval cuts the trickle to nearly continuous.
-  { level: 2, name: 'Night 2', timeLimit: 45, lurkerCount: 10, stalkerCount: 4,  monsterMax: 32, monsterSpeed: 1.05, monsterFleeSpeed: 0.95, monsterSpawnInterval: 0.85, stalkerSpawnRatio: 0.45, strikeTelegraph: 1.05, strikeRangeMax: 6.0, strikeCooldown: 2.4, crystalInitial: 3, pillarCount: 36, pillarScaleBias: 0.95, isBoss: false, palette: PALETTE.dusk,     bgmTension: 0.65 },
+  { level: 2, name: 'Night 2', timeLimit: 45, lurkerCount: 22, stalkerCount: 3, monsterMax: 56, monsterSpeed: 1.05, monsterFleeSpeed: 0.95, monsterSpawnInterval: 0.35, stalkerSpawnRatio: 0.18, strikeTelegraph: 1.05, strikeRangeMax: 1.1, strikeCooldown: 2.4, crystalInitial: 3, pillarCount: 36, pillarScaleBias: 0.95, isBoss: false, palette: PALETTE.dusk,     bgmTension: 0.65 },
   // Night 3 — boss night. Max swarm, fastest stalkers, telegraph window
   // shrinks so you can't dance through bites the way Night 1 lets you.
-  { level: 3, name: 'Night 3', timeLimit: 45, lurkerCount: 12, stalkerCount: 6,  monsterMax: 42, monsterSpeed: 1.22, monsterFleeSpeed: 1.05, monsterSpawnInterval: 0.55, stalkerSpawnRatio: 0.65, strikeTelegraph: 0.90, strikeRangeMax: 6.8, strikeCooldown: 2.0, crystalInitial: 2, pillarCount: 42, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
+  { level: 3, name: 'Night 3', timeLimit: 45, lurkerCount: 28, stalkerCount: 5, monsterMax: 72, monsterSpeed: 1.22, monsterFleeSpeed: 1.05, monsterSpawnInterval: 0.22, stalkerSpawnRatio: 0.22, strikeTelegraph: 0.90, strikeRangeMax: 1.2, strikeCooldown: 2.0, crystalInitial: 2, pillarCount: 42, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
 ];
 
 // Periodic surge — every SURGE_PERIOD seconds we drop a burst of zombies
