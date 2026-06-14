@@ -33,7 +33,8 @@ interface SceneProps {
 function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
   const { camera, size } = useThree();
   const desired = useMemo(() => new THREE.Vector3(), []);
-  const lookAt = useMemo(() => new THREE.Vector3(), []);
+  const lookTarget = useMemo(() => new THREE.Vector3(), []);
+  const smoothLook = useMemo(() => new THREE.Vector3(0, 0, 0), []);
   useEffect(() => {
     camera.position.set(CAMERA_POS[0], CAMERA_POS[1], CAMERA_POS[2]);
     (camera as THREE.PerspectiveCamera).fov = CAMERA_FOV;
@@ -42,13 +43,29 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
     camera.lookAt(0, 0, 0);
     (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
   }, [camera, size.width, size.height]);
-  useFrame(() => {
+  useFrame((_, delta) => {
     const d = state.current;
+    // Frame-rate-independent follow. A fixed 0.16 per-frame lerp drifts
+    // with `delta` — long frames make the camera lag more, then snap when
+    // the next short frame happens. `1 - exp(-stiffness * delta)` produces
+    // identical dynamics regardless of FPS.
+    const STIFFNESS = 9.0;
+    const k = 1 - Math.exp(-STIFFNESS * Math.min(delta, 0.05));
+
     desired.set(d.pos.x + CAMERA_POS[0], CAMERA_POS[1], d.pos.z + CAMERA_POS[2]);
-    camera.position.lerp(desired, 0.16);
-    // Camera shake — bullet hits / damage / boss kills bump d.cameraShakeT
-    // + d.cameraShakeMag; we add a random offset that fades quadratically
-    // over the remaining shake window.
+    camera.position.lerp(desired, k);
+
+    // CRUCIAL: also smooth the lookAt target at the SAME rate. The old
+    // code lerped position but snapped lookAt straight to d.pos every
+    // frame; the asymmetry made the camera visibly swing/pan-correct on
+    // every step the player took, which the user read as a constant
+    // "shake during movement". Lerping both keeps them in lock-step.
+    lookTarget.set(d.pos.x, 0, d.pos.z);
+    smoothLook.lerp(lookTarget, k);
+
+    // Shake offset — only ever bumped on player damage + boss kill now
+    // so it's invisible 99% of the time and doesn't compound with the
+    // follow camera.
     const shake01 = d.cameraShakeT > 0 ? Math.min(1, d.cameraShakeT / 0.3) : 0;
     if (shake01 > 0) {
       const amp = d.cameraShakeMag * shake01 * shake01;
@@ -56,8 +73,7 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
       camera.position.y += (Math.random() - 0.5) * amp;
       camera.position.z += (Math.random() - 0.5) * amp * 2;
     }
-    lookAt.set(d.pos.x, 0, d.pos.z);
-    camera.lookAt(lookAt);
+    camera.lookAt(smoothLook);
   });
   return null;
 }
