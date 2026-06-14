@@ -167,23 +167,6 @@ export function makeSurvivor(id: SurvivorId = 'cop'): CharacterGroup {
   return g;
 }
 
-// Tiny pistol prop — flat-shaded boxes only, attaches to a survivor's right
-// hand. Returns a small group oriented so its barrel points along +Z (the
-// player's facing direction in world space after the survivor group rotates).
-export function makePistol(): THREE.Group {
-  const g = new THREE.Group();
-  const black = 0x161618;
-  const grip  = darken(P.hairBrown, 0.6);
-  // grip
-  g.add(box(0.10, 0.22, 0.10, grip, 0, 0, 0));
-  // slide/body
-  g.add(box(0.12, 0.10, 0.34, black, 0, 0.12, 0.10));
-  // barrel
-  g.add(box(0.08, 0.06, 0.10, black, 0, 0.12, 0.30));
-  finish(g);
-  return g;
-}
-
 // Maglite-style flashlight prop — short stubby barrel + a hot emissive lens
 // at the tip. Lives in the survivor's left hand and points along +Z so a
 // SpotLight attached at the lens position throws its cone forward.

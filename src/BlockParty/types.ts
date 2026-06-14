@@ -33,8 +33,8 @@ export interface Monster {
   isBoss?: boolean;
 }
 
-// Hero auto-fired projectile. Linear travel along (dirX, dirZ), expires after
-// ttl seconds OR on monster hit. Position is updated in useGameLoop.
+// Hero auto-fired projectile. Linear travel along (dirX, dirZ), expires
+// after ttl seconds, after pierce runs out, or at the arena edge.
 export interface Bullet {
   id: number;
   position: THREE.Vector3;
@@ -42,6 +42,13 @@ export interface Bullet {
   dirZ: number;
   bornAt: number;
   dmg: number;
+  /** Hits remaining after the current one before despawn. 0 = single
+   *  target (default), >0 = bullet keeps going through that many extra
+   *  enemies. Driven by the +pierce perk. */
+  pierceLeft: number;
+  /** Monster ids already hit by this bullet — prevents double-counting
+   *  the same enemy when pierce > 0. */
+  hitIds: Set<number>;
 }
 
 export interface Crystal {

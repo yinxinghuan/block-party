@@ -9,11 +9,13 @@ import {
   SCORE_GOLD,
   GRACE_PERIOD,
   getLevelTuning, LEVELS,
-  AIM_RANGE, FIRE_ARC_HALF, FIRE_COOLDOWN, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS, BULLET_DMG,
+  AIM_RANGE, FIRE_ARC_HALF, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
 import type { Bullet, Crystal, FxEvent, Monster, MonsterTier, Pillar, PillarVariant, Stick } from '../types';
+import { WEAPON } from '../builders/weapons';
+import type { SurvivorId } from '../builders/characters';
 
 const CRYSTAL_RESPAWN_INTERVAL = 2.5;     // every 2.5s drop a fresh ambient XP gem
 
@@ -27,7 +29,7 @@ export interface GameRef {
   crystals: Crystal[];     // XP gems (the "walls" / blue crystal mechanic is gone)
   pillars: Pillar[];       // street obstacles (cars / dumpsters in later phase)
   bullets: Bullet[];       // hero's auto-fired projectiles
-  fireCooldown: number;    // counts down; <=0 means ready to fire
+  fireCooldown: number;    // counts down; <=0 means ready to fire the next burst
   kills: number;           // monsters killed this run — drives score with SCORE_KILL
   muzzleFlashT: number;    // 0..0.07 fade window after each shot
   hp: number;              // hearts remaining (max 3)
@@ -37,6 +39,27 @@ export interface GameRef {
    *  (radians, in the ±55° = ±0.96rad fire arc). null when no target is
    *  in arc — the right arm relaxes to low-ready in that case. */
   aimYaw: number | null;
+  /** Pending shots inside a burst — nurse triple-tap stages 3 darts at
+   *  60ms intervals; cop + biker enqueue everything on the same frame. */
+  pendingShots: { fireAt: number; dirX: number; dirZ: number; dmg: number }[];
+
+  // ─── perk stats (Phase 5) ──────────────────────────────────────────
+  // Multipliers/adders applied on top of the survivor's base weapon spec.
+  // All defaults are the identity so an unbuilt run plays at baseline.
+  xp: number;              // total XP gems collected (display only)
+  xpInLevel: number;       // gems collected toward the current level
+  xpNeededForLevel: number;// gems needed to clear the current level
+  xpLevel: number;         // current perk level (starts at 0)
+  perkPending: boolean;    // flips true on level-up; UI shows the modal and
+                           // the loop pauses until the player picks a card
+  perkFireRateMul: number; // <1 = faster fire (cooldown × this)
+  perkDmgMul: number;      // bullet damage × this
+  perkExtraProjectiles: number; // adds N projectiles per burst
+  perkPierce: number;      // bullets pass through N enemies before despawn
+  perkCritChance: number;  // 0..1 chance per shot of 2× dmg
+  perkMagnetMul: number;   // XP gem auto-pull radius multiplier
+  perkSpeedMul: number;    // player movement × this
+  perkKillHealChance: number; // 0..1 chance per kill to restore 1 HP
   time: number;            // total game time (across nights) — used for cooldowns
   levelT: number;          // time elapsed within the current night
   score: number;
@@ -69,6 +92,20 @@ export function createGameState(): GameRef {
     maxHp: 3,
     iframesT: 0,
     aimYaw: null,
+    pendingShots: [],
+    xp: 0,
+    xpInLevel: 0,
+    xpNeededForLevel: 5,
+    xpLevel: 0,
+    perkPending: false,
+    perkFireRateMul: 1,
+    perkDmgMul: 1,
+    perkExtraProjectiles: 0,
+    perkPierce: 0,
+    perkCritChance: 0,
+    perkMagnetMul: 1,
+    perkSpeedMul: 1,
+    perkKillHealChance: 0,
     time: 0,
     levelT: 0,
     score: 0,
@@ -200,6 +237,10 @@ export interface GameLoopParams {
   state: React.MutableRefObject<GameRef>;
   playing: boolean;
   stick: Stick;
+  /** Selected survivor archetype — drives the weapon descriptor + future
+   *  per-class perks. Drives no movement/cosmetic behavior; the Player
+   *  component renders the matching body + weapon prop. */
+  survivor: SurvivorId;
   onScore: (s: number) => void;
   onDepth: (d: number) => void;
   onLightRadius: (r: number) => void;
@@ -221,6 +262,8 @@ export function useGameLoop(p: GameLoopParams) {
   useFrame((_, delta) => {
     const d = p.state.current;
     if (!p.playing || d.gameOver || d.levelCleared || d.victory) return;
+    // Perk-card modal pauses the loop — no time, no spawns, no fire.
+    if (d.perkPending) return;
     const c = Math.min(delta, 0.05);
     d.time += c;
     d.levelT += c;
@@ -244,14 +287,15 @@ export function useGameLoop(p: GameLoopParams) {
 
     // ---- PLAYER MOVEMENT ----
     const stickMag = Math.hypot(p.stick.x, p.stick.y);
+    const moveSpeed = PLAYER_SPEED * d.perkSpeedMul;
     if (p.stick.active && stickMag > 0.1) {
       const inv = 1 / Math.max(stickMag, 0.001);
       const dx = p.stick.x * inv;
       const dz = p.stick.y * inv;
-      d.pos.x += dx * PLAYER_SPEED * c;
-      d.pos.z += dz * PLAYER_SPEED * c;
+      d.pos.x += dx * moveSpeed * c;
+      d.pos.z += dz * moveSpeed * c;
       d.rot = Math.atan2(dx, dz);
-      d.speed = PLAYER_SPEED;
+      d.speed = moveSpeed;
     } else {
       d.speed *= Math.exp(-6 * c);
     }
@@ -384,18 +428,15 @@ export function useGameLoop(p: GameLoopParams) {
     }
     d.nearestMonsterDist = nearestDist;
 
-    // ---- AUTO-FIRE (Vampire Survivors model + a 110° forward fire arc) ----
-    // The hero can only shoot enemies inside a ±55° cone of where the body
-    // is facing — turn (i.e. move) to put a zombie in front before the gun
-    // can hit it. Bullets spawn from the gun's world position (right-hand
-    // offset), not the body's centre, so muzzle flash + tracers line up
-    // with the held pistol.
+    // ---- AUTO-FIRE (Vampire Survivors model + 110° forward fire arc) ----
+    // Hero can only target zombies inside ±55° of body facing. Per-class
+    // weapon spec drives the burst (cop = single pistol, nurse = 3-dart
+    // stagger, biker = 5-pellet cone). Bullets spawn from the gun's world
+    // position so the muzzle flash + tracer line up with the held weapon.
     d.fireCooldown = Math.max(0, d.fireCooldown - c);
     d.muzzleFlashT = Math.max(0, d.muzzleFlashT - c);
     d.iframesT = Math.max(0, d.iframesT - c);
 
-    // Find the nearest monster inside both range AND arc. yaw = bearing of
-    // monster relative to body facing, signed; |yaw| < FIRE_ARC_HALF passes.
     let target: Monster | null = null;
     let targetYaw = 0;
     let bestD2 = AIM_RANGE * AIM_RANGE;
@@ -404,9 +445,6 @@ export function useGameLoop(p: GameLoopParams) {
       const dzm = m.position.z - d.pos.z;
       const dd = dxm * dxm + dzm * dzm;
       if (dd >= bestD2) continue;
-      // atan2(dxm, dzm) yields the bearing FROM the player TO the monster
-      // measured in the same convention as d.rot. The signed delta wraps
-      // to [-π, π] via the standard atan2/sin/cos trick.
       const bearing = Math.atan2(dxm, dzm);
       const yaw = Math.atan2(Math.sin(bearing - d.rot), Math.cos(bearing - d.rot));
       if (Math.abs(yaw) > FIRE_ARC_HALF) continue;
@@ -417,14 +455,46 @@ export function useGameLoop(p: GameLoopParams) {
     d.aimYaw = target ? targetYaw : null;
 
     if (target && d.fireCooldown <= 0) {
+      const w = WEAPON[p.survivor];
       const tdx = target.position.x - d.pos.x;
       const tdz = target.position.z - d.pos.z;
-      const inv = 1 / Math.max(Math.hypot(tdx, tdz), 0.001);
-      const dirX = tdx * inv;
-      const dirZ = tdz * inv;
-      // Bullet origin = gun world position. The pistol sits at the
-      // survivor's right hand; in body-local that's ~(0.30, 0.95, 0.45).
-      // Rotate the (X, Z) offsets by d.rot to get the world delta.
+      const baseAngle = Math.atan2(tdx, tdz);     // = d.rot once we lerp body toward target
+      // Total shots = base weapon count + perk bonus. Cones and bursts both
+      // benefit from +projectiles.
+      const totalShots = w.count + d.perkExtraProjectiles;
+      for (let i = 0; i < totalShots; i++) {
+        let angle = baseAngle;
+        if (totalShots > 1) {
+          if (w.spreadRad > 0 && w.burstDelay === 0) {
+            // Cone — spread evenly across [-spread, +spread]
+            const t01 = (i - (totalShots - 1) / 2) / Math.max(1, (totalShots - 1) / 2);
+            angle = baseAngle + t01 * w.spreadRad;
+          } else if (w.burstDelay > 0) {
+            // Burst — tiny random jitter inside the band
+            angle = baseAngle + (Math.random() - 0.5) * 2 * w.spreadRad;
+          }
+        }
+        const isCrit = d.perkCritChance > 0 && Math.random() < d.perkCritChance;
+        const dmg = w.dmgPerShot * d.perkDmgMul * (isCrit ? 2 : 1);
+        d.pendingShots.push({
+          fireAt: d.time + i * w.burstDelay,
+          dirX: Math.sin(angle),
+          dirZ: Math.cos(angle),
+          dmg,
+        });
+      }
+      d.fireCooldown = w.cooldown * d.perkFireRateMul;
+      // Smoothly turn body toward the locked target so the next burst can
+      // hit wider angles without snap-turning.
+      const facingDelta = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
+      d.rot += facingDelta * 0.55;
+    }
+
+    // Drain pendingShots whose fireAt has arrived. Each shot spawns its
+    // own bullet at the gun's world position + plays a fresh muzzle flash.
+    for (let i = d.pendingShots.length - 1; i >= 0; i--) {
+      const ps = d.pendingShots[i];
+      if (ps.fireAt > d.time) continue;
       const cosR = Math.cos(d.rot);
       const sinR = Math.sin(d.rot);
       const gunLocalX = 0.30;
@@ -434,19 +504,17 @@ export function useGameLoop(p: GameLoopParams) {
       d.bullets.push({
         id: nextId(),
         position: new THREE.Vector3(d.pos.x + gunWorldDx, 0.95, d.pos.z + gunWorldDz),
-        dirX,
-        dirZ,
+        dirX: ps.dirX,
+        dirZ: ps.dirZ,
         bornAt: d.time,
-        dmg: BULLET_DMG,
+        dmg: ps.dmg,
+        pierceLeft: d.perkPierce,
+        hitIds: new Set<number>(),
       });
-      d.fireCooldown = FIRE_COOLDOWN;
       d.muzzleFlashT = 0.07;
-      // Smoothly turn the body toward the target so the next shot can hit
-      // wider angles without snap-turning. Use the standard wrap-aware lerp.
-      const facingDelta = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
-      d.rot += facingDelta * 0.55;
       emitFx(d, 'muzzle_flash', d.pos.x + gunWorldDx, d.pos.z + gunWorldDz);
       p.playSfx('shoot');
+      d.pendingShots.splice(i, 1);
     }
 
     // ---- BULLET UPDATE + COLLISION ----
@@ -460,16 +528,25 @@ export function useGameLoop(p: GameLoopParams) {
         d.bullets.splice(i, 1);
         continue;
       }
+      let alive = true;
       for (let j = d.monsters.length - 1; j >= 0; j--) {
+        if (!alive) break;
         const m = d.monsters[j];
+        if (b.hitIds.has(m.id)) continue;        // pierce: don't double-tap
         const bdx = b.position.x - m.position.x;
         const bdz = b.position.z - m.position.z;
         const hitR = BULLET_RADIUS + (m.tier === 'boss' ? 1.4 : 0.55);
         if (bdx * bdx + bdz * bdz < hitR * hitR) {
           m.hp -= b.dmg;
           m.hitFlashT = 0.10;
+          b.hitIds.add(m.id);
           emitFx(d, 'bullet_hit', b.position.x, b.position.z);
-          d.bullets.splice(i, 1);
+          if (b.pierceLeft > 0) {
+            b.pierceLeft -= 1;
+          } else {
+            d.bullets.splice(i, 1);
+            alive = false;
+          }
           if (m.hp <= 0) {
             d.kills += 1;
             d.score += SCORE_KILL[m.tier];
@@ -484,10 +561,19 @@ export function useGameLoop(p: GameLoopParams) {
               });
             }
             d.monsters.splice(j, 1);
+            // Lifesteal — chance per kill to restore one heart.
+            if (d.perkKillHealChance > 0
+                && d.hp < d.maxHp
+                && Math.random() < d.perkKillHealChance) {
+              d.hp = Math.min(d.maxHp, d.hp + 1);
+            }
             p.playSfx('kill');
             p.haptic?.(m.tier === 'boss' ? 'heavy' : 'light');
           }
-          break;
+          // With pierce, the bullet stays alive and the j loop keeps
+          // walking the monster list looking for the next pierce target;
+          // without pierce, `alive` was flipped above and the next j
+          // iteration breaks early.
         }
       }
     }
@@ -509,17 +595,42 @@ export function useGameLoop(p: GameLoopParams) {
       spawnMonsterTier(d, tuning, asStalker ? 'stalker' : 'lurker');
     }
 
-    // ---- XP GEM PICKUP ----
-    // Single pickup branch — every gem gives the same XP/score. The
-    // crystal-color light mechanics from Lantern are gone.
+    // ---- XP GEM PICKUP + MAGNET ----
+    // Single pickup branch — every gem feeds XP/score. Gems within the
+    // magnet radius slide toward the player so you don't have to walk
+    // exactly over each one; the +magnet perk widens the radius.
+    const magnetR = 3.2 * d.perkMagnetMul;
+    const magnetR2 = magnetR * magnetR;
     for (let i = d.crystals.length - 1; i >= 0; i--) {
       const cr = d.crystals[i];
-      const dx = cr.position.x - d.pos.x;
-      const dz = cr.position.z - d.pos.z;
-      if (Math.hypot(dx, dz) < CRYSTAL_PICKUP_RADIUS) {
+      const dx = d.pos.x - cr.position.x;
+      const dz = d.pos.z - cr.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < magnetR2 && d2 > 0.0001) {
+        const dist = Math.sqrt(d2);
+        const speed = 6 + (1 - dist / magnetR) * 9;     // accelerate as it nears
+        const inv = 1 / dist;
+        cr.position.x += dx * inv * speed * c;
+        cr.position.z += dz * inv * speed * c;
+      }
+      const pickDx = cr.position.x - d.pos.x;
+      const pickDz = cr.position.z - d.pos.z;
+      if (Math.hypot(pickDx, pickDz) < CRYSTAL_PICKUP_RADIUS) {
         d.crystals.splice(i, 1);
         d.goldCount++;
         d.score += SCORE_GOLD;
+        d.xp += 1;
+        d.xpInLevel += 1;
+        // Level-up — surface the perk modal and pause the loop. The UI
+        // observes perkPending; picking a card unblocks via setting it
+        // back to false. Overflow gems roll into the next level.
+        if (d.xpInLevel >= d.xpNeededForLevel) {
+          d.xpInLevel -= d.xpNeededForLevel;
+          d.xpLevel += 1;
+          // Threshold grows arithmetically: 5, 8, 11, 14, 17, ...
+          d.xpNeededForLevel = 5 + d.xpLevel * 3;
+          d.perkPending = true;
+        }
         p.playSfx('pickup_gold');
         emitFx(d, 'pickup_gold', cr.position.x, cr.position.z);
         p.onPickup?.('gold', SCORE_GOLD);

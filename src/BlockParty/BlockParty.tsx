@@ -6,6 +6,7 @@ import { SplashScene } from './components/SplashScene';
 import { createGameState, startLevel } from './hooks/useGameLoop';
 import type { PickupKind, SfxKey } from './hooks/useGameLoop';
 import type { SurvivorId } from './builders/characters';
+import { rollPerks, type Perk } from './perks';
 import { getLevelTuning, LEVELS } from './constants';
 import { useJoystick } from './hooks/useJoystick';
 import { playSfx, setBgmTension, setHeartbeatRate, startBgm, stopBgm, stopHeartbeat, unlockAudio } from './utils/audio';
@@ -41,6 +42,14 @@ export function BlockParty() {
   const [kills, setKills] = useState(0);
   const [hp, setHp] = useState(3);
   const [selectedSurvivor, setSelectedSurvivor] = useState<SurvivorId>('cop');
+  // Perk modal state — surfaces 3 random cards on level-up. The cards
+  // themselves are rolled once when the modal opens so they don't shuffle
+  // mid-decision.
+  const [perkChoices, setPerkChoices] = useState<Perk[] | null>(null);
+  // XP bar HUD readouts.
+  const [xpInLevel, setXpInLevel] = useState(0);
+  const [xpNeededForLevel, setXpNeededForLevel] = useState(5);
+  const [xpLevel, setXpLevel] = useState(0);
   const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -124,6 +133,13 @@ export function BlockParty() {
     setHeartbeatRate(0);
   }, [victory]);
 
+  const applyPerk = useCallback((perk: Perk) => {
+    const d = stateRef.current;
+    perk.apply(d);
+    d.perkPending = false;
+    setPerkChoices(null);
+  }, []);
+
   const start = useCallback((survivorPick?: SurvivorId) => {
     // CRITICAL: set the playing phase synchronously BEFORE touching audio.
     if (survivorPick) setSelectedSurvivor(survivorPick);
@@ -131,6 +147,10 @@ export function BlockParty() {
     setScore(0);
     setKills(0);
     setHp(3);
+    setPerkChoices(null);
+    setXpInLevel(0);
+    setXpNeededForLevel(5);
+    setXpLevel(0);
     setDepth(0);
     setLevel(1);
     setTimeLeft(getLevelTuning(1).timeLimit);
@@ -159,6 +179,16 @@ export function BlockParty() {
       setLevel(d.level);
       setKills(d.kills);
       setHp(d.hp);
+      setXpInLevel(d.xpInLevel);
+      setXpNeededForLevel(d.xpNeededForLevel);
+      setXpLevel(d.xpLevel);
+
+      // Perk modal — open with 3 fresh cards when the loop signals a
+      // pending level-up. Functional setter so we only roll once; the
+      // current value isn't captured in the interval closure.
+      if (d.perkPending) {
+        setPerkChoices(prev => prev ?? rollPerks(3));
+      }
       // Drive the BGM eerie-melody cadence from the night's tension knob.
       setBgmTension(tuning.bgmTension);
 
@@ -284,6 +314,18 @@ export function BlockParty() {
                 aria-hidden="true"
               >♥</span>
             ))}
+          </div>
+
+          {/* XP bar — fills as gems get hoovered up. Level number sits at
+              the left, fill % sits behind the track. */}
+          <div className="bp__xp">
+            <span className="bp__xp-level">LVL {xpLevel}</span>
+            <div className="bp__xp-track" aria-label={`xp ${xpInLevel} of ${xpNeededForLevel}`}>
+              <div
+                className="bp__xp-fill"
+                style={{ width: `${Math.min(100, (xpInLevel / Math.max(1, xpNeededForLevel)) * 100)}%` }}
+              />
+            </div>
           </div>
           {/* Night pill — sits under the topbar so the player always knows
               which night they're on. */}
@@ -411,6 +453,29 @@ export function BlockParty() {
           onClose={() => setShowLeaderboard(false)}
           fetch={fetchLeaderboard}
         />
+      )}
+
+      {/* Perk modal — pauses the loop (d.perkPending). Three cards rolled
+          fresh on each level-up; the player picks one and the loop
+          resumes. */}
+      {perkChoices && (
+        <div className="bp__perk-overlay">
+          <div className="bp__perk-eyebrow">LEVEL UP · {xpLevel}</div>
+          <div className="bp__perk-title">PICK A PERK</div>
+          <div className="bp__perk-cards">
+            {perkChoices.map(perk => (
+              <button
+                key={perk.id}
+                className="bp__perk-card"
+                style={{ ['--perk-tint' as string]: perk.tint }}
+                onPointerDown={() => applyPerk(perk)}
+              >
+                <div className="bp__perk-card-label">{perk.label}</div>
+                <div className="bp__perk-card-desc">{perk.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

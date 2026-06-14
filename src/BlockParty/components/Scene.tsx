@@ -9,7 +9,8 @@ import {
 import { useGameLoop, GameRef, PickupKind, SfxKey } from '../hooks/useGameLoop';
 import type { Stick } from '../types';
 import { makeZombie, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
-import { makeSurvivor, makePistol, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
+import { makeSurvivor, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
+import { makeWeapon } from '../builders/weapons';
 
 interface SceneProps {
   state: React.MutableRefObject<GameRef>;
@@ -67,14 +68,15 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
     if (!root) return;
     const survivor = makeSurvivor(survivorId);
 
-    // Right arm — pistol prop. Position is shoulder-local; when the arm
-    // rotates forward + swings, the gun follows. YXZ order so rotation.y
-    // (target tracking) is applied AFTER rotation.x (forward lift), letting
-    // the gun swing left/right inside the firing arc.
+    // Right arm — weapon prop, selected by the archetype. Position is
+    // shoulder-local; when the arm rotates forward + swings, the weapon
+    // follows. YXZ order so rotation.y (target tracking) is applied AFTER
+    // rotation.x (forward lift), letting the gun swing left/right inside
+    // the firing arc.
     survivor.userData.rig.armR.rotation.order = 'YXZ';
-    const pistol = makePistol();
-    pistol.position.set(0.03, -0.95, 0.15);
-    survivor.userData.rig.armR.add(pistol);
+    const weapon = makeWeapon(survivorId);
+    weapon.position.set(0.03, -0.95, 0.15);
+    survivor.userData.rig.armR.add(weapon);
 
     // Left arm — flashlight prop. The model is just visual; the actual
     // "hero light" is an omnidirectional PointLight attached at the lens.
@@ -202,12 +204,12 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
 }
 
 // Drifting glow specks — atmospheric extra borrowed from Piper's night
-// preset. Cool blue-white so they read as cave-spirits against the warm
-// blockParty. Each firefly is a tiny additive-blended sphere (round, glowy)
-// rather than gl_POINT (which renders as a square sprite). Positions are
-// world-space so they linger as the player moves through them.
+// preset. Re-tinted from cave-spirit blue to a warm urban dust ember so
+// they read as backlit haze in the flashlight cone — fits a city-night
+// street rather than a cave. Each speck is a tiny additive sphere; world
+// positions so they linger in the cone as the player passes through.
 function Fireflies() {
-  const COUNT = 50;
+  const COUNT = 28;
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const { positions, vel, dummy } = useMemo(() => {
     const positions = new Float32Array(COUNT * 3);
@@ -248,8 +250,8 @@ function Fireflies() {
   });
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, COUNT]}>
-      <sphereGeometry args={[0.06, 8, 6]} />
-      <meshBasicMaterial color="#cfe2ff" transparent opacity={0.85} depthWrite={false} blending={THREE.AdditiveBlending} />
+      <sphereGeometry args={[0.05, 8, 6]} />
+      <meshBasicMaterial color="#ffd2a0" transparent opacity={0.55} depthWrite={false} blending={THREE.AdditiveBlending} />
     </instancedMesh>
   );
 }
@@ -822,6 +824,7 @@ export function Scene(props: SceneProps) {
   const { state, playing, stickRef } = props;
   useGameLoop({
     state, playing, stick: stickRef.current,
+    survivor: props.survivor,
     onScore: props.onScore,
     onDepth: props.onDepth,
     onLightRadius: props.onLightRadius,
