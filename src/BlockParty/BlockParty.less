@@ -1,0 +1,622 @@
+.ln {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(120% 80% at 50% 100%, #1a1018 0%, #0a0508 50%, #02010a 100%);
+  overflow: hidden;
+  color: #f4f4f4;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  touch-action: none;
+
+  &__canvas { position: absolute; inset: 0; }
+
+  &__fog {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    mix-blend-mode: multiply;
+    transition: background 80ms linear;
+    // Breathe in sync with the 3D block-party (~5.5s period). Scaling the
+    // whole gradient makes the bright "see-through" hole pulse larger and
+    // smaller — matches the block-party flame waxing/waning.
+    animation: ln-fog-breath 5.5s ease-in-out infinite alternate;
+    transform-origin: 50% 50%;
+    will-change: transform;
+  }
+  &__hud {
+    position: absolute;
+    top: env(safe-area-inset-top, 8px);
+    left: 0;
+    right: 0;
+    padding: 8px 16px;
+    z-index: 10;
+    pointer-events: none;
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  }
+  &__topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 18px 9px;
+    background: linear-gradient(135deg, rgba(28,18,28,.55), rgba(12,8,18,.55));
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 8px 28px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+    border-radius: 18px;
+    pointer-events: auto;
+  }
+  &__topbar-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    &--right { align-items: flex-end; }
+  }
+  &__topbar-mid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  &__topbar-num {
+    font-family: 'Baloo 2', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    color: #fff5dd;
+    text-shadow: 0 0 14px rgba(255,180,80,.25);
+    &--small { font-size: 18px; }
+  }
+  &__topbar-caption {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(220, 200, 170, .55);
+    font-weight: 500;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  // Time countdown gets a red urgency tint when low
+  &__topbar-num--urgent {
+    color: #ff7a55;
+    text-shadow: 0 0 14px rgba(255, 120, 80, .45);
+    animation: ln-urgent-pulse 0.9s ease-in-out infinite alternate;
+  }
+
+  // Level pill — under the HUD topbar
+  &__level-pill {
+    margin: 8px auto 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px 5px;
+    background: rgba(28,18,28,.55);
+    border: 1px solid rgba(255,200,130,.18);
+    border-radius: 999px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.4);
+    pointer-events: auto;
+  }
+  &__level-pill-num {
+    font-family: 'Cinzel', 'Times New Roman', serif;
+    font-weight: 900;
+    font-size: 12px;
+    letter-spacing: .12em;
+    color: #ffd28a;
+  }
+  &__level-pill-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: .20em;
+    text-transform: uppercase;
+    color: rgba(220, 200, 170, .75);
+  }
+  // wrap level pill in centered flex (the HUD parent is full-width, so the
+  // inline-flex element doesn't center automatically without help)
+  &__hud {
+    text-align: center;
+  }
+
+  // Exit-summon progress chip (under the level pill)
+  &__exit-progress {
+    margin: 6px auto 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px 5px;
+    background: rgba(28,18,28,.45);
+    border: 1px solid rgba(180, 120, 220, .22);
+    border-radius: 999px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: auto;
+    color: rgba(220, 200, 240, .85);
+
+    &--open {
+      border-color: rgba(200, 120, 255, .55);
+      animation: ln-exit-open-pulse 1.4s ease-out 3;
+    }
+  }
+  &__exit-progress-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #c878ff;
+    box-shadow: 0 0 8px rgba(200, 120, 255, .65);
+    &--open {
+      animation: ln-exit-dot-pulse 1.0s ease-in-out infinite alternate;
+    }
+  }
+  &__exit-progress-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    line-height: 1;
+    b {
+      color: #f0d8ff;
+      font-weight: 700;
+    }
+  }
+  // Reroll button — small pill below the progress chip
+  &__reroll-btn {
+    margin: 6px auto 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px 5px;
+    background: rgba(28,18,28,.55);
+    border: 1px solid rgba(255, 220, 160, .18);
+    color: rgba(255, 220, 160, .85);
+    border-radius: 999px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.4);
+    pointer-events: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .20em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    touch-action: none;
+
+    &:active {
+      transform: translateY(1px);
+      background: rgba(48, 30, 50, .75);
+      border-color: rgba(255, 220, 160, .35);
+    }
+  }
+
+  &__exit-reveal-flash {
+    position: absolute;
+    inset: 0;
+    z-index: 14;
+    pointer-events: none;
+    background: radial-gradient(60% 60% at 50% 50%, rgba(200, 120, 255, 0) 0%, rgba(200, 120, 255, .12) 50%, rgba(200, 120, 255, .28) 75%, rgba(0,0,0,0) 100%);
+    animation: ln-exit-reveal-flash .9s ease-out forwards;
+  }
+
+  // Level intro overlay — appears at start of each level
+  &__level-intro {
+    position: absolute;
+    inset: 0;
+    z-index: 14;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    text-align: center;
+    animation: ln-level-intro 1700ms cubic-bezier(.22,.61,.36,1) forwards;
+  }
+  &__level-intro-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .35em;
+    text-transform: uppercase;
+    color: rgba(255, 200, 140, .85);
+    margin-bottom: 8px;
+    text-shadow: 0 4px 18px rgba(255, 150, 60, .55);
+  }
+  &__level-intro-name {
+    font-family: 'Cinzel', 'Times New Roman', serif;
+    font-size: clamp(40px, 11vw, 70px);
+    font-weight: 900;
+    letter-spacing: .08em;
+    line-height: 1;
+    background: linear-gradient(180deg, #fff2d6 0%, #ffd28a 70%, #cd8e54 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 8px 24px rgba(255, 150, 60, .45));
+    margin-bottom: 14px;
+  }
+  &__level-intro-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    color: rgba(200, 220, 240, .60);
+  }
+
+  // Level cleared — between-level overlay
+  &__level-clear {
+    position: absolute;
+    inset: 0;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: radial-gradient(60% 60% at 50% 50%, rgba(40, 90, 140, .55) 0%, rgba(8, 12, 22, .92) 80%);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    animation: ln-clear-fade 1900ms ease-out forwards;
+  }
+  &__level-clear-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .35em;
+    color: rgba(170, 220, 255, .85);
+    margin-bottom: 12px;
+  }
+  &__level-clear-bonus {
+    font-family: 'Baloo 2', sans-serif;
+    font-size: 80px;
+    font-weight: 800;
+    line-height: 1;
+    color: transparent;
+    background: linear-gradient(180deg, #b8e8ff 0%, #5aa8ff 70%, #2a78c8 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    filter: drop-shadow(0 8px 24px rgba(90, 168, 255, .35));
+  }
+  &__level-clear-total {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .30em;
+    color: rgba(220, 235, 250, .80);
+    margin: 18px 0 14px;
+  }
+  &__level-clear-next {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: .25em;
+    color: rgba(180, 200, 220, .55);
+  }
+
+  // Victory screen — final-level cleared
+  &__victory {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background: radial-gradient(80% 80% at 50% 30%, rgba(255, 180, 80, .35) 0%, rgba(20, 12, 8, .94) 80%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    text-align: center;
+  }
+  &__victory-eyebrow {
+    font-family: 'Cinzel', 'Times New Roman', serif;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: .45em;
+    color: #ffd28a;
+    margin-bottom: 18px;
+    text-shadow: 0 4px 18px rgba(255, 150, 60, .55);
+  }
+
+  &__watermark {
+    position: absolute;
+    left: 16px;
+    bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
+    height: 28px;
+    width: auto;
+    opacity: .65;
+    pointer-events: auto;
+    filter: drop-shadow(0 4px 12px rgba(0,0,0,.45));
+    z-index: 5;
+  }
+
+  &__joystick {
+    position: absolute;
+    pointer-events: none;
+    z-index: 5;
+    transform: translate(-50%, -50%);
+    &__ring {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      border: 4px solid rgba(255,255,255,.55);
+      background: rgba(0,0,0,.18);
+      backdrop-filter: blur(3px);
+      position: relative;
+    }
+    &__stick {
+      position: absolute;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.75);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      transition: transform 60ms linear;
+      box-shadow: 0 4px 12px rgba(0,0,0,.3);
+    }
+  }
+
+  &__gameover {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    z-index: 20;
+    background: radial-gradient(80% 80% at 50% 30%, rgba(40, 90, 140, .55) 0%, rgba(5,12,25,.92) 80%);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  }
+  &__gameover-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgba(255, 110, 110, .85);
+    font-weight: 600;
+    letter-spacing: .35em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  &__cta {
+    background: linear-gradient(135deg, #ffe17a 0%, #ff9844 60%, #ff6b3a 100%);
+    color: #1a1a1a;
+    border: none;
+    padding: 16px 38px;
+    border-radius: 999px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow:
+      0 16px 40px rgba(255, 150, 60, .42),
+      inset 0 1px 0 rgba(255, 255, 255, .6);
+    pointer-events: auto;
+    transition: transform .15s ease;
+  }
+  &__cta:active { transform: translateY(2px); }
+  &__final-score {
+    font-family: 'Baloo 2', sans-serif;
+    font-size: 128px;
+    font-weight: 800;
+    margin: 0;
+    line-height: 1.1;
+    letter-spacing: -.01em;
+    // Internal padding gives the filter drop-shadow + Baloo 2 glyph ink
+    // (which extends past the advance width on chars like "2") room to render
+    // without being clipped by the flex-shrunk box.
+    padding: 0 .12em;
+    max-width: 100%;
+    background: linear-gradient(180deg, #ffe17a 0%, #ff9844 70%, #ff6b3a 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 14px 30px rgba(255, 150, 60, .3));
+  }
+  &__final {
+    margin: 14px 0 32px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    color: rgba(220, 235, 250, .7);
+  }
+  &__leaderboard-btn {
+    margin-top: 16px;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.18);
+    color: #fff;
+    padding: 12px 26px;
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  // Pickup +N pellets — drift up + fade. Container anchors at screen center
+  // because the camera follows the player.
+  &__pellets {
+    position: absolute;
+    top: 48%;
+    left: 50%;
+    pointer-events: none;
+    z-index: 12;
+  }
+  &__pellet {
+    position: absolute;
+    font-family: 'Baloo 2', 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 32px;
+    line-height: 1;
+    pointer-events: none;
+    animation: ln-pellet-up 700ms cubic-bezier(.22,.61,.36,1) forwards;
+    color: #ffd64a;
+    text-shadow: 0 2px 12px rgba(0,0,0,.85);
+    &--gold  { color: #ffd64a; }
+    &--red   { color: #ff9a6a; }
+    &--green { color: #6cff9e; }
+    &--blue  { color: #6fc6ff; }
+  }
+
+  // ----- Pickup banner stack (top-of-screen, below the HUD) -----
+  &__banners {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 8px) + 76px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 11;
+    pointer-events: none;
+  }
+  &__banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px 8px 12px;
+    background: linear-gradient(135deg, rgba(28,18,28,.78), rgba(12,8,18,.78));
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 999px;
+    box-shadow: 0 12px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+    animation: ln-banner-pop 2200ms cubic-bezier(.22,.61,.36,1) forwards;
+    will-change: transform, opacity;
+  }
+  &__banner-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    box-shadow:
+      0 0 14px currentColor,
+      inset 0 -2px 4px rgba(0,0,0,.25),
+      inset 0 2px 3px rgba(255,255,255,.55);
+  }
+  &__banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  &__banner-headline {
+    font-family: 'Baloo 2', 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: .04em;
+    color: currentColor;
+    text-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+  &__banner-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .14em;
+    line-height: 1;
+    color: rgba(240, 232, 220, .80);
+  }
+  &__banner--gold  { color: #ffd64a; .ln__banner-dot { background: #ffd64a; } }
+  &__banner--red   { color: #ff9a6a; .ln__banner-dot { background: #ff5e5e; } }
+  &__banner--green { color: #6cff9e; .ln__banner-dot { background: #54ff8e; } }
+  &__banner--blue  { color: #6fc6ff; .ln__banner-dot { background: #5aa8ff; } }
+  &__hit-flash {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    pointer-events: none;
+    background: radial-gradient(70% 70% at 50% 50%, rgba(255, 50, 40, .55) 0%, rgba(180, 20, 10, .30) 35%, rgba(40, 0, 0, 0) 80%);
+    animation: ln-hit-flash .6s ease-out forwards;
+  }
+}
+
+// 3-heart HP row — sits under the topbar score/time/kills row.
+.bp__hearts {
+  position: absolute;
+  top: 56px;
+  left: 14px;
+  display: flex;
+  gap: 4px;
+  z-index: 12;
+  pointer-events: none;
+  font-size: 22px;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+.bp__heart {
+  color: #ff3a4a;
+  filter: drop-shadow(0 0 6px rgba(255, 60, 80, 0.55));
+  transition: color 180ms ease, filter 180ms ease, transform 180ms ease;
+}
+.bp__heart--gone {
+  color: rgba(255, 255, 255, 0.15);
+  filter: none;
+  transform: scale(0.85);
+}
+
+@keyframes ln-pellet-up {
+  0%   { opacity: 0; transform: translate(-50%, 8px) scale(.7); }
+  20%  { opacity: 1; transform: translate(-50%, -8px) scale(1.20); }
+  100% { opacity: 0; transform: translate(-50%, -70px) scale(.95); }
+}
+@keyframes ln-banner-pop {
+  0%   { opacity: 0; transform: translateY(-12px) scale(.9); }
+  10%  { opacity: 1; transform: translateY(0) scale(1.04); }
+  18%  { transform: translateY(0) scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-4px) scale(.96); }
+}
+@keyframes ln-hit-flash {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes ln-fog-breath {
+  0%   { transform: scale(.88); }
+  100% { transform: scale(1.18); }
+}
+@keyframes ln-urgent-pulse {
+  0%   { transform: scale(1); }
+  100% { transform: scale(1.08); }
+}
+@keyframes ln-level-intro {
+  0%   { opacity: 0; transform: translateY(8px); }
+  20%  { opacity: 1; transform: translateY(0); }
+  78%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+@keyframes ln-clear-fade {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes ln-exit-open-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(200, 120, 255, 0); }
+  50%      { box-shadow: 0 0 16px rgba(200, 120, 255, .55); }
+}
+@keyframes ln-exit-dot-pulse {
+  0%   { transform: scale(1);   box-shadow: 0 0 8px rgba(200, 120, 255, .65); }
+  100% { transform: scale(1.4); box-shadow: 0 0 18px rgba(200, 120, 255, .95); }
+}
+@keyframes ln-exit-reveal-flash {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; }
+}

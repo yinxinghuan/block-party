@@ -1,0 +1,1 @@
+export { BlockParty } from './BlockParty';
