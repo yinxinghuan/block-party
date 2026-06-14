@@ -10,7 +10,8 @@ import { useGameLoop, GameRef, PickupKind, SfxKey } from '../hooks/useGameLoop';
 import type { Stick } from '../types';
 import { makeZombie, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
 import { makeSurvivor, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
-import { makeWeapon } from '../builders/weapons';
+import { makeWeapon, WEAPONS } from '../builders/weapons';
+import type { WeaponId } from '../builders/weapons';
 
 interface SceneProps {
   state: React.MutableRefObject<GameRef>;
@@ -45,10 +46,145 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
     const d = state.current;
     desired.set(d.pos.x + CAMERA_POS[0], CAMERA_POS[1], d.pos.z + CAMERA_POS[2]);
     camera.position.lerp(desired, 0.16);
+    // Camera shake — bullet hits / damage / boss kills bump d.cameraShakeT
+    // + d.cameraShakeMag; we add a random offset that fades quadratically
+    // over the remaining shake window.
+    const shake01 = d.cameraShakeT > 0 ? Math.min(1, d.cameraShakeT / 0.3) : 0;
+    if (shake01 > 0) {
+      const amp = d.cameraShakeMag * shake01 * shake01;
+      camera.position.x += (Math.random() - 0.5) * amp * 2;
+      camera.position.y += (Math.random() - 0.5) * amp;
+      camera.position.z += (Math.random() - 0.5) * amp * 2;
+    }
     lookAt.set(d.pos.x, 0, d.pos.z);
     camera.lookAt(lookAt);
   });
   return null;
+}
+
+// Weapon drops — small floating prop + tinted halo ring on the ground.
+// Each drop tracks one entry in d.weaponDrops; we re-render the JSX list
+// when the COUNT changes (cheap) and animate positions/rotations in
+// useFrame (per-instance refs).
+function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
+  type Slot = {
+    group: THREE.Group;
+    prop: THREE.Group;
+    haloMat: THREE.MeshBasicMaterial;
+  };
+  const slots = useRef<Map<number, Slot>>(new Map());
+  const rootRef = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const d = state.current;
+    const root = rootRef.current;
+    if (!root) return;
+    const t = clock.getElapsedTime();
+    const live = new Set<number>();
+    for (const drop of d.weaponDrops) {
+      live.add(drop.id);
+      let slot = slots.current.get(drop.id);
+      if (!slot) {
+        const group = new THREE.Group();
+        group.position.set(drop.position.x, 0, drop.position.z);
+        const prop = makeWeapon(drop.weaponId);
+        prop.scale.setScalar(1.4);
+        prop.position.set(0, 0.85, 0);
+        group.add(prop);
+        const halo = new THREE.Mesh(
+          new THREE.RingGeometry(0.55, 0.95, 32),
+          new THREE.MeshBasicMaterial({
+            color: WEAPONS[drop.weaponId].tint,
+            transparent: true,
+            opacity: 0.8,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          }),
+        );
+        halo.rotation.x = -Math.PI / 2;
+        halo.position.y = 0.06;
+        group.add(halo);
+        slot = { group, prop, haloMat: halo.material as THREE.MeshBasicMaterial };
+        slots.current.set(drop.id, slot);
+        root.add(group);
+      }
+      // Float bobble + spin + halo pulse.
+      slot.prop.position.y = 0.85 + Math.sin(t * 2.4 + drop.id) * 0.10;
+      slot.prop.rotation.y = t * 1.4;
+      const pulse = 0.7 + Math.sin(t * 4 + drop.id) * 0.3;
+      slot.haloMat.opacity = 0.55 + pulse * 0.35;
+    }
+    for (const [id, slot] of slots.current) {
+      if (!live.has(id)) {
+        root.remove(slot.group);
+        slot.haloMat.dispose();
+        slots.current.delete(id);
+      }
+    }
+  });
+  return <group ref={rootRef} />;
+}
+
+// Blood splats + bone chunks thrown by bullet hits and kills. InstancedMesh
+// keeps it cheap even when 100+ splats are in flight.
+function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
+  const POOL = 160;
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const colorRef = useRef<THREE.InstancedBufferAttribute | null>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const color = useMemo(() => new THREE.Color(), []);
+  useEffect(() => {
+    const m = meshRef.current;
+    if (!m) return;
+    // Per-instance color buffer so blood vs bone can be picked per splat.
+    const arr = new Float32Array(POOL * 3);
+    const attr = new THREE.InstancedBufferAttribute(arr, 3);
+    m.instanceColor = attr;
+    colorRef.current = attr;
+  }, []);
+  useFrame(() => {
+    const d = state.current;
+    const m = meshRef.current;
+    if (!m) return;
+    const splats = d.bloodSplats;
+    const n = Math.min(POOL, splats.length);
+    for (let i = 0; i < n; i++) {
+      const s = splats[i];
+      const age = d.time - s.bornAt;
+      const fade = Math.max(0, 1 - age / s.life);
+      const sc = s.scale * (0.6 + fade * 0.5);
+      dummy.position.set(s.position.x, s.position.y, s.position.z);
+      dummy.rotation.set(age * 4, age * 3, age * 5);
+      dummy.scale.setScalar(sc);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+      // Per-instance color: deep red for blood, cream for bone fragments.
+      if (s.isBone) color.setHex(0xe7dfc6);
+      else color.setHex(0x9a1018);
+      const arr = colorRef.current?.array as Float32Array | undefined;
+      if (arr) {
+        arr[i * 3 + 0] = color.r * fade;
+        arr[i * 3 + 1] = color.g * fade;
+        arr[i * 3 + 2] = color.b * fade;
+      }
+    }
+    // Hide the unused part of the pool by collapsing to zero scale.
+    for (let i = n; i < POOL; i++) {
+      dummy.position.set(0, -100, 0);
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    m.instanceMatrix.needsUpdate = true;
+    if (colorRef.current) colorRef.current.needsUpdate = true;
+    m.count = POOL;
+  });
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial vertexColors toneMapped={false} />
+    </instancedMesh>
+  );
 }
 
 // Player — survivor archetype (cop for now) with a pistol in the right hand
@@ -62,21 +198,26 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
   // used (intensity 170, distance 30, shadow-casting, warm amber). Stored
   // in a ref so useFrame can pulse it with the breath animation.
   const heroLightRef = useRef<THREE.PointLight | null>(null);
+  // Current weapon prop attached to the right shoulder — swapped each time
+  // d.currentWeaponId changes so the visible model matches what's firing.
+  const currentWeaponPropRef = useRef<THREE.Group | null>(null);
+  const currentWeaponIdRef = useRef<WeaponId>('pistol');
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     const survivor = makeSurvivor(survivorId);
 
-    // Right arm — weapon prop, selected by the archetype. Position is
-    // shoulder-local; when the arm rotates forward + swings, the weapon
-    // follows. YXZ order so rotation.y (target tracking) is applied AFTER
-    // rotation.x (forward lift), letting the gun swing left/right inside
-    // the firing arc.
+    // Right arm — initial pistol prop. The Player useFrame swaps it out
+    // each time d.currentWeaponId changes. YXZ rotation order so rotation.y
+    // (target tracking) is applied AFTER rotation.x (forward lift),
+    // letting the gun swing left/right inside the firing arc.
     survivor.userData.rig.armR.rotation.order = 'YXZ';
-    const weapon = makeWeapon(survivorId);
+    const weapon = makeWeapon('pistol');
     weapon.position.set(0.03, -0.95, 0.15);
     survivor.userData.rig.armR.add(weapon);
+    currentWeaponPropRef.current = weapon;
+    currentWeaponIdRef.current = 'pistol';
 
     // Left arm — flashlight prop. The model is just visual; the actual
     // "hero light" is an omnidirectional PointLight attached at the lens.
@@ -84,11 +225,11 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
     flashlight.position.set(0, -1.0, 0);
     survivor.userData.rig.armL.add(flashlight);
 
-    // Hero PointLight — verbatim from the old lantern (intensity 170,
-    // distance 30, decay 2, castShadow). Lives at the flashlight lens so
-    // it tracks the cop's left hand, but its glow is omnidirectional so
-    // the warm bath surrounds the player exactly like the lantern did.
-    const heroLight = new THREE.PointLight(0xff9a3a, 170, 30, 2);
+    // Hero PointLight — same omnidirectional model as the old lantern,
+    // tuned softer (intensity 100, distance 22) so it doesn't blow out
+    // the new streetlamp pools + neon signs we added in the lighting
+    // overhaul. Still casts shadow + breathes around its base value.
+    const heroLight = new THREE.PointLight(0xff9a3a, 100, 22, 2);
     heroLight.position.set(0, 0, 0.25);          // at the lens, flashlight-local
     heroLight.castShadow = true;
     heroLight.shadow.mapSize.set(1024, 1024);
@@ -115,6 +256,25 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
     if (!root || !survivor) return;
     root.position.copy(d.pos);
     root.rotation.y = d.rot;
+
+    // Weapon prop hot-swap. When the loop's currentWeaponId changes
+    // (player walked over a drop), remove the old model and build the
+    // matching new one in the right hand.
+    if (d.currentWeaponId !== currentWeaponIdRef.current) {
+      const armR = survivor.userData.rig.armR;
+      if (currentWeaponPropRef.current) {
+        armR.remove(currentWeaponPropRef.current);
+        currentWeaponPropRef.current.traverse(o => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh) mesh.geometry.dispose();
+        });
+      }
+      const next = makeWeapon(d.currentWeaponId);
+      next.position.set(0.03, -0.95, 0.15);
+      armR.add(next);
+      currentWeaponPropRef.current = next;
+      currentWeaponIdRef.current = d.currentWeaponId;
+    }
 
     const t = clock.getElapsedTime();
     const moveFactor = Math.min(1, d.speed / PLAYER_SPEED);
@@ -146,8 +306,8 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
       const slow = Math.sin(t * 1.14) * 0.32;
       const fast = (Math.sin(t * 7.0) + Math.sin(t * 11.3) * 0.4) * 0.08;
       const breath = 1.0 + slow + fast;
-      heroLightRef.current.intensity = 170 * breath;
-      heroLightRef.current.distance  = 30  * (0.92 + slow * 0.95);
+      heroLightRef.current.intensity = 100 * breath;
+      heroLightRef.current.distance  = 22  * (0.92 + slow * 0.95);
     }
 
     // Left arm — LOCKED forward so the flashlight always aims where the
@@ -375,7 +535,7 @@ function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
 // shadows roll on as the player approaches. Same pattern as CrystalLights
 // — single allocation, no per-lamp light spamming.
 function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> }) {
-  const POOL = 4;
+  const POOL = 6;
   const refs = useRef<(THREE.PointLight | null)[]>([]);
   const tmpVec = useMemo(() => new THREE.Vector3(), []);
   useFrame(() => {
@@ -401,9 +561,9 @@ function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> })
       // Streetlamp head sits ~3.25u up; light should fall just below it.
       tmpVec.set(entry.p.position.x, 3.1 * entry.p.scale, entry.p.position.z);
       light.position.copy(tmpVec);
-      const falloff = Math.max(0.2, 1 - entry.d2 / 360);
-      light.intensity = 18 * falloff;
-      light.distance = 9 * entry.p.scale;
+      const falloff = Math.max(0.25, 1 - entry.d2 / 420);
+      light.intensity = 32 * falloff;
+      light.distance = 13 * entry.p.scale;
     }
   });
   return (
@@ -847,9 +1007,9 @@ export function Scene(props: SceneProps) {
           - cold-blue moonlight directional fills the silhouettes from above
           - streetlamp pool + crystal pool + the cop's flashlight cover the
             warm hotspots */}
-      <fog attach="fog" args={[palette.fog, 9, 46]} />
-      <ambientLight intensity={0.14} color={palette.ambient} />
-      <hemisphereLight args={[palette.hemiSky, palette.hemiGround, 0.16]} />
+      <fog attach="fog" args={[palette.fog, 11, 48]} />
+      <ambientLight intensity={0.22} color={palette.ambient} />
+      <hemisphereLight args={[palette.hemiSky, palette.hemiGround, 0.22]} />
       {/* Moonlight — cold directional from above, no shadow (perf). */}
       <directionalLight
         color="#9bb4dc"
@@ -862,6 +1022,56 @@ export function Scene(props: SceneProps) {
         <planeGeometry args={[ARENA_HALF * 4, ARENA_HALF * 4]} />
         <meshStandardMaterial color={palette.floor} roughness={0.85} />
       </mesh>
+
+      {/* Yellow center stripes — laid lengthwise along Z, evenly spaced
+          across X so the asphalt reads as a road grid. Slight emissive so
+          they catch the moonlight even in the dimmest palette. */}
+      {[-21, -7, 7, 21].map((xPos) => (
+        Array.from({ length: 10 }).map((_, i) => (
+          <mesh
+            key={`stripe-${xPos}-${i}`}
+            position={[xPos, 0.02, -ARENA_HALF + 3 + i * 6.5]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[0.36, 3.0]} />
+            <meshStandardMaterial color="#e8c850" emissive="#604620" emissiveIntensity={0.4} roughness={0.7} />
+          </mesh>
+        ))
+      ))}
+
+      {/* Sidewalk strips along the 4 inside edges of the arena. Slightly
+          raised + lighter than asphalt so the playfield has a sense of
+          edge instead of just fading into wall darkness. */}
+      {[
+        { pos: [0, 0.06, -ARENA_HALF + 1.0] as [number, number, number], size: [ARENA_HALF * 2, 2] as [number, number] },
+        { pos: [0, 0.06,  ARENA_HALF - 1.0] as [number, number, number], size: [ARENA_HALF * 2, 2] as [number, number] },
+        { pos: [-ARENA_HALF + 1.0, 0.06, 0] as [number, number, number], size: [2, ARENA_HALF * 2] as [number, number] },
+        { pos: [ ARENA_HALF - 1.0, 0.06, 0] as [number, number, number], size: [2, ARENA_HALF * 2] as [number, number] },
+      ].map((s, i) => (
+        <mesh key={`sidewalk-${i}`} position={s.pos} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <planeGeometry args={s.size} />
+          <meshStandardMaterial color="#3a3a44" roughness={0.95} />
+        </mesh>
+      ))}
+
+      {/* Neon perimeter signs — bright emissive boxes on the inside face
+          of each wall. Colors vary by side so the player can orient by
+          the dominant neon glow even at the edge of vision. */}
+      {[
+        { pos: [-15, 2.6, -ARENA_HALF - 0.05] as [number, number, number], col: 0xff3870, size: [3.2, 1.0, 0.05] as [number, number, number] },
+        { pos: [ 12, 2.6, -ARENA_HALF - 0.05] as [number, number, number], col: 0x2bc2ff, size: [2.4, 0.8, 0.05] as [number, number, number] },
+        { pos: [-18, 2.4,  ARENA_HALF + 0.05] as [number, number, number], col: 0xffa030, size: [2.8, 1.2, 0.05] as [number, number, number] },
+        { pos: [ 14, 2.4,  ARENA_HALF + 0.05] as [number, number, number], col: 0xa030ff, size: [2.2, 0.8, 0.05] as [number, number, number] },
+        { pos: [-ARENA_HALF - 0.05, 2.5,  4] as [number, number, number], col: 0x2bff80, size: [0.05, 1.0, 2.6] as [number, number, number] },
+        { pos: [ ARENA_HALF + 0.05, 2.5, -6] as [number, number, number], col: 0xff5040, size: [0.05, 1.2, 3.2] as [number, number, number] },
+      ].map((s, i) => (
+        <mesh key={`neon-${i}`} position={s.pos}>
+          <boxGeometry args={s.size} />
+          <meshStandardMaterial color={s.col} emissive={s.col} emissiveIntensity={2.4} toneMapped={false} />
+        </mesh>
+      ))}
+
       {/* Cave walls (outer ring) — taller dark cylinders around perimeter */}
       <mesh position={[0, 1.5, -ARENA_HALF - 0.5]} castShadow>
         <boxGeometry args={[ARENA_HALF * 2.4, 6, 1]} />
@@ -889,6 +1099,8 @@ export function Scene(props: SceneProps) {
       <Monsters state={state} />
       <Bullets state={state} />
       <MuzzleFlash state={state} />
+      <BloodSplats state={state} />
+      <WeaponDrops state={state} />
     </>
   );
 }

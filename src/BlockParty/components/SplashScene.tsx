@@ -6,7 +6,8 @@
 // in-game amber/blockParty palette.
 import { useState } from 'react';
 import { t } from '../i18n';
-import { SURVIVOR_IDS, SURVIVOR_META, type SurvivorId } from '../builders/characters';
+import { SURVIVOR_META, type SurvivorId } from '../builders/characters';
+import type { Selection } from '../store';
 
 // Small octahedron-style crystal icon for the splash how-to-play row.
 // Diamond outline + inner gradient give it the same "facet" read as the
@@ -18,7 +19,15 @@ interface Speck {
   size: number;
 }
 
-export function SplashScene({ onStart, highScore }: { onStart: (id: SurvivorId) => void; highScore: number }) {
+export interface SplashSceneProps {
+  onStart: () => void;
+  onOpenStore: () => void;
+  highScore: number;
+  picked: Selection;
+  balance: number;
+}
+
+export function SplashScene({ onStart, onOpenStore, highScore, picked, balance }: SplashSceneProps) {
   // Two particle layers — warm embers drifting up, cool fireflies meandering.
   const [embers] = useState<Speck[]>(() =>
     Array.from({ length: 26 }, (_, i) => ({
@@ -139,24 +148,35 @@ export function SplashScene({ onStart, highScore }: { onStart: (id: SurvivorId) 
           <div className="ln-splash__rules-warn">{t('rule_dark')}</div>
         </div>
 
-        {/* 3-archetype picker. Tap any pill to clock in as that survivor. */}
-        <div className="ln-splash__picker-title">{t('tap_to_start')}</div>
-        <div className="ln-splash__picker">
-          {SURVIVOR_IDS.map(id => {
-            const m = SURVIVOR_META[id];
-            return (
-              <button
-                key={id}
-                className="ln-splash__shift"
-                style={{ ['--shift-tint' as string]: m.tint }}
-                onPointerDown={() => onStart(id)}
-              >
-                <span className="ln-splash__shift-dot" />
-                <span className="ln-splash__shift-name">{m.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Active loadout chip — shows the currently selected survivor (or
+            RANDOM if the player hasn't pinned one). Tapping opens the
+            store; the BIG button beneath is the only thing needed to
+            start a run. */}
+        <button
+          className="ln-splash__loadout"
+          style={{
+            ['--shift-tint' as string]: picked === 'random'
+              ? '#ffd060'
+              : SURVIVOR_META[picked as SurvivorId].tint,
+          }}
+          onPointerDown={onOpenStore}
+        >
+          <span className="ln-splash__loadout-label">PLAYING AS</span>
+          <span className="ln-splash__loadout-dot" />
+          <span className="ln-splash__loadout-name">
+            {picked === 'random' ? 'RANDOM' : SURVIVOR_META[picked as SurvivorId].label}
+          </span>
+          <span className="ln-splash__loadout-edit">↺</span>
+        </button>
+
+        <button className="ln-splash__cta" onPointerDown={onStart}>
+          <span className="ln-splash__cta-text">{t('tap_to_start')}</span>
+          <span className="ln-splash__cta-pulse" aria-hidden />
+        </button>
+
+        <button className="ln-splash__store-link" onPointerDown={onOpenStore}>
+          STORE · ${Math.floor(balance)}
+        </button>
       </div>
     </div>
   );

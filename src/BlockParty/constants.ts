@@ -119,10 +119,23 @@ const PALETTE: Record<string, LevelPalette> = {
 };
 
 export const LEVELS: LevelTuning[] = [
-  { level: 1, name: 'Night 1',  timeLimit: 45, lurkerCount: 4, stalkerCount: 0, monsterMax: 12, monsterSpeed: 0.85, monsterFleeSpeed: 0.90, monsterSpawnInterval: 2.6, stalkerSpawnRatio: 0.10, strikeTelegraph: 1.25, strikeRangeMax: 5.5, strikeCooldown: 3.0, crystalInitial: 6,  pillarCount: 16, pillarScaleBias: 1.0,  isBoss: false, palette: PALETTE.twilight, bgmTension: 0.30 },
-  { level: 2, name: 'Night 2',  timeLimit: 45, lurkerCount: 6, stalkerCount: 2, monsterMax: 18, monsterSpeed: 1.00, monsterFleeSpeed: 0.95, monsterSpawnInterval: 1.8, stalkerSpawnRatio: 0.35, strikeTelegraph: 1.10, strikeRangeMax: 6.0, strikeCooldown: 2.6, crystalInitial: 4,  pillarCount: 18, pillarScaleBias: 0.95, isBoss: false, palette: PALETTE.dusk,     bgmTension: 0.55 },
-  { level: 3, name: 'Night 3',  timeLimit: 45, lurkerCount: 8, stalkerCount: 4, monsterMax: 24, monsterSpeed: 1.18, monsterFleeSpeed: 1.05, monsterSpawnInterval: 1.2, stalkerSpawnRatio: 0.55, strikeTelegraph: 0.95, strikeRangeMax: 6.8, strikeCooldown: 2.2, crystalInitial: 2,  pillarCount: 20, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
+  // Night 1 — busy opening so the screen is already crowded when you draw
+  // your first breath. Lower-tier mix with one stalker mixed in.
+  { level: 1, name: 'Night 1', timeLimit: 45, lurkerCount: 8,  stalkerCount: 1,  monsterMax: 22, monsterSpeed: 0.90, monsterFleeSpeed: 0.90, monsterSpawnInterval: 1.3, stalkerSpawnRatio: 0.18, strikeTelegraph: 1.20, strikeRangeMax: 5.5, strikeCooldown: 2.8, crystalInitial: 4, pillarCount: 30, pillarScaleBias: 1.0,  isBoss: false, palette: PALETTE.twilight, bgmTension: 0.40 },
+  // Night 2 — stalkers take over; everything moves faster, fewer beats
+  // of safety. Spawn interval cuts the trickle to nearly continuous.
+  { level: 2, name: 'Night 2', timeLimit: 45, lurkerCount: 10, stalkerCount: 4,  monsterMax: 32, monsterSpeed: 1.05, monsterFleeSpeed: 0.95, monsterSpawnInterval: 0.85, stalkerSpawnRatio: 0.45, strikeTelegraph: 1.05, strikeRangeMax: 6.0, strikeCooldown: 2.4, crystalInitial: 3, pillarCount: 36, pillarScaleBias: 0.95, isBoss: false, palette: PALETTE.dusk,     bgmTension: 0.65 },
+  // Night 3 — boss night. Max swarm, fastest stalkers, telegraph window
+  // shrinks so you can't dance through bites the way Night 1 lets you.
+  { level: 3, name: 'Night 3', timeLimit: 45, lurkerCount: 12, stalkerCount: 6,  monsterMax: 42, monsterSpeed: 1.22, monsterFleeSpeed: 1.05, monsterSpawnInterval: 0.55, stalkerSpawnRatio: 0.65, strikeTelegraph: 0.90, strikeRangeMax: 6.8, strikeCooldown: 2.0, crystalInitial: 2, pillarCount: 42, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
 ];
+
+// Periodic surge — every SURGE_PERIOD seconds we drop a burst of zombies
+// from random edges on top of the constant trickle, so the pressure
+// has visible "another wave just hit" peaks rather than feeling flat.
+export const SURGE_PERIOD = 12.0;
+export const SURGE_COUNT_BASE = 5;       // Night 1 surge size
+export const SURGE_COUNT_PER_NIGHT = 2;  // +N per night (so Night 3 surges = 9)
 
 export function getLevelTuning(level: number): LevelTuning {
   return LEVELS[Math.min(LEVELS.length, Math.max(1, level)) - 1];

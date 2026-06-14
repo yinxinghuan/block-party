@@ -42,6 +42,10 @@ export interface Bullet {
   dirZ: number;
   bornAt: number;
   dmg: number;
+  /** Per-bullet speed multiplier captured at fire time so the bullet
+   *  flies at the weapon's spec speed even after the player swaps
+   *  weapons. */
+  speedMul: number;
   /** Hits remaining after the current one before despawn. 0 = single
    *  target (default), >0 = bullet keeps going through that many extra
    *  enemies. Driven by the +pierce perk. */
@@ -71,6 +75,19 @@ export interface Pillar {
   scale: number;
   rot: number;
   variant: PillarVariant;
+}
+
+// Short-lived blood splat / bone chunk thrown by a bullet hit. Carries its
+// own velocity so it arcs (gravity in useFrame). Scene.tsx pools these
+// through an InstancedMesh.
+export interface BloodSplat {
+  id: number;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  bornAt: number;
+  life: number;       // seconds before it pops out
+  scale: number;      // box edge length
+  isBone: boolean;    // bone fragments render cream; otherwise blood red
 }
 
 export interface FxEvent {

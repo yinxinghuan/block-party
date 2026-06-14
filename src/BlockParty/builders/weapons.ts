@@ -1,93 +1,128 @@
-// Per-class weapons — fire patterns + 3D props for each survivor archetype.
-// useGameLoop reads WEAPON[survivorId] each frame to drive the burst rules;
-// Player renders the matching prop in the right hand.
+// Global weapon catalog — every survivor starts with a PISTOL and swaps
+// to any weapon they walk over. Per-archetype starter weapons are gone:
+// you find your firepower on the street.
 
 import * as THREE from 'three';
 import { box, darken, finish, P } from './prims';
-import type { SurvivorId } from './characters';
+
+export type WeaponId = 'pistol' | 'shotgun' | 'smg' | 'syringe' | 'magnum';
 
 export interface WeaponSpec {
-  /** Projectiles per burst. cop = 1, nurse = 3 staggered darts, biker = 5
-   *  pellets in a cone. */
+  /** Projectiles per burst. cop pistol = 1, shotgun = 5 pellets in a cone,
+   *  syringe = 3-dart burst, etc. */
   count: number;
-  /** Half-angle of cone in radians. 0 = no spread. Cones (biker) spread
-   *  the projectiles evenly across [-spread, +spread]; bursts (nurse)
-   *  add tiny random jitter inside this band so a target standing still
-   *  takes all three darts. */
+  /** Half-angle of cone (radians). 0 = no spread. Cones spread evenly,
+   *  bursts add tiny random jitter inside the band. */
   spreadRad: number;
-  /** Seconds between burst starts. Faster cooldowns = more raw fire rate. */
+  /** Seconds between burst starts. Smaller = faster. */
   cooldown: number;
-  /** Seconds between consecutive shots inside a single burst. 0 = all
-   *  shots fire on the same frame (true cone). */
+  /** Seconds between consecutive shots inside a burst (0 = all fire at
+   *  once like a cone). */
   burstDelay: number;
   /** Damage per individual projectile. */
   dmgPerShot: number;
-  /** Audio cue for this weapon — same SFX vocabulary as Lantern. */
-  sfxKey: 'shoot';
+  /** Bullet world-velocity multiplier (1.0 = baseline). Shotgun pellets
+   *  fly fast; magnum slugs are heavy. */
+  speedMul: number;
+  label: string;
+  /** Halo + accent color for pickups + the HUD chip. */
+  tint: string;
 }
 
-export const WEAPON: Record<SurvivorId, WeaponSpec> = {
-  // Reliable single-shot pistol — the baseline. ~3.1 raw dps.
-  cop:   { count: 1, spreadRad: 0,    cooldown: 0.32, burstDelay: 0,    dmgPerShot: 1.0, sfxKey: 'shoot' },
-  // Triple-dart burst with tiny jitter. Same target gets all 3, but
-  // staggered fire so the burst takes 0.12s. ~4.5 raw dps.
-  nurse: { count: 3, spreadRad: 0.05, cooldown: 0.55, burstDelay: 0.06, dmgPerShot: 0.85, sfxKey: 'shoot' },
-  // Shotgun cone — 5 pellets in a ~36° spread. Devastating at close
-  // range, mostly misses at long. Per-pellet dmg lower so the average
-  // case stays in line with the baseline. ~4.8 raw dps if everything hits.
-  biker: { count: 5, spreadRad: 0.32, cooldown: 0.62, burstDelay: 0,    dmgPerShot: 0.55, sfxKey: 'shoot' },
+export const WEAPONS: Record<WeaponId, WeaponSpec> = {
+  // Baseline pistol — every run starts here. Reliable, medium dps.
+  pistol:  { count: 1, spreadRad: 0,    cooldown: 0.32, burstDelay: 0,    dmgPerShot: 1.0,  speedMul: 1.0, label: 'PISTOL',  tint: '#ffd060' },
+  // Close-range crowd cleaner. Massive close DPS, falls off at distance.
+  shotgun: { count: 5, spreadRad: 0.32, cooldown: 0.62, burstDelay: 0,    dmgPerShot: 0.55, speedMul: 1.05, label: 'SHOTGUN', tint: '#ff7050' },
+  // High fire-rate spray — single bullet but quick cooldown. Weak per
+  // shot, so it leans on volume + pierce/crit perks.
+  smg:     { count: 1, spreadRad: 0.04, cooldown: 0.14, burstDelay: 0,    dmgPerShot: 0.45, speedMul: 1.10, label: 'SMG',     tint: '#7eccff' },
+  // Nurse's old burst, repurposed as a pickup. 3 darts staggered over
+  // 0.12s with a tiny jitter so a stationary target eats all three.
+  syringe: { count: 3, spreadRad: 0.05, cooldown: 0.55, burstDelay: 0.06, dmgPerShot: 0.85, speedMul: 1.0,  label: 'SYRINGE', tint: '#7fffa8' },
+  // High-damage slow revolver. One-shots lurkers + stalkers (with crit).
+  magnum:  { count: 1, spreadRad: 0,    cooldown: 0.85, burstDelay: 0,    dmgPerShot: 3.5,  speedMul: 1.25, label: 'MAGNUM',  tint: '#cf8aff' },
 };
+
+/** Pool of weapons that can drop on the street. Pistol is the baseline
+ *  starter so it doesn't drop. */
+export const DROPPABLE_WEAPONS: WeaponId[] = ['shotgun', 'smg', 'syringe', 'magnum'];
 
 // ─── PROPS ──────────────────────────────────────────────────────────────
 
-// Tiny pistol — flat-shaded boxes, attaches to the cop's right hand.
 export function makePistol(): THREE.Group {
   const g = new THREE.Group();
   const black = 0x161618;
   const grip  = darken(P.hairBrown, 0.6);
-  g.add(box(0.10, 0.22, 0.10, grip,  0, 0,    0));    // grip
-  g.add(box(0.12, 0.10, 0.34, black, 0, 0.12, 0.10)); // slide
-  g.add(box(0.08, 0.06, 0.10, black, 0, 0.12, 0.30)); // barrel
+  g.add(box(0.10, 0.22, 0.10, grip,  0, 0,    0));
+  g.add(box(0.12, 0.10, 0.34, black, 0, 0.12, 0.10));
+  g.add(box(0.08, 0.06, 0.10, black, 0, 0.12, 0.30));
   finish(g);
   return g;
 }
 
-// Nurse's syringe-gun — cream body, red cross stencil on top, long needle.
 export function makeSyringeGun(): THREE.Group {
   const g = new THREE.Group();
   const body = P.cream;
   const accent = 0xe04848;
   const needle = 0xc4c4c8;
-  g.add(box(0.10, 0.20, 0.10, body,   0, 0,    0));    // grip
-  g.add(box(0.14, 0.14, 0.30, body,   0, 0.11, 0.10)); // body
-  // Red cross on the top face of the body
+  g.add(box(0.10, 0.20, 0.10, body,   0, 0,    0));
+  g.add(box(0.14, 0.14, 0.30, body,   0, 0.11, 0.10));
   g.add(box(0.04, 0.05, 0.10, accent, 0, 0.20, 0.10));
   g.add(box(0.10, 0.05, 0.04, accent, 0, 0.20, 0.10));
-  // Long thin needle barrel
   g.add(box(0.04, 0.04, 0.22, needle, 0, 0.11, 0.36));
   finish(g);
   return g;
 }
 
-// Biker's sawn-off pump shotgun — wood stock, long matte black barrel.
 export function makeShotgun(): THREE.Group {
   const g = new THREE.Group();
   const wood  = 0x6b4423;
   const woodD = 0x4a2f18;
   const black = 0x161618;
-  g.add(box(0.10, 0.22, 0.10, wood,  0,  0,    0));     // grip
-  g.add(box(0.14, 0.12, 0.42, black, 0,  0.12, 0.20));  // pump body
-  g.add(box(0.18, 0.08, 0.10, woodD, 0,  0.10, 0.30));  // pump fore-end
-  g.add(box(0.08, 0.08, 0.32, black, 0,  0.14, 0.55));  // barrel
-  g.add(box(0.14, 0.18, 0.20, wood,  0,  0.04, -0.12)); // stock
+  g.add(box(0.10, 0.22, 0.10, wood,  0,  0,    0));
+  g.add(box(0.14, 0.12, 0.42, black, 0,  0.12, 0.20));
+  g.add(box(0.18, 0.08, 0.10, woodD, 0,  0.10, 0.30));
+  g.add(box(0.08, 0.08, 0.32, black, 0,  0.14, 0.55));
+  g.add(box(0.14, 0.18, 0.20, wood,  0,  0.04, -0.12));
   finish(g);
   return g;
 }
 
-export function makeWeapon(id: SurvivorId): THREE.Group {
+// SMG — short stubby barrel + box magazine sticking down.
+export function makeSMG(): THREE.Group {
+  const g = new THREE.Group();
+  const black = 0x161618;
+  const grey  = 0x4a4a52;
+  g.add(box(0.10, 0.18, 0.10, black, 0,  0,    0));        // grip
+  g.add(box(0.14, 0.14, 0.38, black, 0,  0.13, 0.12));     // receiver
+  g.add(box(0.10, 0.20, 0.10, grey,  0,  -0.10, 0.06));    // mag below grip
+  g.add(box(0.06, 0.06, 0.18, black, 0,  0.14, 0.36));     // short barrel
+  g.add(box(0.04, 0.04, 0.06, 0xff8030, 0, 0.14, 0.48, { e: 0xff7030, ei: 2.2 })); // tracer hot tip
+  finish(g);
+  return g;
+}
+
+// Magnum revolver — chunky cylinder + long heavy barrel + wood grip.
+export function makeMagnum(): THREE.Group {
+  const g = new THREE.Group();
+  const black = 0x121214;
+  const steel = 0x6c6c74;
+  const wood  = 0x553319;
+  g.add(box(0.10, 0.22, 0.10, wood,  0,  0,    0));         // grip
+  g.add(box(0.14, 0.16, 0.18, steel, 0,  0.12, 0.06));      // frame
+  g.add(box(0.16, 0.18, 0.18, steel, 0,  0.12, 0.16));      // cylinder bulge
+  g.add(box(0.10, 0.10, 0.40, black, 0,  0.13, 0.40));      // long barrel
+  finish(g);
+  return g;
+}
+
+export function makeWeapon(id: WeaponId): THREE.Group {
   switch (id) {
-    case 'cop':   return makePistol();
-    case 'nurse': return makeSyringeGun();
-    case 'biker': return makeShotgun();
+    case 'pistol':  return makePistol();
+    case 'shotgun': return makeShotgun();
+    case 'smg':     return makeSMG();
+    case 'syringe': return makeSyringeGun();
+    case 'magnum':  return makeMagnum();
   }
 }

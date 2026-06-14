@@ -166,16 +166,18 @@ export function playSfx(key: SfxKey) {
       noiseBurst(1.2, 0.12, t + 0.20, 400, 80);
       break;
     case 'shoot':
-      // Dry pop — fast pitched noise burst with a thump. Keeps under 60ms
-      // so a 3 shots/sec auto-fire doesn't get muddy.
-      noiseBurst(0.05, 0.18, t, 5200, 2800);
-      tone(160, 'square', 0.06, 0.10, t, 80);
+      // Punchier kah-pow — wider noise hi-band + sub thump + 1.6kHz crack.
+      // Still under 80ms so a 3-shot/sec auto-fire stays clean.
+      noiseBurst(0.07, 0.22, t,        5800, 2400);   // crack
+      tone(60, 'sine',     0.22, 0.30, t, 40);         // sub thump
+      tone(220, 'square',  0.12, 0.10, t, 110);        // body click
       break;
     case 'kill':
-      // Wet crunch — short fat low burst + clipped high tail
-      tone(95,  'sawtooth', 0.10, 0.30, t, 50);
-      noiseBurst(0.08, 0.16, t, 1400, 220);
-      bell(880, 0.10, t + 0.04, 0.35);
+      // Bigger wet crunch — fatter low sweep + grit noise + a wet pop tail
+      tone(70,  'sawtooth', 0.18, 0.48, t, 32);
+      noiseBurst(0.13, 0.24, t,        1100, 180);
+      noiseBurst(0.05, 0.14, t + 0.02, 5000, 2200);    // splatter crack
+      bell(620, 0.10, t + 0.05, 0.40);
       break;
   }
 }

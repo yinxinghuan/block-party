@@ -3,9 +3,12 @@ import { Canvas } from '@react-three/fiber';
 import { Leaderboard, useGameScore } from '@shared/leaderboard';
 import { Scene } from './components/Scene';
 import { SplashScene } from './components/SplashScene';
+import { StoreScreen } from './components/StoreScreen';
+import { loadStore, saveStore, earn, resolveSurvivor, type StoreState } from './store';
 import { createGameState, startLevel } from './hooks/useGameLoop';
 import type { PickupKind, SfxKey } from './hooks/useGameLoop';
 import type { SurvivorId } from './builders/characters';
+import { WEAPONS, type WeaponId } from './builders/weapons';
 import { rollPerks, type Perk } from './perks';
 import { getLevelTuning, LEVELS } from './constants';
 import { useJoystick } from './hooks/useJoystick';
@@ -42,6 +45,14 @@ export function BlockParty() {
   const [kills, setKills] = useState(0);
   const [hp, setHp] = useState(3);
   const [selectedSurvivor, setSelectedSurvivor] = useState<SurvivorId>('cop');
+  // Persistent store — owned chars, balance, current pick. Synced to
+  // localStorage on every mutation.
+  const [storeState, setStoreStateRaw] = useState<StoreState>(() => loadStore());
+  const [storeOpen, setStoreOpen] = useState(false);
+  const setStoreState = useCallback((s: StoreState) => {
+    setStoreStateRaw(s);
+    saveStore(s);
+  }, []);
   // Perk modal state — surfaces 3 random cards on level-up. The cards
   // themselves are rolled once when the modal opens so they don't shuffle
   // mid-decision.
@@ -50,6 +61,7 @@ export function BlockParty() {
   const [xpInLevel, setXpInLevel] = useState(0);
   const [xpNeededForLevel, setXpNeededForLevel] = useState(5);
   const [xpLevel, setXpLevel] = useState(0);
+  const [currentWeaponId, setCurrentWeaponId] = useState<WeaponId>('pistol');
   const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -113,7 +125,9 @@ export function BlockParty() {
       setHighScore(final);
     }
     submitScore(final).catch(() => { /* silent */ });
-  }, [highScore, submitScore]);
+    // Earn the run's score as store currency.
+    setStoreState(earn(storeState, final));
+  }, [highScore, submitScore, storeState, setStoreState]);
 
   const showLevelTitle = useCallback((lvl: number) => {
     const tuning = getLevelTuning(lvl);
@@ -142,7 +156,10 @@ export function BlockParty() {
 
   const start = useCallback((survivorPick?: SurvivorId) => {
     // CRITICAL: set the playing phase synchronously BEFORE touching audio.
-    if (survivorPick) setSelectedSurvivor(survivorPick);
+    // Resolve which survivor to play as: explicit pick wins, else the
+    // store's picked selection (with random→roll handled in store.ts).
+    const resolved = survivorPick ?? resolveSurvivor(storeState);
+    setSelectedSurvivor(resolved);
     stateRef.current = createGameState();
     setScore(0);
     setKills(0);
@@ -151,6 +168,7 @@ export function BlockParty() {
     setXpInLevel(0);
     setXpNeededForLevel(5);
     setXpLevel(0);
+    setCurrentWeaponId('pistol');
     setDepth(0);
     setLevel(1);
     setTimeLeft(getLevelTuning(1).timeLimit);
@@ -182,6 +200,7 @@ export function BlockParty() {
       setXpInLevel(d.xpInLevel);
       setXpNeededForLevel(d.xpNeededForLevel);
       setXpLevel(d.xpLevel);
+      setCurrentWeaponId(d.currentWeaponId);
 
       // Perk modal — open with 3 fresh cards when the loop signals a
       // pending level-up. Functional setter so we only roll once; the
@@ -209,6 +228,7 @@ export function BlockParty() {
             localStorage.setItem(HIGH_KEY, String(total));
             setHighScore(total);
           }
+          setStoreState(earn(storeState, total));
         } else {
           setClearOverlay({ level: d.level, bonus: levelBonus + timeBonus, total });
           window.setTimeout(() => {
@@ -316,6 +336,15 @@ export function BlockParty() {
             ))}
           </div>
 
+          {/* Active weapon chip — name in current weapon's tint. */}
+          <div
+            className="bp__weapon"
+            style={{ ['--weapon-tint' as string]: WEAPONS[currentWeaponId].tint }}
+          >
+            <span className="bp__weapon-dot" />
+            <span className="bp__weapon-name">{WEAPONS[currentWeaponId].label}</span>
+          </div>
+
           {/* XP bar — fills as gems get hoovered up. Level number sits at
               the left, fill % sits behind the track. */}
           <div className="bp__xp">
@@ -394,7 +423,23 @@ export function BlockParty() {
         </div>
       )}
 
-      {phase === 'splash' && <SplashScene onStart={start} highScore={highScore} />}
+      {phase === 'splash' && (
+        <SplashScene
+          onStart={() => start()}
+          onOpenStore={() => setStoreOpen(true)}
+          highScore={highScore}
+          picked={storeState.picked}
+          balance={storeState.balance}
+        />
+      )}
+
+      {storeOpen && (
+        <StoreScreen
+          state={storeState}
+          onChange={setStoreState}
+          onClose={() => setStoreOpen(false)}
+        />
+      )}
 
       {/* Night intro — brief overlay at start of each night */}
       {phase === 'playing' && levelTitle && (

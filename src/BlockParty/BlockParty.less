@@ -571,6 +571,37 @@
   transform: scale(0.85);
 }
 
+// Current weapon chip — sits to the right of the hearts row.
+.bp__weapon {
+  position: absolute;
+  top: 52px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 12;
+  pointer-events: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(20, 14, 26, 0.72);
+  border: 1.5px solid var(--weapon-tint, #888);
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: .14em;
+  color: var(--weapon-tint, #fff);
+  text-shadow: 0 0 8px rgba(0, 0, 0, .75);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--weapon-tint, #fff) 30%, transparent);
+}
+.bp__weapon-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--weapon-tint, #fff);
+  box-shadow: 0 0 8px var(--weapon-tint, #fff);
+}
+.bp__weapon-name { display: inline-block; }
+
 // XP bar — sits under the hearts row. Compact pill with the level number
 // on the left and a thin progress track on the right.
 .bp__xp {

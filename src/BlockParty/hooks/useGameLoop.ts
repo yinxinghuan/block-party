@@ -10,12 +10,18 @@ import {
   GRACE_PERIOD,
   getLevelTuning, LEVELS,
   AIM_RANGE, FIRE_ARC_HALF, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS,
+  SURGE_PERIOD, SURGE_COUNT_BASE, SURGE_COUNT_PER_NIGHT,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
-import type { Bullet, Crystal, FxEvent, Monster, MonsterTier, Pillar, PillarVariant, Stick } from '../types';
-import { WEAPON } from '../builders/weapons';
+import type { BloodSplat, Bullet, Crystal, FxEvent, Monster, MonsterTier, Pillar, PillarVariant, Stick } from '../types';
+import { WEAPONS, DROPPABLE_WEAPONS } from '../builders/weapons';
+import type { WeaponId } from '../builders/weapons';
 import type { SurvivorId } from '../builders/characters';
+
+const WEAPON_DROP_INTERVAL = 25;     // seconds between drops
+const WEAPON_DROP_LIFE = 22;         // a drop fades out after this long
+const WEAPON_PICKUP_RADIUS = 1.6;
 
 const CRYSTAL_RESPAWN_INTERVAL = 2.5;     // every 2.5s drop a fresh ambient XP gem
 
@@ -42,6 +48,17 @@ export interface GameRef {
   /** Pending shots inside a burst — nurse triple-tap stages 3 darts at
    *  60ms intervals; cop + biker enqueue everything on the same frame. */
   pendingShots: { fireAt: number; dirX: number; dirZ: number; dmg: number }[];
+  /** Active weapon — starts as 'pistol', changes when the player walks
+   *  over a WeaponDrop. Player component watches this to swap the prop. */
+  currentWeaponId: WeaponId;
+  weaponDrops: { id: number; position: THREE.Vector3; weaponId: WeaponId; bornAt: number }[];
+  weaponDropTimer: number;
+  bloodSplats: BloodSplat[];
+  /** Camera shake — decays from 1 over the next `cameraShakeT` seconds.
+   *  Bullet hits bump it small (0.08s), player damage bumps it heavy
+   *  (0.30s), boss kill bumps it huge (0.55s). */
+  cameraShakeT: number;
+  cameraShakeMag: number;
 
   // ─── perk stats (Phase 5) ──────────────────────────────────────────
   // Multipliers/adders applied on top of the survivor's base weapon spec.
@@ -65,6 +82,7 @@ export interface GameRef {
   score: number;
   goldCount: number;       // XP gems picked up
   monsterSpawnTimer: number;
+  surgeTimer: number;                  // counts toward the next surge burst
   crystalRespawnTimer: number;
   nearestMonsterDist: number;
   fx: FxEvent[];
@@ -93,6 +111,12 @@ export function createGameState(): GameRef {
     iframesT: 0,
     aimYaw: null,
     pendingShots: [],
+    currentWeaponId: 'pistol',
+    weaponDrops: [],
+    weaponDropTimer: WEAPON_DROP_INTERVAL * 0.3, // first drop ~7s in
+    bloodSplats: [],
+    cameraShakeT: 0,
+    cameraShakeMag: 0,
     xp: 0,
     xpInLevel: 0,
     xpNeededForLevel: 5,
@@ -111,6 +135,7 @@ export function createGameState(): GameRef {
     score: 0,
     goldCount: 0,
     monsterSpawnTimer: 0,
+    surgeTimer: 0,
     crystalRespawnTimer: 0,
     nearestMonsterDist: 99,
     fx: [],
@@ -128,6 +153,44 @@ const nextId = () => idCounter++;
 function emitFx(d: GameRef, type: FxEvent['type'], x: number, z: number) {
   d.fx.push({ key: Math.random(), type, x, z, born: d.time });
   if (d.fx.length > 40) d.fx = d.fx.filter(f => d.time - f.born < 2.5);
+}
+
+// Spawn N blood splats at world (x, z) — each gets a randomized outward
+// velocity + a few-bone-fragment chance. The pool is capped so a long
+// run doesn't stack 1000 splats.
+const BLOOD_SPLAT_MAX = 120;
+function spawnBloodSplats(d: GameRef, x: number, z: number, count: number, intensity = 1) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 2.5 + Math.random() * 3.5 * intensity;
+    const isBone = Math.random() < 0.18;
+    d.bloodSplats.push({
+      id: nextId(),
+      position: new THREE.Vector3(x, 0.85 + Math.random() * 0.5, z),
+      velocity: new THREE.Vector3(
+        Math.cos(angle) * speed * (0.6 + Math.random() * 0.6),
+        2.5 + Math.random() * 3.5 * intensity,
+        Math.sin(angle) * speed * (0.6 + Math.random() * 0.6),
+      ),
+      bornAt: d.time,
+      life: 0.7 + Math.random() * 0.5,
+      scale: 0.05 + Math.random() * (isBone ? 0.07 : 0.10) * intensity,
+      isBone,
+    });
+  }
+  if (d.bloodSplats.length > BLOOD_SPLAT_MAX) {
+    // Drop the oldest, keep the most recent which are most visible.
+    d.bloodSplats.splice(0, d.bloodSplats.length - BLOOD_SPLAT_MAX);
+  }
+}
+
+function shakeCamera(d: GameRef, mag: number, dur: number) {
+  if (mag > d.cameraShakeMag) {
+    d.cameraShakeMag = mag;
+    d.cameraShakeT = dur;
+  } else {
+    d.cameraShakeT = Math.max(d.cameraShakeT, dur);
+  }
 }
 
 function randomSpawnPos(d: GameRef, minDistFromPlayer: number, marginFromEdge: number): THREE.Vector3 {
@@ -417,6 +480,8 @@ export function useGameLoop(p: GameLoopParams) {
           p.onStrikeHit?.();
           d.hp -= 1;
           d.iframesT = 1.2;
+          // Heavy player-damage shake.
+          shakeCamera(d, 0.85, 0.32);
           if (d.hp <= 0) {
             p.playSfx('game_over');
             d.gameOver = true;
@@ -436,6 +501,31 @@ export function useGameLoop(p: GameLoopParams) {
     d.fireCooldown = Math.max(0, d.fireCooldown - c);
     d.muzzleFlashT = Math.max(0, d.muzzleFlashT - c);
     d.iframesT = Math.max(0, d.iframesT - c);
+    d.cameraShakeT = Math.max(0, d.cameraShakeT - c);
+
+    // ---- BLOOD SPLAT PHYSICS ----
+    // Each splat ballistics-arc with gravity, then expires at end-of-life
+    // or when it touches the asphalt.
+    const GRAVITY = 14;
+    for (let i = d.bloodSplats.length - 1; i >= 0; i--) {
+      const s = d.bloodSplats[i];
+      const age = d.time - s.bornAt;
+      if (age > s.life || s.position.y <= 0.02) {
+        d.bloodSplats.splice(i, 1);
+        continue;
+      }
+      s.velocity.y -= GRAVITY * c;
+      s.position.x += s.velocity.x * c;
+      s.position.y += s.velocity.y * c;
+      s.position.z += s.velocity.z * c;
+      // On ground contact, kill upward motion and let it skid briefly.
+      if (s.position.y < 0.04) {
+        s.position.y = 0.04;
+        s.velocity.y = 0;
+        s.velocity.x *= 0.55;
+        s.velocity.z *= 0.55;
+      }
+    }
 
     let target: Monster | null = null;
     let targetYaw = 0;
@@ -455,7 +545,7 @@ export function useGameLoop(p: GameLoopParams) {
     d.aimYaw = target ? targetYaw : null;
 
     if (target && d.fireCooldown <= 0) {
-      const w = WEAPON[p.survivor];
+      const w = WEAPONS[d.currentWeaponId];
       const tdx = target.position.x - d.pos.x;
       const tdz = target.position.z - d.pos.z;
       const baseAngle = Math.atan2(tdx, tdz);     // = d.rot once we lerp body toward target
@@ -508,6 +598,7 @@ export function useGameLoop(p: GameLoopParams) {
         dirZ: ps.dirZ,
         bornAt: d.time,
         dmg: ps.dmg,
+        speedMul: WEAPONS[d.currentWeaponId].speedMul,
         pierceLeft: d.perkPierce,
         hitIds: new Set<number>(),
       });
@@ -520,8 +611,8 @@ export function useGameLoop(p: GameLoopParams) {
     // ---- BULLET UPDATE + COLLISION ----
     for (let i = d.bullets.length - 1; i >= 0; i--) {
       const b = d.bullets[i];
-      b.position.x += b.dirX * BULLET_SPEED * c;
-      b.position.z += b.dirZ * BULLET_SPEED * c;
+      b.position.x += b.dirX * BULLET_SPEED * b.speedMul * c;
+      b.position.z += b.dirZ * BULLET_SPEED * b.speedMul * c;
       if (d.time - b.bornAt > BULLET_TTL
           || Math.abs(b.position.x) > ARENA_HALF
           || Math.abs(b.position.z) > ARENA_HALF) {
@@ -541,6 +632,15 @@ export function useGameLoop(p: GameLoopParams) {
           m.hitFlashT = 0.10;
           b.hitIds.add(m.id);
           emitFx(d, 'bullet_hit', b.position.x, b.position.z);
+          // Splatter — small spray for damage hits, big shower on kill below.
+          spawnBloodSplats(d, b.position.x, b.position.z, 4, 0.9);
+          // Knockback — push the zombie a short distance along the bullet's
+          // travel direction so each shot has a visible "kah!" reaction.
+          const kb = m.tier === 'boss' ? 0.10 : m.tier === 'stalker' ? 0.32 : 0.45;
+          m.position.x += b.dirX * kb;
+          m.position.z += b.dirZ * kb;
+          // Light shake on each impact.
+          shakeCamera(d, 0.18, 0.07);
           if (b.pierceLeft > 0) {
             b.pierceLeft -= 1;
           } else {
@@ -552,6 +652,15 @@ export function useGameLoop(p: GameLoopParams) {
             d.score += SCORE_KILL[m.tier];
             p.onScore(Math.floor(d.score));
             emitFx(d, 'monster_kill', m.position.x, m.position.z);
+            // Big shower on death — more chunks for boss + boss-tier shake.
+            const splats = m.tier === 'boss' ? 32 : m.tier === 'stalker' ? 14 : 10;
+            const intensity = m.tier === 'boss' ? 1.6 : 1.0;
+            spawnBloodSplats(d, m.position.x, m.position.z, splats, intensity);
+            shakeCamera(
+              d,
+              m.tier === 'boss' ? 0.95 : m.tier === 'stalker' ? 0.45 : 0.28,
+              m.tier === 'boss' ? 0.55 : 0.14,
+            );
             // Drop an XP gem where the zombie fell (capped by CRYSTAL_MAX).
             if (d.crystals.length < CRYSTAL_MAX) {
               d.crystals.push({
@@ -584,15 +693,50 @@ export function useGameLoop(p: GameLoopParams) {
     }
 
     // ---- MONSTER SPAWN OVER TIME ----
-    // Respawn type follows the level's stalkerSpawnRatio so the mix
-    // gradually shifts toward more lurkers being killed (off-screen) and
-    // replaced — preserving the lurker-as-fodder dynamic the player has
-    // earned by upgrading their blockParty.
+    // Two layers: a tight trickle that keeps refilling the swarm + a
+    // periodic surge that drops a small wave of zombies all at once so the
+    // pressure has visible peaks.
     d.monsterSpawnTimer += c;
     if (d.monsterSpawnTimer >= tuning.monsterSpawnInterval) {
       d.monsterSpawnTimer = 0;
       const asStalker = Math.random() < tuning.stalkerSpawnRatio;
       spawnMonsterTier(d, tuning, asStalker ? 'stalker' : 'lurker');
+    }
+    d.surgeTimer += c;
+    if (d.surgeTimer >= SURGE_PERIOD) {
+      d.surgeTimer = 0;
+      const count = SURGE_COUNT_BASE + (d.level - 1) * SURGE_COUNT_PER_NIGHT;
+      for (let i = 0; i < count; i++) {
+        const asStalker = Math.random() < (tuning.stalkerSpawnRatio + 0.15);
+        spawnMonsterTier(d, tuning, asStalker ? 'stalker' : 'lurker');
+      }
+    }
+
+    // ---- WEAPON DROPS ----
+    // Spawn a fresh weapon pickup every WEAPON_DROP_INTERVAL seconds.
+    // Drops linger for WEAPON_DROP_LIFE seconds, then despawn.
+    d.weaponDropTimer += c;
+    if (d.weaponDropTimer >= WEAPON_DROP_INTERVAL) {
+      d.weaponDropTimer = 0;
+      const pool = DROPPABLE_WEAPONS.filter(w => w !== d.currentWeaponId);
+      const wid = pool[Math.floor(Math.random() * pool.length)];
+      const pos = randomSpawnPos(d, 6, 4);
+      d.weaponDrops.push({ id: nextId(), position: pos, weaponId: wid, bornAt: d.time });
+    }
+    for (let i = d.weaponDrops.length - 1; i >= 0; i--) {
+      const drop = d.weaponDrops[i];
+      if (d.time - drop.bornAt > WEAPON_DROP_LIFE) {
+        d.weaponDrops.splice(i, 1);
+        continue;
+      }
+      const dx = drop.position.x - d.pos.x;
+      const dz = drop.position.z - d.pos.z;
+      if (Math.hypot(dx, dz) < WEAPON_PICKUP_RADIUS) {
+        d.currentWeaponId = drop.weaponId;
+        d.weaponDrops.splice(i, 1);
+        p.playSfx('pickup_red');     // satisfying upgrade chime
+        p.haptic?.('light');
+      }
     }
 
     // ---- XP GEM PICKUP + MAGNET ----

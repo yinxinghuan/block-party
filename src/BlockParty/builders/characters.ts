@@ -110,42 +110,64 @@ function character(s: CharSpec): CharacterGroup {
   return g;
 }
 
-// Roster — three city-night archetypes the player can pick from on the
-// splash. Same character() shell, distinct color choices so silhouettes
-// read at a glance even at thumbnail size.
+// Roster — 8 city-night archetypes. Cop / nurse / biker are free starters;
+// the other 5 unlock at the store for $30 of accumulated score. Same
+// character() shell, distinct color choices so silhouettes read at a
+// glance even at thumbnail size.
 const SURVIVORS = {
   cop: (): CharacterGroup => character({
     skin:  P.skin,
-    top:   0x1a2030,    // navy uniform
-    sleeve: 0x1a2030,
-    bottom: 0x14182a,   // darker navy slacks
-    shoes:  P.ironD,
-    hair:   P.hairDark,
-    hat:    0x0e1424,   // peaked cap, even darker than the uniform
-    collar: 0xb0c2d8,   // light radio/badge strip — the single saturate
-    belt:   0x1a1014,
+    top:   0x1a2030, sleeve: 0x1a2030, bottom: 0x14182a, shoes: P.ironD,
+    hair:  P.hairDark, hat: 0x0e1424,
+    collar: 0xb0c2d8, belt: 0x1a1014,
   }),
   nurse: (): CharacterGroup => character({
     skin:  P.skin,
-    top:   0xe8eef0,    // off-white scrubs top
-    sleeve: 0xe8eef0,
-    bottom: 0xd0d8da,   // slightly cooler scrubs bottom
-    shoes:  0xf0f0f0,   // white sneakers
-    hair:   P.hairBrown,
-    hat:    0xf6f8fa,   // white folded cap
-    collar: 0xe04848,   // red cross strip — the single saturate
-    belt:   0xc8d0d2,
+    top:   0xe8eef0, sleeve: 0xe8eef0, bottom: 0xd0d8da, shoes: 0xf0f0f0,
+    hair:  P.hairBrown, hat: 0xf6f8fa,
+    collar: 0xe04848, belt: 0xc8d0d2,
   }),
   biker: (): CharacterGroup => character({
     skin:  P.skinTan,
-    top:   0x161618,    // black leather jacket
-    sleeve: 0x202024,   // slightly lighter leather to read as a separate piece
-    bottom: 0x2a2832,   // dark jeans
-    shoes:  0x0a0a0c,   // boots
-    hair:   P.hairDark,
-    hat:    0x111114,   // half-helmet
-    collar: 0xb84030,   // red bandana / club patch — the single saturate
-    belt:   0x383838,   // chunky studded belt
+    top:   0x161618, sleeve: 0x202024, bottom: 0x2a2832, shoes: 0x0a0a0c,
+    hair:  P.hairDark, hat: 0x111114,
+    collar: 0xb84030, belt: 0x383838,
+  }),
+  // Locked starters ↓ — earned at the store.
+  firefighter: (): CharacterGroup => character({
+    skin:  P.skin,
+    top:   0xd87420, sleeve: 0xd87420, bottom: 0x2a1c14, shoes: 0x0c0c10,
+    hair:  P.hairDark, hat: 0xb43020,
+    collar: 0xfff0a0,   // reflective stripe accent
+    belt:   0x1a1410,
+  }),
+  paramedic: (): CharacterGroup => character({
+    skin:  P.skin,
+    top:   0x1f6d3a, sleeve: 0x1f6d3a, bottom: 0x12351f, shoes: 0x101012,
+    hair:  P.hairBrown, hat: 0xf0f0f0,
+    collar: 0xfff5f5,
+    belt:   0x0e2014,
+  }),
+  chef: (): CharacterGroup => character({
+    skin:  P.skin,
+    top:   0xefe8d8, sleeve: 0xefe8d8, bottom: 0x202024, shoes: 0x0e0e12,
+    hair:  P.hairBrown, hat: 0xfff8e8,   // tall cap (color shape)
+    collar: 0xc23030,
+    belt:   0x303034,
+  }),
+  worker: (): CharacterGroup => character({
+    skin:  P.skinTan,
+    top:   0xf2c14e, sleeve: 0xc8a544, bottom: 0x2c3548, shoes: 0x402a1c,
+    hair:  P.hairDark, hat: 0xfff080,
+    collar: 0xfff080,
+    belt:   0x3a2a18,
+  }),
+  goth: (): CharacterGroup => character({
+    skin:  0xc8b6a8,
+    top:   0x0c0c10, sleeve: 0x141418, bottom: 0x14121a, shoes: 0x0a0a0c,
+    hair:  0x14121e, hat: 0x0a0a10,
+    collar: 0x9540d8,
+    belt:   0x32183a,
   }),
 };
 
@@ -153,12 +175,23 @@ export type SurvivorId = keyof typeof SURVIVORS;
 
 export const SURVIVOR_IDS: SurvivorId[] = Object.keys(SURVIVORS) as SurvivorId[];
 
-// Display metadata used by the splash picker. Same swatch colors as each
-// archetype's main garment, so the picker chip visually matches the body.
+// Free at the start — others unlock by spending score at the store.
+export const STARTER_SURVIVORS: SurvivorId[] = ['cop', 'nurse', 'biker'];
+
+// Cost in score-credits to unlock a locked archetype.
+export const SURVIVOR_UNLOCK_PRICE = 200;
+
+// Display metadata used by the splash + store. Same swatch colors as
+// each archetype's main garment.
 export const SURVIVOR_META: Record<SurvivorId, { label: string; tint: string }> = {
-  cop:   { label: 'COP',   tint: '#3a5586' },
-  nurse: { label: 'NURSE', tint: '#e8a4a4' },
-  biker: { label: 'BIKER', tint: '#2a2a30' },
+  cop:         { label: 'COP',         tint: '#3a5586' },
+  nurse:       { label: 'NURSE',       tint: '#e8a4a4' },
+  biker:       { label: 'BIKER',       tint: '#2a2a30' },
+  firefighter: { label: 'FIREFIGHTER', tint: '#d87420' },
+  paramedic:   { label: 'PARAMEDIC',   tint: '#48b06a' },
+  chef:        { label: 'CHEF',        tint: '#efe8d8' },
+  worker:      { label: 'WORKER',      tint: '#f2c14e' },
+  goth:        { label: 'GOTH',        tint: '#9540d8' },
 };
 
 export function makeSurvivor(id: SurvivorId = 'cop'): CharacterGroup {
