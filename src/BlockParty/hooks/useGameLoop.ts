@@ -502,6 +502,10 @@ export function useGameLoop(p: GameLoopParams) {
     d.muzzleFlashT = Math.max(0, d.muzzleFlashT - c);
     d.iframesT = Math.max(0, d.iframesT - c);
     d.cameraShakeT = Math.max(0, d.cameraShakeT - c);
+    // When the shake window fully decays, drop the stored magnitude too
+    // so the next small impulse isn't immediately squashed by a stale
+    // big magnitude from a long-ago event.
+    if (d.cameraShakeT === 0) d.cameraShakeMag = 0;
 
     // ---- BLOOD SPLAT PHYSICS ----
     // Each splat ballistics-arc with gravity, then expires at end-of-life
@@ -657,13 +661,13 @@ export function useGameLoop(p: GameLoopParams) {
             const splats = m.tier === 'boss' ? 32 : m.tier === 'stalker' ? 14 : 10;
             const intensity = m.tier === 'boss' ? 1.6 : 1.0;
             spawnBloodSplats(d, m.position.x, m.position.z, splats, intensity);
-            // Only the boss kill is really felt; the rest are gentle nudges
-            // so a surge of dying zombies doesn't churn the screen.
-            shakeCamera(
-              d,
-              m.tier === 'boss' ? 0.95 : m.tier === 'stalker' ? 0.18 : 0.08,
-              m.tier === 'boss' ? 0.55 : 0.10,
-            );
+            // Only the boss kill shakes the camera. Lurker/stalker kills
+            // happen dozens of times in a surge — even a tiny per-kill
+            // mag accumulates into continuous low-amplitude judder when
+            // each kill refreshes cameraShakeT before the previous decay
+            // window finishes. Blood splats + audio carry the regular
+            // kill feedback now.
+            if (m.tier === 'boss') shakeCamera(d, 0.95, 0.55);
             // Drop an XP gem where the zombie fell (capped by CRYSTAL_MAX).
             if (d.crystals.length < CRYSTAL_MAX) {
               d.crystals.push({
