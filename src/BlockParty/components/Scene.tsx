@@ -56,6 +56,11 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
 function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
   const rootRef = useRef<THREE.Group>(null);
   const survivorRef = useRef<CharacterGroup | null>(null);
+  // The "hero light" — same omnidirectional PointLight the original lantern
+  // used (intensity 170, distance 30, shadow-casting, warm amber). Stored
+  // in a ref so useFrame can pulse it with the breath animation.
+  const heroLightRef = useRef<THREE.PointLight | null>(null);
+
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -70,53 +75,33 @@ function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
     pistol.position.set(0.03, -0.95, 0.15);
     survivor.userData.rig.armR.add(pistol);
 
-    // Left arm — flashlight prop. Hangs at the wrist (shoulder-local Y is
-    // arm length), points along +Z by default; when the arm rotates forward
-    // the flashlight points where the survivor's body faces.
+    // Left arm — flashlight prop. The model is just visual; the actual
+    // "hero light" is an omnidirectional PointLight attached at the lens.
     const flashlight = makeFlashlight();
     flashlight.position.set(0, -1.0, 0);
     survivor.userData.rig.armL.add(flashlight);
 
-    // SpotLight at the flashlight lens — narrow cone, warm color, long
-    // reach. Cast shadow is off (cheap), penumbra 0.45 for a soft edge.
-    const spot = new THREE.SpotLight(0xfff0d0, 140, 18, Math.PI / 5.4, 0.45, 2);
-    spot.position.set(0, 0, 0.25);             // at the lens, in flashlight-local
-    flashlight.add(spot);
-    // Target — child of the survivor (NOT the arm) so it doesn't sway with
-    // the arm pose. Placed forward + slightly down in survivor-local space
-    // so the cone hits the asphalt ahead.
-    const spotTarget = new THREE.Object3D();
-    spotTarget.position.set(0, -2.5, 8.5);
-    survivor.add(spotTarget);
-    spot.target = spotTarget;
-
-    // Volumetric beam — a translucent additive cone with apex at the lens
-    // and base 5u forward. Sells the flashlight visually for the top-down
-    // camera, even where the SpotLight has nothing to hit.
-    const beamH = 5.0;
-    const beamGeom = new THREE.ConeGeometry(1.3, beamH, 18, 1, true);
-    beamGeom.translate(0, -beamH / 2, 0);       // apex now at local origin
-    beamGeom.rotateX(-Math.PI / 2);             // base swings to +Z
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: 0xfff0c8,
-      transparent: true,
-      opacity: 0.10,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-    });
-    const beam = new THREE.Mesh(beamGeom, beamMat);
-    beam.position.set(0, 0, 0.25);
-    beam.rotation.x = -0.20;                    // dip toward the asphalt
-    flashlight.add(beam);
+    // Hero PointLight — verbatim from the old lantern (intensity 170,
+    // distance 30, decay 2, castShadow). Lives at the flashlight lens so
+    // it tracks the cop's left hand, but its glow is omnidirectional so
+    // the warm bath surrounds the player exactly like the lantern did.
+    const heroLight = new THREE.PointLight(0xff9a3a, 170, 30, 2);
+    heroLight.position.set(0, 0, 0.25);          // at the lens, flashlight-local
+    heroLight.castShadow = true;
+    heroLight.shadow.mapSize.set(1024, 1024);
+    heroLight.shadow.bias = -0.0008;
+    heroLight.shadow.normalBias = 0.04;
+    heroLight.shadow.camera.near = 0.3;
+    heroLight.shadow.camera.far = 20;
+    flashlight.add(heroLight);
+    heroLightRef.current = heroLight;
 
     root.add(survivor);
     survivorRef.current = survivor;
     return () => {
       root.remove(survivor);
-      beamGeom.dispose();
-      beamMat.dispose();
       survivorRef.current = null;
+      heroLightRef.current = null;
     };
   }, []);
 
@@ -137,6 +122,18 @@ function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
     const swing = Math.sin(t * walkFreq) * (0.10 + moveFactor * 0.55);
     rig.legL.rotation.x =  swing;
     rig.legR.rotation.x = -swing;
+
+    // Hero light "breath" — verbatim from the old lantern. A slow sinusoid
+    // (~5.5s period) gives the warm halo around the cop its living
+    // amber-breathing-on-stone feel; a fast jitter overlays restless flicker.
+    // Range on the slow band is ~[0.65, 1.35].
+    if (heroLightRef.current) {
+      const slow = Math.sin(t * 1.14) * 0.32;
+      const fast = (Math.sin(t * 7.0) + Math.sin(t * 11.3) * 0.4) * 0.08;
+      const breath = 1.0 + slow + fast;
+      heroLightRef.current.intensity = 170 * breath;
+      heroLightRef.current.distance  = 30  * (0.92 + slow * 0.95);
+    }
 
     // Left arm — LOCKED forward so the flashlight always aims where the
     // survivor faces. Tiny downward dip so the cone hits the ground in
