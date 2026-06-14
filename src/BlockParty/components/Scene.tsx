@@ -9,13 +9,14 @@ import {
 import { useGameLoop, GameRef, PickupKind, SfxKey } from '../hooks/useGameLoop';
 import type { Stick } from '../types';
 import { makeZombie, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
-import { makeSurvivor, makePistol, makeFlashlight, type CharacterGroup } from '../builders/characters';
+import { makeSurvivor, makePistol, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
 
 interface SceneProps {
   state: React.MutableRefObject<GameRef>;
   playing: boolean;
   level: number;            // drives per-level palette
   stickRef: React.MutableRefObject<Stick>;
+  survivor: SurvivorId;     // selected archetype for this run
   onScore: (s: number) => void;
   onDepth: (d: number) => void;
   onLightRadius: (r: number) => void;
@@ -53,7 +54,7 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
 // and a flashlight in the left. The left arm is locked forward so the
 // flashlight cone tracks the player's facing; the right arm tracks the
 // current aim target dynamically inside the 110° fire arc.
-function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
+function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>; survivorId: SurvivorId }) {
   const rootRef = useRef<THREE.Group>(null);
   const survivorRef = useRef<CharacterGroup | null>(null);
   // The "hero light" — same omnidirectional PointLight the original lantern
@@ -64,7 +65,7 @@ function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const survivor = makeSurvivor('cop');
+    const survivor = makeSurvivor(survivorId);
 
     // Right arm — pistol prop. Position is shoulder-local; when the arm
     // rotates forward + swings, the gun follows. YXZ order so rotation.y
@@ -103,7 +104,7 @@ function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
       survivorRef.current = null;
       heroLightRef.current = null;
     };
-  }, []);
+  }, [survivorId]);
 
   useFrame(({ clock }) => {
     const d = state.current;
@@ -116,6 +117,18 @@ function Player({ state }: { state: React.MutableRefObject<GameRef> }) {
     const t = clock.getElapsedTime();
     const moveFactor = Math.min(1, d.speed / PLAYER_SPEED);
     const rig = survivor.userData.rig;
+
+    // Crossy Road idle hop — constant abs(sin) bounce so the body looks
+    // alive even standing still. Higher + faster when moving so it reads as
+    // an actual walk cycle. Contact shadow sits outside the survivor on
+    // root.position so it stays glued to the asphalt while the body lifts.
+    const hopFreq = 4.0 + moveFactor * 2.2;
+    const hopHeight = 0.13 + moveFactor * 0.14;
+    const hopT = t * hopFreq;
+    survivor.position.y = Math.abs(Math.sin(hopT)) * hopHeight;
+    // Subtle forward pitch only during the airborne half of each hop —
+    // sells the leap intention without breaking the silhouette.
+    survivor.rotation.x = Math.abs(Math.sin(hopT)) * 0.06 * moveFactor;
 
     // Leg swing — runs faster when moving, idle micro-shift when standing.
     const walkFreq = 5.5 + moveFactor * 2.0;
@@ -669,11 +682,19 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         const reach = striking ? slot.group.userData.armBase * (1 - (liveBite ? 1 : phase * 0.9)) : slot.group.userData.armBase;
         rig.armL.rotation.x = reach;
         rig.armR.rotation.x = reach;
-        // Mirror — boss adds a slow side-to-side body sway while lurking.
-        if (m.tier === 'boss' && !striking) {
-          slot.group.position.y = Math.sin(t * 1.1 + m.id) * 0.05;
-        }
       }
+
+      // Crossy Road idle hop — even the lurking zombies should bob, so the
+      // whole street looks alive (the original 0.12 sin bob was too subtle
+      // and the bite-window freeze killed it entirely). Striking still
+      // freezes movement but keeps a tiny breath so the body isn't stone.
+      const hopFreq =
+        m.tier === 'stalker' ? 5.5 :
+        m.tier === 'boss'    ? 2.4 :
+                                3.6;
+      const hopAmpBase = m.tier === 'boss' ? 0.10 : 0.18;
+      const hopAmp = striking ? hopAmpBase * 0.25 : hopAmpBase;
+      slot.group.position.y = Math.abs(Math.sin(t * hopFreq + m.id)) * hopAmp;
 
       // Ground warning ring — fades up through telegraph, blasts on live.
       slot.ring.visible = striking;
@@ -861,7 +882,7 @@ export function Scene(props: SceneProps) {
       <Pillars state={state} />
       <Crystals state={state} />
       <CrystalLights state={state} />
-      <Player state={state} />
+      <Player state={state} survivorId={props.survivor} />
       <Monsters state={state} />
       <Bullets state={state} />
       <MuzzleFlash state={state} />

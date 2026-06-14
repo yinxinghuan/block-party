@@ -5,6 +5,7 @@ import { Scene } from './components/Scene';
 import { SplashScene } from './components/SplashScene';
 import { createGameState, startLevel } from './hooks/useGameLoop';
 import type { PickupKind, SfxKey } from './hooks/useGameLoop';
+import type { SurvivorId } from './builders/characters';
 import { getLevelTuning, LEVELS } from './constants';
 import { useJoystick } from './hooks/useJoystick';
 import { playSfx, setBgmTension, setHeartbeatRate, startBgm, stopBgm, stopHeartbeat, unlockAudio } from './utils/audio';
@@ -39,6 +40,7 @@ export function BlockParty() {
   const [, setDepth] = useState(0);
   const [kills, setKills] = useState(0);
   const [hp, setHp] = useState(3);
+  const [selectedSurvivor, setSelectedSurvivor] = useState<SurvivorId>('cop');
   const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -122,8 +124,9 @@ export function BlockParty() {
     setHeartbeatRate(0);
   }, [victory]);
 
-  const start = useCallback(() => {
+  const start = useCallback((survivorPick?: SurvivorId) => {
     // CRITICAL: set the playing phase synchronously BEFORE touching audio.
+    if (survivorPick) setSelectedSurvivor(survivorPick);
     stateRef.current = createGameState();
     setScore(0);
     setKills(0);
@@ -226,6 +229,7 @@ export function BlockParty() {
               playing={phase === 'playing'}
               level={level}
               stickRef={stickRef}
+              survivor={selectedSurvivor}
               onScore={onScore}
               onDepth={onDepth}
               onLightRadius={onLightRadius}
@@ -375,7 +379,7 @@ export function BlockParty() {
           <div className="ln__victory-eyebrow">DAWN BROKE</div>
           <div className="ln__final-score">{finalScore}</div>
           <div className="ln__final">SURVIVED ALL {LEVELS.length} NIGHTS</div>
-          <button className="ln__cta" onPointerDown={start}>
+          <button className="ln__cta" onPointerDown={() => start()}>
             {t('again')}
           </button>
           <button className="ln__leaderboard-btn" onPointerDown={() => setShowLeaderboard(true)}>
@@ -391,7 +395,7 @@ export function BlockParty() {
           </div>
           <div className="ln__final-score">{finalScore}</div>
           <div className="ln__final">FELL ON NIGHT {level} · {getLevelTuning(level).name.toUpperCase()}</div>
-          <button className="ln__cta" onPointerDown={start}>
+          <button className="ln__cta" onPointerDown={() => start()}>
             {t('again')}
           </button>
           <button className="ln__leaderboard-btn" onPointerDown={() => setShowLeaderboard(true)}>

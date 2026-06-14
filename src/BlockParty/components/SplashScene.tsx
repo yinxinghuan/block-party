@@ -6,6 +6,7 @@
 // in-game amber/blockParty palette.
 import { useState } from 'react';
 import { t } from '../i18n';
+import { SURVIVOR_IDS, SURVIVOR_META, type SurvivorId } from '../builders/characters';
 
 // Small octahedron-style crystal icon for the splash how-to-play row.
 // Diamond outline + inner gradient give it the same "facet" read as the
@@ -17,7 +18,7 @@ interface Speck {
   size: number;
 }
 
-export function SplashScene({ onStart, highScore }: { onStart: () => void; highScore: number }) {
+export function SplashScene({ onStart, highScore }: { onStart: (id: SurvivorId) => void; highScore: number }) {
   // Two particle layers — warm embers drifting up, cool fireflies meandering.
   const [embers] = useState<Speck[]>(() =>
     Array.from({ length: 26 }, (_, i) => ({
@@ -138,10 +139,24 @@ export function SplashScene({ onStart, highScore }: { onStart: () => void; highS
           <div className="ln-splash__rules-warn">{t('rule_dark')}</div>
         </div>
 
-        <button className="ln-splash__cta" onPointerDown={onStart}>
-          <span className="ln-splash__cta-text">{t('tap_to_start')}</span>
-          <span className="ln-splash__cta-pulse" aria-hidden />
-        </button>
+        {/* 3-archetype picker. Tap any pill to clock in as that survivor. */}
+        <div className="ln-splash__picker-title">{t('tap_to_start')}</div>
+        <div className="ln-splash__picker">
+          {SURVIVOR_IDS.map(id => {
+            const m = SURVIVOR_META[id];
+            return (
+              <button
+                key={id}
+                className="ln-splash__shift"
+                style={{ ['--shift-tint' as string]: m.tint }}
+                onPointerDown={() => onStart(id)}
+              >
+                <span className="ln-splash__shift-dot" />
+                <span className="ln-splash__shift-name">{m.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

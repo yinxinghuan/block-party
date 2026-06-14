@@ -252,6 +252,62 @@
     animation: ln-splash-cta-pulse 1.8s ease-out infinite;
     pointer-events: none;
   }
+
+  // Survivor picker — single-line title + a row of archetype pills. Tap a
+  // pill to clock in as that survivor. Each pill carries the archetype's
+  // tint as a CSS custom property so its dot + border match the body.
+  &__picker-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .24em;
+    text-transform: uppercase;
+    color: rgba(255, 230, 200, .82);
+    margin: 2px 0 12px;
+  }
+  &__picker {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: min(420px, 92%);
+    z-index: 1;
+  }
+  &__shift {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px 11px 14px;
+    border-radius: 999px;
+    background: rgba(15, 11, 22, .65);
+    border: 1.5px solid var(--shift-tint, #888);
+    color: rgba(255, 240, 220, .92);
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow:
+      0 6px 22px rgba(0, 0, 0, .55),
+      inset 0 1px 0 rgba(255, 255, 255, .10);
+    transition: transform .14s ease, box-shadow .14s ease, background .14s ease;
+    -webkit-tap-highlight-color: transparent;
+    &:active {
+      transform: translateY(2px);
+      background: rgba(40, 28, 50, .85);
+    }
+  }
+  &__shift-dot {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--shift-tint, #888);
+    box-shadow: 0 0 14px var(--shift-tint, #888), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  &__shift-name { display: inline-block; }
 }
 
 @keyframes ln-splash-ember-rise {

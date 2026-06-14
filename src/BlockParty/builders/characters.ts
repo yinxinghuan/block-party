@@ -110,8 +110,9 @@ function character(s: CharSpec): CharacterGroup {
   return g;
 }
 
-// Roster — for now just the cop. Phase 4 expands this with firefighter,
-// biker, nurse, fitWoman from the lab.
+// Roster — three city-night archetypes the player can pick from on the
+// splash. Same character() shell, distinct color choices so silhouettes
+// read at a glance even at thumbnail size.
 const SURVIVORS = {
   cop: (): CharacterGroup => character({
     skin:  P.skin,
@@ -124,9 +125,41 @@ const SURVIVORS = {
     collar: 0xb0c2d8,   // light radio/badge strip — the single saturate
     belt:   0x1a1014,
   }),
+  nurse: (): CharacterGroup => character({
+    skin:  P.skin,
+    top:   0xe8eef0,    // off-white scrubs top
+    sleeve: 0xe8eef0,
+    bottom: 0xd0d8da,   // slightly cooler scrubs bottom
+    shoes:  0xf0f0f0,   // white sneakers
+    hair:   P.hairBrown,
+    hat:    0xf6f8fa,   // white folded cap
+    collar: 0xe04848,   // red cross strip — the single saturate
+    belt:   0xc8d0d2,
+  }),
+  biker: (): CharacterGroup => character({
+    skin:  P.skinTan,
+    top:   0x161618,    // black leather jacket
+    sleeve: 0x202024,   // slightly lighter leather to read as a separate piece
+    bottom: 0x2a2832,   // dark jeans
+    shoes:  0x0a0a0c,   // boots
+    hair:   P.hairDark,
+    hat:    0x111114,   // half-helmet
+    collar: 0xb84030,   // red bandana / club patch — the single saturate
+    belt:   0x383838,   // chunky studded belt
+  }),
 };
 
 export type SurvivorId = keyof typeof SURVIVORS;
+
+export const SURVIVOR_IDS: SurvivorId[] = Object.keys(SURVIVORS) as SurvivorId[];
+
+// Display metadata used by the splash picker. Same swatch colors as each
+// archetype's main garment, so the picker chip visually matches the body.
+export const SURVIVOR_META: Record<SurvivorId, { label: string; tint: string }> = {
+  cop:   { label: 'COP',   tint: '#3a5586' },
+  nurse: { label: 'NURSE', tint: '#e8a4a4' },
+  biker: { label: 'BIKER', tint: '#2a2a30' },
+};
 
 export function makeSurvivor(id: SurvivorId = 'cop'): CharacterGroup {
   const g = SURVIVORS[id]();
