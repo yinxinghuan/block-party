@@ -947,41 +947,58 @@ function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
   );
 }
 
-// Pool of PointLights that track the nearest streetlamp pillars (variant
-// 'spike'). Each frame we sort the lamps by distance² to the player and
-// assign the top N to the pool, fading intensity with distance so the
-// shadows roll on as the player approaches. Same pattern as CrystalLights
-// — single allocation, no per-lamp light spamming.
+// Pool of PointLights that track the nearest *lit* pillars to the player —
+// streetlamps (variant 'spike') and burning oil drums (variant 'burnBarrel').
+// Each frame we sort the candidates by distance² to the player and assign
+// the top N to the pool, fading intensity with distance. Barrels get a
+// hotter, more orange color and brighter output to read as fire vs lamp.
 function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> }) {
   const POOL = 6;
   const refs = useRef<(THREE.PointLight | null)[]>([]);
   const tmpVec = useMemo(() => new THREE.Vector3(), []);
-  useFrame(() => {
+  const tmpColor = useMemo(() => new THREE.Color(), []);
+  useFrame(({ clock }) => {
     const d = state.current;
-    const lamps = d.pillars.filter(p => p.variant === 'spike');
-    if (lamps.length === 0) {
+    const lit = d.pillars.filter(p => p.variant === 'spike' || p.variant === 'burnBarrel');
+    if (lit.length === 0) {
       for (const l of refs.current) if (l) l.intensity = 0;
       return;
     }
     // Sort by squared distance to the player.
-    const sorted = lamps
+    const sorted = lit
       .map(p => ({
         p,
         d2: (p.position.x - d.pos.x) ** 2 + (p.position.z - d.pos.z) ** 2,
       }))
       .sort((a, b) => a.d2 - b.d2)
       .slice(0, POOL);
+    const t = clock.getElapsedTime();
     for (let i = 0; i < POOL; i++) {
       const light = refs.current[i];
       if (!light) continue;
       const entry = sorted[i];
       if (!entry) { light.intensity = 0; continue; }
-      // Streetlamp head sits ~3.25u up; light should fall just below it.
-      tmpVec.set(entry.p.position.x, 3.1 * entry.p.scale, entry.p.position.z);
+      const isFire = entry.p.variant === 'burnBarrel';
+      // Streetlamp head sits ~3.25u up; barrel flame sits ~1.4u up.
+      const yOffset = isFire ? 1.4 : 3.1;
+      tmpVec.set(entry.p.position.x, yOffset * entry.p.scale, entry.p.position.z);
       light.position.copy(tmpVec);
       const falloff = Math.max(0.25, 1 - entry.d2 / 420);
-      light.intensity = 32 * falloff;
-      light.distance = 13 * entry.p.scale;
+      if (isFire) {
+        // Flicker — small, per-instance phase via id so adjacent barrels
+        // don't pulse in sync.
+        const phase = (entry.p.id * 0.37) % 6.28;
+        const flicker = 0.85 + Math.sin(t * 11 + phase) * 0.08 + Math.sin(t * 23 + phase * 1.7) * 0.05;
+        light.intensity = 60 * falloff * flicker;
+        light.distance = 17 * entry.p.scale;
+        tmpColor.set('#ff8434');
+        light.color.copy(tmpColor);
+      } else {
+        light.intensity = 32 * falloff;
+        light.distance = 13 * entry.p.scale;
+        tmpColor.set('#ffc070');
+        light.color.copy(tmpColor);
+      }
     }
   });
   return (
@@ -1113,6 +1130,130 @@ function Pillars({ state }: { state: React.MutableRefObject<GameRef> }) {
               <mesh position={[ 0.55, 0.10,  0.46]} rotation={[0, 0, Math.PI / 2]} castShadow>
                 <cylinderGeometry args={[0.10, 0.10, 0.12, 10]} />
                 <meshStandardMaterial color="#0c0c12" roughness={0.95} />
+              </mesh>
+            </>
+          )}
+          {p.variant === 'burnBarrel' && (
+            <>
+              {/* Burning oil drum — rust-streaked steel cylinder with a
+                  hollow top + two stacked emissive cones for flame. The
+                  StreetlampLights pool picks barrels up too and casts a
+                  hotter, more orange pool of light at the flame height. */}
+              <mesh position={[0, 0.50, 0]} castShadow receiveShadow>
+                <cylinderGeometry args={[0.40, 0.42, 1.00, 12]} />
+                <meshStandardMaterial color="#3a2818" roughness={0.85} metalness={0.35} />
+              </mesh>
+              {/* Rim + rust band at the top */}
+              <mesh position={[0, 1.00, 0]} castShadow>
+                <cylinderGeometry args={[0.42, 0.42, 0.06, 12]} />
+                <meshStandardMaterial color="#6a3a18" roughness={0.85} />
+              </mesh>
+              {/* Outer flame cone — orange */}
+              <mesh position={[0, 1.40, 0]}>
+                <coneGeometry args={[0.34, 0.70, 8]} />
+                <meshBasicMaterial color="#ff7028" transparent opacity={0.92} toneMapped={false} />
+              </mesh>
+              {/* Inner core — bright yellow */}
+              <mesh position={[0, 1.28, 0]}>
+                <coneGeometry args={[0.20, 0.45, 6]} />
+                <meshBasicMaterial color="#ffd860" transparent opacity={0.95} toneMapped={false} />
+              </mesh>
+              {/* Stub ember above the flame for a flicker accent */}
+              <mesh position={[0, 1.80, 0]}>
+                <sphereGeometry args={[0.05, 6, 6]} />
+                <meshBasicMaterial color="#ffe070" toneMapped={false} />
+              </mesh>
+            </>
+          )}
+          {p.variant === 'wreckTruck' && (
+            <>
+              {/* Crashed box truck — a long cargo box laid on the asphalt
+                  with the cab tipped at one end. Biggest footprint in the
+                  game; hard cover for the player to peek around. */}
+              <mesh position={[0, 0.62, 0]} castShadow receiveShadow>
+                <boxGeometry args={[2.60, 1.24, 1.50]} />
+                <meshStandardMaterial color="#3c2418" roughness={0.85} />
+              </mesh>
+              {/* Side stripe — gives it the painted-on-livery read */}
+              <mesh position={[0, 0.72, 0.76]}>
+                <boxGeometry args={[2.62, 0.12, 0.02]} />
+                <meshStandardMaterial color="#a05028" roughness={0.7} />
+              </mesh>
+              {/* Cab — shorter box bolted to the rear */}
+              <mesh position={[-1.55, 0.66, 0]} castShadow receiveShadow>
+                <boxGeometry args={[1.00, 1.30, 1.46]} />
+                <meshStandardMaterial color="#2a1610" roughness={0.85} />
+              </mesh>
+              {/* Cracked windshield — bluish slab on the cab face */}
+              <mesh position={[-2.06, 0.92, 0]}>
+                <boxGeometry args={[0.04, 0.55, 0.95]} />
+                <meshStandardMaterial color="#2a3a54" roughness={0.4} metalness={0.4} />
+              </mesh>
+              {/* Headlights — busted, only one still emissive */}
+              <mesh position={[-2.06, 0.40, 0.55]}>
+                <boxGeometry args={[0.04, 0.18, 0.22]} />
+                <meshStandardMaterial color="#ffe8b0" emissive="#ffa040" emissiveIntensity={1.8} />
+              </mesh>
+              <mesh position={[-2.06, 0.40, -0.55]}>
+                <boxGeometry args={[0.04, 0.18, 0.22]} />
+                <meshStandardMaterial color="#241814" roughness={0.95} />
+              </mesh>
+              {/* Wheels — 4 visible, mostly intact */}
+              {[[-1.10, 0.30,  0.78], [ 0.85, 0.30,  0.78], [-1.10, 0.30, -0.78], [ 0.85, 0.30, -0.78]].map((pos, i) => (
+                <mesh key={i} position={pos as [number, number, number]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+                  <cylinderGeometry args={[0.28, 0.28, 0.22, 12]} />
+                  <meshStandardMaterial color="#0c0c12" roughness={0.95} />
+                </mesh>
+              ))}
+            </>
+          )}
+          {p.variant === 'steamGrate' && (
+            <>
+              {/* Flat sewer grate — sits flush on the asphalt + 5 parallel
+                  slats. The steam plume is purely cosmetic; player walks
+                  straight over it (collision is skipped). */}
+              <mesh position={[0, 0.04, 0]} receiveShadow>
+                <boxGeometry args={[1.20, 0.06, 0.90]} />
+                <meshStandardMaterial color="#1a1a22" roughness={0.9} metalness={0.3} />
+              </mesh>
+              {[-0.32, -0.16, 0.00, 0.16, 0.32].map((zz, i) => (
+                <mesh key={i} position={[0, 0.085, zz]}>
+                  <boxGeometry args={[1.10, 0.02, 0.06]} />
+                  <meshStandardMaterial color="#08080c" />
+                </mesh>
+              ))}
+              {/* Lower steam — thicker, dimmer */}
+              <mesh position={[0, 0.80, 0]}>
+                <cylinderGeometry args={[0.30, 0.16, 1.40, 8, 1, true]} />
+                <meshBasicMaterial color="#a0a0b0" transparent opacity={0.18} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
+              </mesh>
+              {/* Upper steam — wider, fainter */}
+              <mesh position={[0.10, 1.80, 0]}>
+                <cylinderGeometry args={[0.48, 0.26, 1.60, 8, 1, true]} />
+                <meshBasicMaterial color="#b0b0c0" transparent opacity={0.10} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
+              </mesh>
+            </>
+          )}
+          {p.variant === 'bodyBag' && (
+            <>
+              {/* Body bag on the asphalt — a low charcoal cylinder with two
+                  rounded caps + a single yellow zip strap mid-length.
+                  Walkable (collision is skipped). */}
+              <mesh position={[0, 0.22, 0]} rotation={[0, 0, Math.PI / 2]} castShadow receiveShadow>
+                <cylinderGeometry args={[0.22, 0.22, 1.40, 10]} />
+                <meshStandardMaterial color="#16161e" roughness={0.95} />
+              </mesh>
+              <mesh position={[-0.70, 0.22, 0]} castShadow>
+                <sphereGeometry args={[0.22, 8, 8]} />
+                <meshStandardMaterial color="#16161e" roughness={0.95} />
+              </mesh>
+              <mesh position={[ 0.70, 0.22, 0]} castShadow>
+                <sphereGeometry args={[0.22, 8, 8]} />
+                <meshStandardMaterial color="#16161e" roughness={0.95} />
+              </mesh>
+              <mesh position={[0, 0.36, 0]}>
+                <boxGeometry args={[1.45, 0.04, 0.46]} />
+                <meshStandardMaterial color="#9c8a10" roughness={0.9} />
               </mesh>
             </>
           )}

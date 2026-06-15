@@ -121,7 +121,14 @@ export interface Wall {
   bornAt: number;
 }
 
-export type PillarVariant = 'spike' | 'dome' | 'cluster';
+export type PillarVariant =
+  | 'spike'        // streetlamp (N1+)
+  | 'dome'         // parked sedan (N1+)
+  | 'cluster'      // dumpster (N1+)
+  | 'burnBarrel'   // burning oil drum (N3) — emits warm light
+  | 'wreckTruck'   // crashed box truck (N3) — large obstacle
+  | 'steamGrate'   // ground steam grate, walkable (N3)
+  | 'bodyBag';     // ground body bag, walkable (N3)
 
 export interface Pillar {
   id: number;

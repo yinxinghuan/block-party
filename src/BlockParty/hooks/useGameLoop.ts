@@ -382,7 +382,7 @@ export function startLevel(d: GameRef, level: number) {
   d.exit = null;
   d.killsThisNight = 0;
   d.exitJustOpened = false;
-  for (let i = 0; i < tuning.pillarCount; i++) d.pillars.push(spawnPillar(tuning.pillarScaleBias));
+  for (let i = 0; i < tuning.pillarCount; i++) d.pillars.push(spawnPillar(tuning.pillarScaleBias, level));
   d.monsterSpawnTimer = 0;
   d.crystalRespawnTimer = 0;
   d.pos.set(0, 0, 5);
@@ -405,24 +405,46 @@ function spawnCrystal(d: GameRef, _type?: CrystalType) {
   d.crystals.push({ id: nextId(), position: pos, type: 'xp' });
 }
 
-// Pillar variant weights — spikes are common (the cave-ceiling-drips look),
-// domes (round boulders) less so, clusters (small stone groups) the rarest.
-const PILLAR_VARIANT_WEIGHTS: { v: PillarVariant; w: number }[] = [
-  { v: 'spike',   w: 5 },
-  { v: 'dome',    w: 3 },
-  { v: 'cluster', w: 2 },
-];
-function pickPillarVariant(): PillarVariant {
-  const total = PILLAR_VARIANT_WEIGHTS.reduce((s, x) => s + x.w, 0);
+// Pillar variant weights — per-night table. The base trio (spike / dome /
+// cluster) stays available all 3 nights; later nights unlock additional
+// scenery (N3 = apocalypse: burning barrels, wrecked trucks, steam grates,
+// body bags) and rebalance against the base set so the street reads
+// progressively more abandoned.
+const PILLAR_VARIANT_WEIGHTS: Record<number, { v: PillarVariant; w: number }[]> = {
+  1: [
+    { v: 'spike',   w: 5 },
+    { v: 'dome',    w: 3 },
+    { v: 'cluster', w: 2 },
+  ],
+  2: [
+    { v: 'spike',   w: 5 },
+    { v: 'dome',    w: 3 },
+    { v: 'cluster', w: 2 },
+    // N2 siege props (police barricade, boarded shop, etc.) will land in the
+    // next pass — kept identical to N1 for now.
+  ],
+  3: [
+    { v: 'spike',      w: 4 },
+    { v: 'dome',       w: 2 },
+    { v: 'cluster',    w: 2 },
+    { v: 'burnBarrel', w: 3 },
+    { v: 'wreckTruck', w: 1 },
+    { v: 'steamGrate', w: 2 },
+    { v: 'bodyBag',    w: 2 },
+  ],
+};
+function pickPillarVariant(level: number): PillarVariant {
+  const table = PILLAR_VARIANT_WEIGHTS[level] || PILLAR_VARIANT_WEIGHTS[1];
+  const total = table.reduce((s, x) => s + x.w, 0);
   let r = Math.random() * total;
-  for (const x of PILLAR_VARIANT_WEIGHTS) {
+  for (const x of table) {
     r -= x.w;
     if (r <= 0) return x.v;
   }
   return 'spike';
 }
 
-function spawnPillar(scaleBias: number = 1.0): Pillar {
+function spawnPillar(scaleBias: number = 1.0, level: number = 1): Pillar {
   // Keep pillars away from the dead center (where the altar sits) and the
   // very edge (where the perimeter wall hugs).
   let x: number, z: number;
@@ -436,7 +458,7 @@ function spawnPillar(scaleBias: number = 1.0): Pillar {
     position: new THREE.Vector3(x!, 0, z!),
     scale: (0.75 + Math.random() * 1.6) * scaleBias,
     rot: Math.random() * Math.PI * 2,
-    variant: pickPillarVariant(),
+    variant: pickPillarVariant(level),
   };
 }
 
@@ -498,13 +520,18 @@ export function useGameLoop(p: GameLoopParams) {
 
     // ---- COLLISIONS — pillars + central altar ----
     // Push the player out of solid obstacles along the shortest axis. Cheap
-    // O(N) per pillar; N is small (~28) so this is fine.
+    // O(N) per pillar; N is small (~28) so this is fine. Walkable variants
+    // (ground steam grate, body bag) skip the collision check entirely so
+    // the player passes right over them.
     for (const p of d.pillars) {
+      if (p.variant === 'steamGrate' || p.variant === 'bodyBag') continue;
       // Effective collision radius: scale * base footprint + player radius.
       // Footprints by variant — these match the renderer's bottom geometry.
       const base =
         p.variant === 'dome' ? 1.15 :
         p.variant === 'cluster' ? 0.95 :
+        p.variant === 'wreckTruck' ? 1.80 :
+        p.variant === 'burnBarrel' ? 0.55 :
         0.70;
       const r = base * p.scale + PLAYER_RADIUS;
       const dx = d.pos.x - p.position.x;
