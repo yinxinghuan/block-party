@@ -267,13 +267,23 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   if (d.monsters.length >= tuning.monsterMax) return;
   const minDist = tier === 'boss' ? 18 : 14;
   const pos = randomSpawnPos(d, minDist, 2);
-  // Endless boss scaling — each 3-level cycle past the first adds +50%
-  // HP to the boss. Cycle 1 (L3) = 32 hp, cycle 2 (L6) = 48, cycle 3
-  // (L9) = 64, cycle 4 (L12) = 80, … capped at 5x baseline (160).
   let hp = MONSTER_HP[tier];
   if (tier === 'boss') {
+    // Endless boss scaling — each 3-level cycle past the first adds +50%
+    // HP to the boss. Cycle 1 (L3) = 32 hp, cycle 2 (L6) = 48, cycle 3
+    // (L9) = 64, cycle 4 (L12) = 80, … capped at 5x baseline (160).
     const cycle = Math.max(1, Math.floor(tuning.level / 3));
     hp = Math.min(MONSTER_HP.boss * 5, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 0.5)));
+  } else {
+    // Per-level non-boss HP scaling. L1-3 stay hand-tuned (no scale).
+    // L4+ adds +12% per level above 3, capped at 4× the base. Counteracts
+    // the player's compounding DPS gain from perks + weapon levels so
+    // late-game encounters stay tense instead of melting.
+    //   L4=1.12×, L8=1.6×, L12=2.08×, L15=2.44×, L25→3.64×, L31+→4×.
+    if (tuning.level > 3) {
+      const scale = Math.min(4.0, 1 + (tuning.level - 3) * 0.12);
+      hp = Math.round(hp * scale);
+    }
   }
   d.monsters.push({
     id: nextId(),
@@ -315,7 +325,13 @@ const MAX_ELITES_PER_LEVEL = 4;
 function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
   if (d.monsters.length >= tuning.monsterMax) return;
   const pos = randomSpawnPos(d, 16, 2);
-  const hp = MONSTER_HP.stalker * 2;
+  // Base 2× HP + the same per-level scaling everyone else gets, so the
+  // elite stays threatening (not trivially poppable) deep into endless.
+  let hp = MONSTER_HP.stalker * 2;
+  if (tuning.level > 3) {
+    const scale = Math.min(4.0, 1 + (tuning.level - 3) * 0.12);
+    hp = Math.round(hp * scale);
+  }
   d.monsters.push({
     id: nextId(),
     position: pos,

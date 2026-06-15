@@ -229,11 +229,20 @@ function computeEndlessTuning(level: number): LevelTuning {
     monsterMax:     clamp(38 + k * 9, 38, 90),
     monsterSpeed:   clamp(0.90 + k * 0.08, 0.90, 1.70),
     monsterFleeSpeed: clamp(0.90 + k * 0.03, 0.90, 1.30),
-    monsterSpawnInterval: clamp(0.55 - k * 0.06, 0.12, 0.55),
+    // AI tempo caps relaxed for the late-game pressure pass: the formula
+    // keeps dropping these stats past their old plateau so L14+ feels
+    // genuinely faster (shorter spawn trickle, snappier bite warning,
+    // tighter cooldown between attacks). The on-screen monsterMax stays
+    // perf-locked at 90; this just makes each individual monster more
+    // aggressive without adding more bodies.
+    //   monsterSpawnInterval reaches 0.07 at L9+ (was 0.12 at L8+)
+    //   strikeTelegraph reaches 0.45 at L14+ (was 0.70 at L9+)
+    //   strikeCooldown reaches 1.0 at L24+ (was 1.5 at L17+)
+    monsterSpawnInterval: clamp(0.55 - k * 0.06, 0.07, 0.55),
     stalkerSpawnRatio:    clamp(0.10 + k * 0.025, 0.10, 0.32),
-    strikeTelegraph:      clamp(1.20 - k * 0.06, 0.70, 1.20),
+    strikeTelegraph:      clamp(1.20 - k * 0.06, 0.45, 1.20),
     strikeRangeMax:       clamp(1.0 + k * 0.03, 1.0, 1.5),
-    strikeCooldown:       clamp(2.8 - k * 0.08, 1.5, 2.8),
+    strikeCooldown:       clamp(2.8 - k * 0.08, 1.0, 2.8),
     crystalInitial:       clamp(4 - Math.floor(k / 2), 1, 4),
     pillarCount:          clamp(30 + k * 2, 30, 60),
     pillarScaleBias:      0.95 + ((level * 0.31) % 1) * 0.20,  // 0.95-1.15 wobble per level
