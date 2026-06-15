@@ -29,12 +29,60 @@ interface Pellet { id: number; value: number; kind: PickupKind; dx: number; dy: 
 
 let pelletIdCounter = 1;
 
+// All HUD values that the 250ms poll writes — collapsed into one state
+// object so React can bail out of reconcile via reference equality
+// when nothing changed (perf #6). 4Hz polling × 12 useStates was
+// dispatching a full BlockParty tree diff every interval even when
+// every value was stable. With one object + shallow-equal short-circuit,
+// idle frames return `prev` and React skips the whole render.
+interface HudState {
+  score: number;
+  kills: number;
+  hp: number;
+  xpInLevel: number;
+  xpNeededForLevel: number;
+  xpLevel: number;
+  currentWeaponId: WeaponId;
+  currentWeaponLevel: number;
+  killsThisNight: number;
+  exitOpen: boolean;
+  level: number;
+  timeLeft: number;
+}
+const INITIAL_HUD: HudState = {
+  score: 0,
+  kills: 0,
+  hp: 3,
+  xpInLevel: 0,
+  xpNeededForLevel: 5,
+  xpLevel: 0,
+  currentWeaponId: 'pistol',
+  currentWeaponLevel: 1,
+  killsThisNight: 0,
+  exitOpen: false,
+  level: 1,
+  timeLeft: 0,
+};
+function hudShallowEqual(a: HudState, b: HudState): boolean {
+  return a.score === b.score
+    && a.kills === b.kills
+    && a.hp === b.hp
+    && a.xpInLevel === b.xpInLevel
+    && a.xpNeededForLevel === b.xpNeededForLevel
+    && a.xpLevel === b.xpLevel
+    && a.currentWeaponId === b.currentWeaponId
+    && a.currentWeaponLevel === b.currentWeaponLevel
+    && a.killsThisNight === b.killsThisNight
+    && a.exitOpen === b.exitOpen
+    && a.level === b.level
+    && a.timeLeft === b.timeLeft;
+}
+
 export function BlockParty() {
   const [phase, setPhase] = useState<Phase>('splash');
-  const [score, setScore] = useState(0);
+  // Single consolidated HUD state — see HudState above for the rationale.
+  const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [, setDepth] = useState(0);
-  const [kills, setKills] = useState(0);
-  const [hp, setHp] = useState(3);
   const [selectedSurvivor, setSelectedSurvivor] = useState<SurvivorId>('cop');
   // Persistent store — owned chars, balance, current pick. Synced to
   // localStorage on every mutation.
@@ -47,25 +95,15 @@ export function BlockParty() {
   // Perk toast — fades after a few seconds. Set on every perk-drop
   // pickup. The actual perk is auto-applied by the game loop.
   const [perkToast, setPerkToast] = useState<{ id: string; key: number } | null>(null);
-  // XP bar HUD readouts.
-  const [xpInLevel, setXpInLevel] = useState(0);
-  const [xpNeededForLevel, setXpNeededForLevel] = useState(5);
-  const [xpLevel, setXpLevel] = useState(0);
-  const [currentWeaponId, setCurrentWeaponId] = useState<WeaponId>('pistol');
-  const [currentWeaponLevel, setCurrentWeaponLevel] = useState(1);
   const [weaponToast, setWeaponToast] = useState<{ id: WeaponId; level: number; kind: 'swap' | 'levelup'; key: number } | null>(null);
-  // Exit-goal HUD: kill progress toward the night's exit + a one-shot
-  // "EXIT OPEN" toast the moment the beacon spawns.
-  const [killsThisNight, setKillsThisNight] = useState(0);
-  const [exitOpen, setExitOpen] = useState(false);
+  // Exit-goal HUD: one-shot "EXIT OPEN" toast the moment the beacon spawns.
+  // (kill progress / exit-open flag live on hud above.)
   const [exitToastKey, setExitToastKey] = useState(0);
   const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [pellets, setPellets] = useState<Pellet[]>([]);
   const [hitFlashKey, setHitFlashKey] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [timeLeft, setTimeLeft] = useState(0);
   // Level intro overlay — appears briefly at the start of every level.
   const [levelTitle, setLevelTitle] = useState<{ level: number; name: string; key: number } | null>(null);
   // Level-clear overlay shown between levels with score bonus.
@@ -158,7 +196,12 @@ export function BlockParty() {
     navigator.vibrate(kind === 'heavy' ? 50 : 12);
   }, []);
 
-  const onScore = useCallback((s: number) => setScore(s), []);
+  // Score updates fire on every kill (push from useGameLoop). Route them
+  // into the consolidated hud state; setHud will bail out if the value is
+  // already equal to the cached one.
+  const onScore = useCallback((s: number) => {
+    setHud(prev => prev.score === s ? prev : { ...prev, score: s });
+  }, []);
   const onDepth = useCallback((d: number) => setDepth(d), []);
   // Lantern light is gone; the prop is kept for API stability but we no
   // longer pipe it anywhere.
@@ -208,21 +251,11 @@ export function BlockParty() {
     const resolved = survivorPick ?? resolveSurvivor(storeState);
     setSelectedSurvivor(resolved);
     stateRef.current = createGameState();
-    setScore(0);
-    setKills(0);
-    setHp(3);
+    // One write resets the whole HUD instead of 12 separate setStates.
+    setHud({ ...INITIAL_HUD, timeLeft: getLevelTuning(1).timeLimit });
     setPerkToast(null);
-    setKillsThisNight(0);
-    setExitOpen(false);
-    setXpInLevel(0);
-    setXpNeededForLevel(5);
-    setXpLevel(0);
-    setCurrentWeaponId('pistol');
-    setCurrentWeaponLevel(1);
     setWeaponToast(null);
     setDepth(0);
-    setLevel(1);
-    setTimeLeft(getLevelTuning(1).timeLimit);
     setPellets([]);
     setClearOverlay(null);
     setPhase('playing');
@@ -241,18 +274,27 @@ export function BlockParty() {
     const id = window.setInterval(() => {
       const d = stateRef.current;
       const tuning = getLevelTuning(d.level);
-      // Update the time-remaining read.
-      setTimeLeft(Math.max(0, tuning.timeLimit - d.levelT));
-      setLevel(d.level);
-      setKills(d.kills);
-      setHp(d.hp);
-      setXpInLevel(d.xpInLevel);
-      setXpNeededForLevel(d.xpNeededForLevel);
-      setXpLevel(d.xpLevel);
-      setCurrentWeaponId(d.currentWeaponId);
-      setCurrentWeaponLevel(d.currentWeaponLevel);
-      setKillsThisNight(d.killsThisNight);
-      setExitOpen(!!d.exit);
+      // Single consolidated HUD write — compute the full next object and
+      // bail out via reference equality if nothing actually changed
+      // (perf #6). React's useState bails on `prev === next` and skips
+      // the entire component-tree reconcile.
+      setHud(prev => {
+        const next: HudState = {
+          score: Math.floor(d.score),
+          kills: d.kills,
+          hp: d.hp,
+          xpInLevel: d.xpInLevel,
+          xpNeededForLevel: d.xpNeededForLevel,
+          xpLevel: d.xpLevel,
+          currentWeaponId: d.currentWeaponId,
+          currentWeaponLevel: d.currentWeaponLevel,
+          killsThisNight: d.killsThisNight,
+          exitOpen: !!d.exit,
+          level: d.level,
+          timeLeft: Math.max(0, tuning.timeLimit - d.levelT),
+        };
+        return hudShallowEqual(prev, next) ? prev : next;
+      });
       if (d.exitJustOpened) {
         d.exitJustOpened = false;
         setExitToastKey(k => k + 1);
@@ -353,7 +395,7 @@ export function BlockParty() {
             <Scene
               state={stateRef}
               playing={phase === 'playing'}
-              level={level}
+              level={hud.level}
               stickRef={stickRef}
               survivor={selectedSurvivor}
               onScore={onScore}
@@ -393,52 +435,52 @@ export function BlockParty() {
               Reshuffle + standalone TIME readout removed (exit goal made
               the timer informational; no need to surface it). */}
           <div className="bp__hud-main">
-            <div className="bp__hearts" aria-label={`${hp} of 3 hearts`}>
+            <div className="bp__hearts" aria-label={`${hud.hp} of 3 hearts`}>
               {Array.from({ length: 3 }, (_, i) => (
                 <span
                   key={i}
-                  className={`bp__heart${i < hp ? '' : ' bp__heart--gone'}`}
+                  className={`bp__heart${i < hud.hp ? '' : ' bp__heart--gone'}`}
                   aria-hidden="true"
                 >♥</span>
               ))}
             </div>
-            <div className="bp__hud-score">{score.toLocaleString()}</div>
+            <div className="bp__hud-score">{hud.score.toLocaleString()}</div>
             <div
               className="bp__hud-weapon"
-              style={{ ['--weapon-tint' as string]: WEAPONS[currentWeaponId].tint }}
+              style={{ ['--weapon-tint' as string]: WEAPONS[hud.currentWeaponId].tint }}
             >
-              <span className="bp__hud-weapon-name">{WEAPONS[currentWeaponId].label}</span>
-              {currentWeaponId !== 'pistol' && (
-                <span className="bp__hud-weapon-stars" aria-label={`level ${currentWeaponLevel}`}>
-                  {'★'.repeat(currentWeaponLevel)}{'·'.repeat(5 - currentWeaponLevel)}
+              <span className="bp__hud-weapon-name">{WEAPONS[hud.currentWeaponId].label}</span>
+              {hud.currentWeaponId !== 'pistol' && (
+                <span className="bp__hud-weapon-stars" aria-label={`level ${hud.currentWeaponLevel}`}>
+                  {'★'.repeat(hud.currentWeaponLevel)}{'·'.repeat(5 - hud.currentWeaponLevel)}
                 </span>
               )}
             </div>
           </div>
 
           {/* XP bar — sits directly under the main pill, slim. */}
-          <div className="bp__hud-xp" aria-label={`xp ${xpInLevel} of ${xpNeededForLevel}`}>
+          <div className="bp__hud-xp" aria-label={`xp ${hud.xpInLevel} of ${hud.xpNeededForLevel}`}>
             <div
               className="bp__hud-xp-fill"
-              style={{ width: `${Math.min(100, (xpInLevel / Math.max(1, xpNeededForLevel)) * 100)}%` }}
+              style={{ width: `${Math.min(100, (hud.xpInLevel / Math.max(1, hud.xpNeededForLevel)) * 100)}%` }}
             />
-            <span className="bp__hud-xp-label">LVL {xpLevel}</span>
+            <span className="bp__hud-xp-label">LVL {hud.xpLevel}</span>
           </div>
 
           {/* Corner label — NIGHT + goal/kill progress packed together. */}
           <div className="bp__hud-corner">
-            <span className="bp__hud-corner-night">N{level} · {getLevelTuning(level).name.toUpperCase()}</span>
+            <span className="bp__hud-corner-night">N{hud.level} · {getLevelTuning(hud.level).name.toUpperCase()}</span>
             {(() => {
-              if (exitOpen) {
+              if (hud.exitOpen) {
                 return <span className="bp__hud-corner-goal bp__hud-corner-goal--open">★ FIND EXIT</span>;
               }
-              const goal = getKillGoal(level);
+              const goal = getKillGoal(hud.level);
               if (goal > 0) {
-                return <span className="bp__hud-corner-goal">{Math.min(killsThisNight, goal)} / {goal} KILLS</span>;
+                return <span className="bp__hud-corner-goal">{Math.min(hud.killsThisNight, goal)} / {goal} KILLS</span>;
               }
               return <span className="bp__hud-corner-goal">KILL THE BOSS</span>;
             })()}
-            <span className="bp__hud-corner-kills">{kills} kills · {Math.floor(60 - timeLeft) >= 0 ? `${Math.floor(60 - timeLeft)}s` : ''}</span>
+            <span className="bp__hud-corner-kills">{hud.kills} kills · {Math.floor(60 - hud.timeLeft) >= 0 ? `${Math.floor(60 - hud.timeLeft)}s` : ''}</span>
           </div>
 
         </div>
@@ -542,7 +584,7 @@ export function BlockParty() {
             {finalScore > 0 && finalScore === highScore ? 'NEW RECORD' : 'BITTEN'}
           </div>
           <div className="ln__final-score">{finalScore}</div>
-          <div className="ln__final">FELL ON NIGHT {level} · {getLevelTuning(level).name.toUpperCase()}</div>
+          <div className="ln__final">FELL ON NIGHT {hud.level} · {getLevelTuning(hud.level).name.toUpperCase()}</div>
           <button className="ln__cta" onPointerDown={() => start()}>
             {t('again')}
           </button>
