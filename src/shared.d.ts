@@ -41,3 +41,13 @@ declare module '@shared/leaderboard' {
 
   export function useGameScore(): GameScoreResult;
 }
+
+declare module '@shared/runtime' {
+  export const telegramId: string | null;
+  export const isInAigram: boolean;
+  export interface UseGameEvent {
+    trigger: (event: string, configJson?: object | string) => void;
+    canEmit: boolean;
+  }
+  export function useGameEvent(): UseGameEvent;
+}

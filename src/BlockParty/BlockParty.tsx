@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Leaderboard, useGameScore } from '@shared/leaderboard';
+import type { LeaderboardEntry } from '@shared/leaderboard';
+import { useGameEvent, telegramId } from '@shared/runtime';
 import { Scene } from './components/Scene';
 import { SplashScene } from './components/SplashScene';
 import { StoreScreen } from './components/StoreScreen';
@@ -92,6 +94,73 @@ export function BlockParty() {
   const {
     isInAigram, submitScore, fetchLeaderboard,
   } = useGameScore();
+  const events = useGameEvent();
+
+  // Champion pill on splash + leaderboard-beat notify ([[aigram-notify]]
+  // skill, Reference Implementation B). On splash, refetch the board and
+  // pin the top entry. Snapshot my own pre-run best when entering a run;
+  // after submit, if this run pushed me ahead of anyone, ping the highest
+  // scorer I just overtook.
+  const [champion, setChampion] = useState<{ name: string; score: number } | null>(null);
+  const preRunBestRef = useRef(0);
+  const lastRowsRef = useRef<LeaderboardEntry[]>([]);
+
+  useEffect(() => {
+    if (phase !== 'splash') return;
+    let cancelled = false;
+    fetchLeaderboard()
+      .then(rows => {
+        if (cancelled) return;
+        lastRowsRef.current = rows;
+        const top = rows[0];
+        if (top && Number(top.score) > 0) {
+          setChampion({ name: top.name || 'anon', score: Number(top.score) });
+        } else {
+          setChampion(null);
+        }
+      })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [phase, fetchLeaderboard]);
+
+  useEffect(() => {
+    if (phase !== 'playing') return;
+    if (!telegramId) { preRunBestRef.current = 0; return; }
+    const meId = String(telegramId);
+    const me = lastRowsRef.current.find(r => String(r.user_id) === meId);
+    preRunBestRef.current = me ? Number(me.score) || 0 : 0;
+  }, [phase]);
+
+  const sendBeatNotify = useCallback(async (myScore: number) => {
+    if (!telegramId || !events.canEmit) return;
+    if (myScore <= preRunBestRef.current) return;
+    try {
+      const fresh = await fetchLeaderboard();
+      const meId = String(telegramId);
+      const beaten = fresh
+        .filter(r => String(r.user_id) !== meId)
+        .map(r => ({ id: String(r.user_id), score: Number(r.score) || 0 }))
+        .filter(r => r.score < myScore && r.score > preRunBestRef.current)
+        .sort((a, b) => b.score - a.score)[0];
+      if (!beaten) return;
+      events.trigger('score_beat', {
+        actions: [
+          {
+            type: 'notify',
+            target_user_id: beaten.id,
+            image: {
+              ref_url: 'https://yinxinghuan.github.io/games/posters/block-party.png',
+              prompt: 'neon-lit night street with cops and zombies, top-down arcade shooter',
+            },
+            message: {
+              template: `{sender_name} just beat your record — ${Math.round(myScore)} on BLOCK PARTY.`,
+              variables: ['sender_name'],
+            },
+          },
+        ],
+      });
+    } catch { /* silent */ }
+  }, [events, fetchLeaderboard]);
 
   const haptic = useCallback((kind: 'light' | 'heavy') => {
     if (!('vibrate' in navigator)) return;
@@ -133,10 +202,12 @@ export function BlockParty() {
       localStorage.setItem(HIGH_KEY, String(final));
       setHighScore(final);
     }
-    submitScore(final).catch(() => { /* silent */ });
+    submitScore(final)
+      .then(() => sendBeatNotify(final))
+      .catch(() => { /* silent */ });
     // Earn the run's score as store currency.
     setStoreState(earn(storeState, final));
-  }, [highScore, submitScore, storeState, setStoreState]);
+  }, [highScore, submitScore, storeState, setStoreState, sendBeatNotify]);
 
   const showLevelTitle = useCallback((lvl: number) => {
     const tuning = getLevelTuning(lvl);
@@ -235,7 +306,9 @@ export function BlockParty() {
           setVictory(true);
           stopBgm();
           setFinalScore(total);
-          submitScore(total).catch(() => { /* silent */ });
+          submitScore(total)
+            .then(() => sendBeatNotify(total))
+            .catch(() => { /* silent */ });
           if (total > highScore) {
             localStorage.setItem(HIGH_KEY, String(total));
             setHighScore(total);
@@ -253,7 +326,7 @@ export function BlockParty() {
       }
     }, 150);
     return () => window.clearInterval(id);
-  }, [phase, highScore, submitScore, showLevelTitle]);
+  }, [phase, highScore, submitScore, showLevelTitle, sendBeatNotify, storeState, setStoreState]);
 
   // Drive heartbeat tempo from monster proximity. Polls 4× per second —
   // cheap, doesn't need frame-perfect sync because the audible change is
@@ -448,7 +521,7 @@ export function BlockParty() {
           onOpenLeaderboard={() => setShowLeaderboard(true)}
           highScore={highScore}
           picked={storeState.picked}
-          champion={null}
+          champion={champion}
         />
       )}
 
