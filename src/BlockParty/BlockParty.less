@@ -164,38 +164,6 @@
       font-weight: 700;
     }
   }
-  // Reroll button — small pill below the progress chip
-  &__reroll-btn {
-    margin: 6px auto 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px 5px;
-    background: rgba(28,18,28,.55);
-    border: 1px solid rgba(255, 220, 160, .18);
-    color: rgba(255, 220, 160, .85);
-    border-radius: 999px;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 4px 14px rgba(0,0,0,.4);
-    pointer-events: auto;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: .20em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: transform .12s ease, background .12s ease, border-color .12s ease;
-    -webkit-tap-highlight-color: transparent;
-    user-select: none;
-    touch-action: none;
-
-    &:active {
-      transform: translateY(1px);
-      background: rgba(48, 30, 50, .75);
-      border-color: rgba(255, 220, 160, .35);
-    }
-  }
 
   &__exit-reveal-flash {
     position: absolute;
@@ -547,18 +515,13 @@
   }
 }
 
-// 3-heart HP row — sits under the topbar score/time/kills row.
+// 3-heart HP row — now nested inside .bp__hud-main, so static layout.
 .bp__hearts {
-  position: absolute;
-  top: 56px;
-  left: 14px;
-  display: flex;
-  gap: 4px;
-  z-index: 12;
-  pointer-events: none;
-  font-size: 22px;
+  display: inline-flex;
+  gap: 2px;
+  font-size: 18px;
   line-height: 1;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
 }
 .bp__heart {
   color: #ff3a4a;
@@ -610,6 +573,213 @@
   letter-spacing: 1px;
   color: var(--weapon-tint, #fff);
   text-shadow: 0 0 8px var(--weapon-tint, #fff);
+}
+
+// ===================================================================
+// New consolidated HUD (Phase 8) — 3-tier priority
+// ===================================================================
+
+// Main pill: hearts | score | weapon — sits top-left, the only spot the
+// player needs to look at for "am I alive / how am I doing / what am I
+// shooting".
+.bp__hud-main {
+  position: absolute;
+  top: 16px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(8, 6, 14, 0.62);
+  border: 1px solid rgba(255, 230, 200, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+  z-index: 12;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.bp__hud-score {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 240, 220, 0.96);
+  font-variant-numeric: tabular-nums;
+}
+.bp__hud-weapon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1.2px solid var(--weapon-tint, #fff);
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  background: rgba(20, 14, 26, 0.55);
+}
+.bp__hud-weapon-name { color: var(--weapon-tint, #fff); }
+.bp__hud-weapon-stars {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--weapon-tint, #fff);
+  text-shadow: 0 0 8px var(--weapon-tint, #fff);
+}
+
+// XP bar — slim, directly under the main pill. No label, just the fill +
+// a small LVL N over the fill so the player doesn't lose the level info.
+.bp__hud-xp {
+  position: absolute;
+  top: 64px;
+  left: 14px;
+  width: 220px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 240, 200, 0.16);
+  overflow: hidden;
+  z-index: 12;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.bp__hud-xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #7fffa8 0%, #4cf0a8 100%);
+  box-shadow: 0 0 8px rgba(80, 255, 168, 0.6);
+  transition: width 180ms ease;
+}
+.bp__hud-xp-label {
+  position: absolute;
+  right: 8px;
+  top: -1px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  color: rgba(255, 240, 200, 0.85);
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+// Edge label — top-right corner: NIGHT + goal + small kills counter.
+.bp__hud-corner {
+  position: absolute;
+  top: 16px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  z-index: 12;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.bp__hud-corner-night {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: .14em;
+  color: rgba(255, 240, 220, 0.92);
+}
+.bp__hud-corner-goal {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: .14em;
+  color: #ffd060;
+  &--open {
+    color: #f0d8ff;
+    text-shadow: 0 0 10px rgba(200, 120, 255, 0.85);
+    animation: bp-goal-glow 1.6s ease-in-out infinite;
+  }
+}
+.bp__hud-corner-kills {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: .12em;
+  color: rgba(220, 210, 200, 0.55);
+}
+
+// Night kill-goal chip — replaces the old timer. Sits under the N1/N2/N3
+// pill. "FIND EXIT" variant glows violet once the beacon has spawned.
+.bp__goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(15, 11, 22, 0.62);
+  border: 1px solid rgba(255, 230, 180, 0.30);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: .14em;
+  color: rgba(255, 240, 220, 0.85);
+  text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+  b { color: #ffd060; font-weight: 800; }
+  &--open {
+    border-color: #c878ff;
+    color: #f0d8ff;
+    background: rgba(40, 24, 60, 0.78);
+    box-shadow: 0 0 18px rgba(200, 120, 255, 0.45);
+    animation: bp-goal-glow 1.8s ease-in-out infinite;
+  }
+}
+.bp__goal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c878ff;
+  box-shadow: 0 0 10px #c878ff;
+}
+@keyframes bp-goal-glow {
+  0%, 100% { box-shadow: 0 0 14px rgba(200, 120, 255, 0.40); }
+  50%      { box-shadow: 0 0 28px rgba(200, 120, 255, 0.85); }
+}
+
+// Exit-open toast — large violet eyebrow that pulses in once when the
+// beacon spawns; fades automatically after a few seconds.
+.bp__exit-toast {
+  position: absolute;
+  top: 28%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 26px;
+  border-radius: 14px;
+  background: rgba(8, 4, 14, 0.78);
+  border: 2px solid #c878ff;
+  box-shadow: 0 0 36px rgba(200, 120, 255, 0.65);
+  z-index: 25;
+  pointer-events: none;
+  animation: bp-exit-toast 3.2s ease-out forwards;
+}
+.bp__exit-toast-eyebrow {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: .26em;
+  color: #f0d8ff;
+  text-shadow: 0 0 14px rgba(200, 120, 255, 0.85);
+}
+.bp__exit-toast-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: .18em;
+  color: rgba(220, 200, 230, 0.85);
+  text-transform: uppercase;
+}
+@keyframes bp-exit-toast {
+  0%   { opacity: 0; transform: translate(-50%, 24px) scale(0.92); }
+  12%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  80%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
 }
 
 // Weapon toast — sits in the same vertical slot as the perk toast, fades

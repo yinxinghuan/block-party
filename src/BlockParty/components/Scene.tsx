@@ -79,6 +79,197 @@ function FollowCamera({ state }: { state: React.MutableRefObject<GameRef> }) {
   return null;
 }
 
+// Rain (night 2) — InstancedMesh of thin vertical lines falling at ~24u/s,
+// wrapping when they hit the asphalt. Plus a periodic lightning flash that
+// briefly punches the ambient light up so the street looks lit by a far
+// thunderhead.
+function Rain({ visible }: { visible: boolean }) {
+  const COUNT = 220;
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const positions = useMemo(() => {
+    const a = new Float32Array(COUNT * 3);
+    for (let i = 0; i < COUNT; i++) {
+      a[i * 3 + 0] = (Math.random() - 0.5) * 70;
+      a[i * 3 + 1] = Math.random() * 12;
+      a[i * 3 + 2] = (Math.random() - 0.5) * 70;
+    }
+    return a;
+  }, []);
+  useFrame((_, delta) => {
+    const m = meshRef.current;
+    if (!m || !visible) return;
+    const c = Math.min(delta, 0.05);
+    for (let i = 0; i < COUNT; i++) {
+      positions[i * 3 + 1] -= 24 * c;
+      if (positions[i * 3 + 1] < 0.2) {
+        positions[i * 3 + 0] = (Math.random() - 0.5) * 70;
+        positions[i * 3 + 1] = 10 + Math.random() * 2;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 70;
+      }
+      dummy.position.set(positions[i * 3 + 0], positions[i * 3 + 1], positions[i * 3 + 2]);
+      dummy.scale.set(0.04, 0.7, 0.04);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    m.instanceMatrix.needsUpdate = true;
+  });
+  if (!visible) return null;
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, COUNT]} castShadow={false} receiveShadow={false}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial color="#9ab8d0" transparent opacity={0.55} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
+function Lightning({ visible }: { visible: boolean }) {
+  const lightRef = useRef<THREE.DirectionalLight>(null);
+  const nextStrike = useRef(2 + Math.random() * 5);
+  const strikeT = useRef(0);
+  useFrame((_, delta) => {
+    if (!visible) return;
+    const l = lightRef.current;
+    if (!l) return;
+    const c = Math.min(delta, 0.05);
+    strikeT.current -= c;
+    nextStrike.current -= c;
+    if (nextStrike.current <= 0) {
+      strikeT.current = 0.18;
+      nextStrike.current = 4 + Math.random() * 7;
+    }
+    l.intensity = strikeT.current > 0 ? 4.5 * (strikeT.current / 0.18) : 0;
+  });
+  if (!visible) return null;
+  return <directionalLight ref={lightRef} color="#dde6ff" intensity={0} position={[-8, 28, 12]} />;
+}
+
+// Embers (night 3) — floating orange specks rising from the asphalt then
+// dissipating overhead. Sells "this street is burning at the edges" without
+// any actual fire geometry.
+function Embers({ visible }: { visible: boolean }) {
+  const COUNT = 90;
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const positions = useMemo(() => {
+    const a = new Float32Array(COUNT * 3);
+    const vy = new Float32Array(COUNT);
+    for (let i = 0; i < COUNT; i++) {
+      a[i * 3 + 0] = (Math.random() - 0.5) * 64;
+      a[i * 3 + 1] = Math.random() * 6;
+      a[i * 3 + 2] = (Math.random() - 0.5) * 64;
+      vy[i] = 0.7 + Math.random() * 1.4;
+    }
+    return { a, vy };
+  }, []);
+  useFrame(({ clock }, delta) => {
+    const m = meshRef.current;
+    if (!m || !visible) return;
+    const c = Math.min(delta, 0.05);
+    const t = clock.getElapsedTime();
+    for (let i = 0; i < COUNT; i++) {
+      positions.a[i * 3 + 1] += positions.vy[i] * c;
+      positions.a[i * 3 + 0] += Math.sin(t * 1.2 + i) * 0.01;
+      positions.a[i * 3 + 2] += Math.cos(t * 1.4 + i * 0.7) * 0.01;
+      if (positions.a[i * 3 + 1] > 9) {
+        positions.a[i * 3 + 0] = (Math.random() - 0.5) * 64;
+        positions.a[i * 3 + 1] = 0.2;
+        positions.a[i * 3 + 2] = (Math.random() - 0.5) * 64;
+      }
+      const twinkle = 0.5 + Math.sin(t * 2.4 + i) * 0.4;
+      dummy.position.set(positions.a[i * 3 + 0], positions.a[i * 3 + 1], positions.a[i * 3 + 2]);
+      dummy.scale.setScalar(0.06 * (0.6 + twinkle));
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    m.instanceMatrix.needsUpdate = true;
+  });
+  if (!visible) return null;
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, COUNT]} castShadow={false} receiveShadow={false}>
+      <icosahedronGeometry args={[1, 0]} />
+      <meshBasicMaterial color="#ff7030" transparent opacity={0.85} toneMapped={false} blending={THREE.AdditiveBlending} />
+    </instancedMesh>
+  );
+}
+
+// Exit beacon — violet 3-ring portal + tall light column + ground halo.
+// Only visible once d.exit is set (kill goal met or boss dead). Walking
+// within EXIT_PICKUP_RADIUS clears the night.
+function ExitBeacon({ state }: { state: React.MutableRefObject<GameRef> }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const ring1Ref = useRef<THREE.Mesh>(null);
+  const ring2Ref = useRef<THREE.Mesh>(null);
+  const ring3Ref = useRef<THREE.Mesh>(null);
+  const coreRef = useRef<THREE.Mesh>(null);
+  const coreMat = useRef<THREE.MeshStandardMaterial>(null);
+  const beaconMat = useRef<THREE.MeshBasicMaterial>(null);
+  const haloMat = useRef<THREE.MeshBasicMaterial>(null);
+  const innerHaloMat = useRef<THREE.MeshBasicMaterial>(null);
+  const lightRef = useRef<THREE.PointLight>(null);
+  useFrame(({ clock }) => {
+    const d = state.current;
+    const ex = d.exit;
+    const g = groupRef.current;
+    if (!g) return;
+    if (!ex) { g.visible = false; return; }
+    g.visible = true;
+    g.position.set(ex.position.x, 0, ex.position.z);
+    const t = clock.getElapsedTime();
+    const pulse = 0.7 + Math.sin(t * 2.2) * 0.30;
+    if (ring1Ref.current) ring1Ref.current.rotation.z =  t * 1.4;
+    if (ring2Ref.current) ring2Ref.current.rotation.z = -t * 1.1;
+    if (ring3Ref.current) ring3Ref.current.rotation.z =  t * 0.8;
+    if (coreRef.current) {
+      coreRef.current.position.y = 1.10 + Math.sin(t * 1.5) * 0.10;
+      coreRef.current.rotation.y = t * 0.9;
+    }
+    if (coreMat.current) coreMat.current.emissiveIntensity = 3.4 + pulse * 1.6;
+    if (beaconMat.current) beaconMat.current.opacity = 0.30 + pulse * 0.35;
+    if (haloMat.current) haloMat.current.opacity = 0.45 + pulse * 0.40;
+    if (innerHaloMat.current) innerHaloMat.current.opacity = 0.35 + pulse * 0.32;
+    if (lightRef.current) lightRef.current.intensity = 26 + pulse * 18;
+  });
+  return (
+    <group ref={groupRef} visible={false}>
+      <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[1.2, 3.0, 56]} />
+        <meshBasicMaterial ref={haloMat} color="#c878ff" transparent opacity={0.55} depthWrite={false} blending={THREE.AdditiveBlending} />
+      </mesh>
+      <mesh position={[0, 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[1.2, 36]} />
+        <meshBasicMaterial ref={innerHaloMat} color="#a050ff" transparent opacity={0.40} depthWrite={false} blending={THREE.AdditiveBlending} />
+      </mesh>
+      <mesh position={[0, 0.18, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.72, 0.90, 0.34, 18]} />
+        <meshStandardMaterial color="#3a2848" roughness={1} />
+      </mesh>
+      <mesh ref={ring1Ref} position={[0, 0.7, 0]} rotation={[Math.PI / 2.4, 0, 0]}>
+        <torusGeometry args={[0.62, 0.06, 8, 30]} />
+        <meshStandardMaterial color="#e0c0ff" emissive="#a050ff" emissiveIntensity={3.0} toneMapped={false} />
+      </mesh>
+      <mesh ref={ring2Ref} position={[0, 1.15, 0]} rotation={[Math.PI / 2.2, 0, 0]}>
+        <torusGeometry args={[0.50, 0.05, 8, 28]} />
+        <meshStandardMaterial color="#e0c0ff" emissive="#c070ff" emissiveIntensity={3.0} toneMapped={false} />
+      </mesh>
+      <mesh ref={ring3Ref} position={[0, 1.60, 0]} rotation={[Math.PI / 2.0, 0, 0]}>
+        <torusGeometry args={[0.40, 0.04, 8, 24]} />
+        <meshStandardMaterial color="#f4d8ff" emissive="#d080ff" emissiveIntensity={3.0} toneMapped={false} />
+      </mesh>
+      <mesh ref={coreRef} position={[0, 1.10, 0]} castShadow>
+        <octahedronGeometry args={[0.58, 0]} />
+        <meshStandardMaterial ref={coreMat} color="#f4d8ff" emissive="#b060ff" emissiveIntensity={3.6} roughness={0.2} metalness={0.6} toneMapped={false} />
+      </mesh>
+      {/* Tall beacon column visible above all pillars */}
+      <mesh position={[0, 6.5, 0]}>
+        <cylinderGeometry args={[0.16, 0.34, 12.0, 14, 1, true]} />
+        <meshBasicMaterial ref={beaconMat} color="#e0b8ff" transparent opacity={0.40} depthWrite={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} />
+      </mesh>
+      <pointLight ref={lightRef} position={[0, 1.0, 0]} color="#c878ff" intensity={28} distance={14} decay={2} />
+    </group>
+  );
+}
+
 // Neon perimeter signs — 12 emissive boxes mounted on the inside face of
 // each wall. Each one flickers on its own sine + per-sign offset so the
 // scene reads "alive but neglected." Doubles as the main ambient color
@@ -1440,6 +1631,10 @@ export function Scene(props: SceneProps) {
       <WeaponDrops state={state} />
       <PerkDrops state={state} />
       <EnemyProjectiles state={state} />
+      <ExitBeacon state={state} />
+      <Rain visible={props.level === 2} />
+      <Lightning visible={props.level === 2} />
+      <Embers visible={props.level === 3} />
     </>
   );
 }

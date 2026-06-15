@@ -12,10 +12,11 @@ import {
   AIM_RANGE, FIRE_ARC_HALF, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS,
   SURGE_PERIOD, SURGE_COUNT_BASE, SURGE_COUNT_PER_NIGHT,
   MONSTER_SPEED_K, MONSTER_KNOCKBACK_V, TIER_WEIGHTS,
+  EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, NIGHT_KILL_GOAL,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
-import type { BloodSplat, Bullet, Crystal, EnemyProjectile, FxEvent, Monster, MonsterTier, PerkDrop, Pillar, PillarVariant, Stick } from '../types';
+import type { BloodSplat, Bullet, Crystal, EnemyProjectile, ExitStone, FxEvent, Monster, MonsterTier, PerkDrop, Pillar, PillarVariant, Stick } from '../types';
 import { getPerk, rollOnePerk } from '../perks';
 import { DROPPABLE_WEAPONS, weaponEffectiveSpec, WEAPON_LEVEL_MAX } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
@@ -50,6 +51,14 @@ export interface GameRef {
   /** Pending shots inside a burst — nurse triple-tap stages 3 darts at
    *  60ms intervals; cop + biker enqueue everything on the same frame. */
   pendingShots: { fireAt: number; dirX: number; dirZ: number; dmg: number }[];
+  /** Exit beacon for the current night. Null until killsThisNight reaches
+   *  the per-night goal (or boss dies on night 3); once summoned, the
+   *  player walks into it to clear the night. */
+  exit: ExitStone | null;
+  /** Kill count toward the current night's exit goal. Resets each level. */
+  killsThisNight: number;
+  /** Set true the frame the exit spawns — UI plays an "EXIT OPEN" toast. */
+  exitJustOpened: boolean;
   /** Active weapon — starts as 'pistol', changes when the player walks
    *  over a WeaponDrop. Player component watches this to swap the prop. */
   currentWeaponId: WeaponId;
@@ -124,6 +133,9 @@ export function createGameState(): GameRef {
     iframesT: 0,
     aimYaw: null,
     pendingShots: [],
+    exit: null,
+    killsThisNight: 0,
+    exitJustOpened: false,
     currentWeaponId: 'pistol',
     currentWeaponLevel: 1,
     lastWeaponPickupKind: null,
@@ -312,6 +324,42 @@ function rollSpawnTier(level: number): Exclude<MonsterTier, 'boss'> {
   return 'lurker';
 }
 
+// Pick an EXIT spawn position: far from the player, away from edges.
+// Falls through to the opposite-of-player position if it can't find a
+// clean spot in 30 tries.
+function pickExitSpawn(d: GameRef): THREE.Vector3 {
+  for (let i = 0; i < 30; i++) {
+    const x = (Math.random() - 0.5) * (PLAYFIELD - 6);
+    const z = (Math.random() - 0.5) * (PLAYFIELD - 6);
+    if (Math.hypot(x - d.pos.x, z - d.pos.z) >= EXIT_MIN_DIST) {
+      return new THREE.Vector3(x, 0, z);
+    }
+  }
+  return new THREE.Vector3(-d.pos.x * 0.8, 0, -d.pos.z * 0.8);
+}
+
+function summonExit(d: GameRef, atPos?: THREE.Vector3) {
+  if (d.exit) return;
+  d.exit = {
+    position: atPos ? atPos.clone() : pickExitSpawn(d),
+    bornAt: d.time,
+  };
+  d.exitJustOpened = true;
+}
+
+// Called after every kill credit. Boss death always opens the exit at
+// the boss's position. Otherwise, the night-1/2 kill goal opens it at a
+// random far-distance spot.
+function checkExitTrigger(d: GameRef, killedTier: MonsterTier, killPos: THREE.Vector3) {
+  if (d.exit) return;
+  if (killedTier === 'boss') {
+    summonExit(d, killPos);
+    return;
+  }
+  const goal = NIGHT_KILL_GOAL[d.level as 1 | 2 | 3] ?? -1;
+  if (goal > 0 && d.killsThisNight >= goal) summonExit(d);
+}
+
 // Ranged stalker — stops at SPITTER_OPTIMAL_RANGE and spits a green
 // projectile every (telegraph + cooldown). Lurkers + boss stay melee.
 const SPITTER_OPTIMAL_RANGE = 7.5;
@@ -331,6 +379,9 @@ export function startLevel(d: GameRef, level: number) {
   d.monsters = [];
   d.crystals = [];
   d.pillars = [];
+  d.exit = null;
+  d.killsThisNight = 0;
+  d.exitJustOpened = false;
   for (let i = 0; i < tuning.pillarCount; i++) d.pillars.push(spawnPillar(tuning.pillarScaleBias));
   d.monsterSpawnTimer = 0;
   d.crystalRespawnTimer = 0;
@@ -425,21 +476,8 @@ export function useGameLoop(p: GameLoopParams) {
     d.levelT += c;
     const tuning = getLevelTuning(d.level);
 
-    // ---- WAVE TIMER ----
-    // Survive the full timeLimit and the night is yours. Last night clears →
-    // victory; everything else just advances. The "find an exit" goal is gone:
-    // you just have to outlast the swarm.
-    if (d.levelT >= tuning.timeLimit) {
-      const timeBonus = 0;             // no time bonus — the night was the goal
-      const levelBonus = 100 * d.level;
-      d.score += levelBonus + timeBonus;
-      p.onScore(Math.floor(d.score));
-      p.playSfx('pickup_green');       // TODO Phase 3: dedicated 'night_clear' sfx
-      p.haptic?.('heavy');
-      d.levelCleared = true;
-      if (d.level >= LEVELS.length) d.victory = true;
-      return;
-    }
+    // Time is now informational only — the night clears when the player
+    // touches the exit beacon (see EXIT block below).
 
     // ---- PLAYER MOVEMENT ----
     const stickMag = Math.hypot(p.stick.x, p.stick.y);
@@ -555,9 +593,11 @@ export function useGameLoop(p: GameLoopParams) {
           // If the victim is also dead, queue THEM for launch too. Chain!
           if (other.hp <= 0 && !other.dying) {
             d.kills += 1;
+            d.killsThisNight += 1;
             d.score += SCORE_KILL[other.tier];
             p.onScore(Math.floor(d.score));
             emitFx(d, 'monster_kill', other.position.x, other.position.z);
+            checkExitTrigger(d, other.tier, other.position);
             const launchV2 = LAUNCH_SPEED[other.tier];
             other.dying = true;
             other.dyingT = 0;
@@ -723,9 +763,11 @@ export function useGameLoop(p: GameLoopParams) {
             }
             // Award the kill to the player + remove this exploder.
             d.kills += 1;
+            d.killsThisNight += 1;
             d.score += SCORE_KILL.exploder;
             p.onScore(Math.floor(d.score));
             emitFx(d, 'monster_kill', m.position.x, m.position.z);
+            checkExitTrigger(d, 'exploder', m.position);
             d.monsters.splice(i, 1);
             continue;
           }
@@ -1061,9 +1103,11 @@ export function useGameLoop(p: GameLoopParams) {
             // being spliced; it body-checks live monsters in its path
             // before exploding at the end.
             d.kills += 1;
+            d.killsThisNight += 1;
             d.score += SCORE_KILL[m.tier];
             p.onScore(Math.floor(d.score));
             emitFx(d, 'monster_kill', m.position.x, m.position.z);
+            checkExitTrigger(d, m.tier, m.position);
             // Initial blood burst at hit point — mid-size directional
             // spray; the BIG explosion happens at corpse finalize.
             spawnBloodSplats(
@@ -1169,6 +1213,26 @@ export function useGameLoop(p: GameLoopParams) {
       const count = SURGE_COUNT_BASE + (d.level - 1) * SURGE_COUNT_PER_NIGHT;
       for (let i = 0; i < count; i++) {
         spawnMonsterTier(d, tuning, rollSpawnTier(d.level));
+      }
+    }
+
+    // ---- EXIT PICKUP ----
+    // Once the beacon is summoned, touching it clears the night. Night 3
+    // exit triggers final victory.
+    if (d.exit) {
+      const ex = d.exit.position;
+      const exDx = ex.x - d.pos.x;
+      const exDz = ex.z - d.pos.z;
+      if (Math.hypot(exDx, exDz) < EXIT_PICKUP_RADIUS) {
+        const timeBonus = 0;
+        const levelBonus = 100 * d.level;
+        d.score += levelBonus + timeBonus;
+        p.onScore(Math.floor(d.score));
+        p.playSfx('pickup_green');
+        p.haptic?.('heavy');
+        d.levelCleared = true;
+        if (d.level >= LEVELS.length) d.victory = true;
+        return;
       }
     }
 

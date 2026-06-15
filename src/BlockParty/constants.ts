@@ -42,6 +42,20 @@ export const CAMERA_FOV = 55;
 // the first dark-hand attempts a strike (which itself needs ~1.2s telegraph).
 export const GRACE_PERIOD = 3.0;
 
+// ===== EXIT GOAL (replaces wave timer) =====
+// Each night clears when the player walks into a violet exit beacon. The
+// beacon spawns automatically once the per-night kill goal is met (or, on
+// the boss night, when the boss is defeated).
+export const EXIT_PICKUP_RADIUS = 1.8;
+export const EXIT_MIN_DIST = 18.0;     // spawn at least this far from player
+/** Kills needed per night before the exit beacon appears. Night 3 is -1
+ *  because the boss must die instead — exit then spawns where boss fell. */
+export const NIGHT_KILL_GOAL: Record<1 | 2 | 3, number> = {
+  1: 25,
+  2: 45,
+  3: -1,    // sentinel — boss death triggers exit
+};
+
 // ===== AUTO-FIRE (Vampire Survivors / Brotato model) =====
 // Hero auto-locks the nearest non-fleeing monster within AIM_RANGE and fires
 // every FIRE_COOLDOWN seconds. The bullet is a fast linear projectile.

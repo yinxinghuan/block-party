@@ -10,6 +10,7 @@ import type { PickupKind, SfxKey } from './hooks/useGameLoop';
 import type { SurvivorId } from './builders/characters';
 import { WEAPONS, type WeaponId } from './builders/weapons';
 import { PERKS } from './perks';
+import { NIGHT_KILL_GOAL } from './constants';
 import { getLevelTuning, LEVELS } from './constants';
 import { useJoystick } from './hooks/useJoystick';
 import { playSfx, setBgmTension, setHeartbeatRate, startBgm, stopBgm, stopHeartbeat, unlockAudio } from './utils/audio';
@@ -63,6 +64,11 @@ export function BlockParty() {
   const [currentWeaponId, setCurrentWeaponId] = useState<WeaponId>('pistol');
   const [currentWeaponLevel, setCurrentWeaponLevel] = useState(1);
   const [weaponToast, setWeaponToast] = useState<{ id: WeaponId; level: number; kind: 'swap' | 'levelup'; key: number } | null>(null);
+  // Exit-goal HUD: kill progress toward the night's exit + a one-shot
+  // "EXIT OPEN" toast the moment the beacon spawns.
+  const [killsThisNight, setKillsThisNight] = useState(0);
+  const [exitOpen, setExitOpen] = useState(false);
+  const [exitToastKey, setExitToastKey] = useState(0);
   const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -136,18 +142,6 @@ export function BlockParty() {
     window.setTimeout(() => setLevelTitle(null), 1700);
   }, []);
 
-  // Reshuffle the current level — re-randomizes pillars / monsters / crystals
-  // / exit position and resets the timer + pickup counter. Run continues.
-  const reroll = useCallback(() => {
-    const d = stateRef.current;
-    if (d.gameOver || victory) return;
-    startLevel(d, d.level);
-    setTimeLeft(getLevelTuning(d.level).timeLimit);
-    setPellets([]);
-    setBanners([]);
-    setHeartbeatRate(0);
-  }, [victory]);
-
   const start = useCallback((survivorPick?: SurvivorId) => {
     // CRITICAL: set the playing phase synchronously BEFORE touching audio.
     // Resolve which survivor to play as: explicit pick wins, else the
@@ -159,6 +153,8 @@ export function BlockParty() {
     setKills(0);
     setHp(3);
     setPerkToast(null);
+    setKillsThisNight(0);
+    setExitOpen(false);
     setXpInLevel(0);
     setXpNeededForLevel(5);
     setXpLevel(0);
@@ -198,6 +194,12 @@ export function BlockParty() {
       setXpLevel(d.xpLevel);
       setCurrentWeaponId(d.currentWeaponId);
       setCurrentWeaponLevel(d.currentWeaponLevel);
+      setKillsThisNight(d.killsThisNight);
+      setExitOpen(!!d.exit);
+      if (d.exitJustOpened) {
+        d.exitJustOpened = false;
+        setExitToastKey(k => k + 1);
+      }
       if (d.lastWeaponPickupKind) {
         const ts = d.lastWeaponPickupAt;
         setWeaponToast(prev => (prev && prev.key === ts ? prev : {
@@ -317,77 +319,63 @@ export function BlockParty() {
 
       {showCanvas && (
         <div className="ln__hud">
-          <div className="ln__topbar">
-            <div className="ln__topbar-cell">
-              <span className="ln__topbar-num">{score}</span>
-              <span className="ln__topbar-caption">SCORE</span>
+          {/* HUD priority — three tiers, condensed from the old 8-element
+              scatter:
+                MAIN  — top-left main pill: hearts + score + weapon chip
+                NEXT  — slim XP bar directly under
+                EDGE  — corner labels: NIGHT N and goal/kill chip
+              Reshuffle + standalone TIME readout removed (exit goal made
+              the timer informational; no need to surface it). */}
+          <div className="bp__hud-main">
+            <div className="bp__hearts" aria-label={`${hp} of 3 hearts`}>
+              {Array.from({ length: 3 }, (_, i) => (
+                <span
+                  key={i}
+                  className={`bp__heart${i < hp ? '' : ' bp__heart--gone'}`}
+                  aria-hidden="true"
+                >♥</span>
+              ))}
             </div>
-            <div className="ln__topbar-mid">
-              <span className={`ln__topbar-num ln__topbar-num--small${timeLeft < 15 ? ' ln__topbar-num--urgent' : ''}`}>
-                {Math.ceil(timeLeft)}s
-              </span>
-              <span className="ln__topbar-caption">TIME</span>
+            <div className="bp__hud-score">{score.toLocaleString()}</div>
+            <div
+              className="bp__hud-weapon"
+              style={{ ['--weapon-tint' as string]: WEAPONS[currentWeaponId].tint }}
+            >
+              <span className="bp__hud-weapon-name">{WEAPONS[currentWeaponId].label}</span>
+              {currentWeaponId !== 'pistol' && (
+                <span className="bp__hud-weapon-stars" aria-label={`level ${currentWeaponLevel}`}>
+                  {'★'.repeat(currentWeaponLevel)}{'·'.repeat(5 - currentWeaponLevel)}
+                </span>
+              )}
             </div>
-            <div className="ln__topbar-cell ln__topbar-cell--right">
-              <span className="ln__topbar-num ln__topbar-num--small">{kills}</span>
-              <span className="ln__topbar-caption">KILLS</span>
-            </div>
-          </div>
-          {/* Hearts — 3 max, deplete on bite. */}
-          <div className="bp__hearts" aria-label={`${hp} of 3 hearts`}>
-            {Array.from({ length: 3 }, (_, i) => (
-              <span
-                key={i}
-                className={`bp__heart${i < hp ? '' : ' bp__heart--gone'}`}
-                aria-hidden="true"
-              >♥</span>
-            ))}
           </div>
 
-          {/* Active weapon chip — name in current weapon's tint + level
-              stars. Pistol stays a baseline; everything else shows
-              ★…★★★★★ as it levels via re-pickups. */}
-          <div
-            className="bp__weapon"
-            style={{ ['--weapon-tint' as string]: WEAPONS[currentWeaponId].tint }}
-          >
-            <span className="bp__weapon-dot" />
-            <span className="bp__weapon-name">{WEAPONS[currentWeaponId].label}</span>
-            {currentWeaponId !== 'pistol' && (
-              <span className="bp__weapon-stars" aria-label={`level ${currentWeaponLevel}`}>
-                {'★'.repeat(currentWeaponLevel)}{'·'.repeat(5 - currentWeaponLevel)}
-              </span>
-            )}
+          {/* XP bar — sits directly under the main pill, slim. */}
+          <div className="bp__hud-xp" aria-label={`xp ${xpInLevel} of ${xpNeededForLevel}`}>
+            <div
+              className="bp__hud-xp-fill"
+              style={{ width: `${Math.min(100, (xpInLevel / Math.max(1, xpNeededForLevel)) * 100)}%` }}
+            />
+            <span className="bp__hud-xp-label">LVL {xpLevel}</span>
           </div>
 
-          {/* XP bar — fills as gems get hoovered up. Level number sits at
-              the left, fill % sits behind the track. */}
-          <div className="bp__xp">
-            <span className="bp__xp-level">LVL {xpLevel}</span>
-            <div className="bp__xp-track" aria-label={`xp ${xpInLevel} of ${xpNeededForLevel}`}>
-              <div
-                className="bp__xp-fill"
-                style={{ width: `${Math.min(100, (xpInLevel / Math.max(1, xpNeededForLevel)) * 100)}%` }}
-              />
-            </div>
+          {/* Corner label — NIGHT + goal/kill progress packed together. */}
+          <div className="bp__hud-corner">
+            <span className="bp__hud-corner-night">N{level} · {getLevelTuning(level).name.toUpperCase()}</span>
+            {(() => {
+              const lvlKey = (level === 1 || level === 2 || level === 3) ? level : 1;
+              const goal = NIGHT_KILL_GOAL[lvlKey as 1 | 2 | 3];
+              if (exitOpen) {
+                return <span className="bp__hud-corner-goal bp__hud-corner-goal--open">★ FIND EXIT</span>;
+              }
+              if (goal > 0) {
+                return <span className="bp__hud-corner-goal">{Math.min(killsThisNight, goal)} / {goal} KILLS</span>;
+              }
+              return <span className="bp__hud-corner-goal">KILL THE BOSS</span>;
+            })()}
+            <span className="bp__hud-corner-kills">{kills} kills · {Math.floor(60 - timeLeft) >= 0 ? `${Math.floor(60 - timeLeft)}s` : ''}</span>
           </div>
-          {/* Night pill — sits under the topbar so the player always knows
-              which night they're on. */}
-          <div className="ln__level-pill">
-            <span className="ln__level-pill-num">N{level}</span>
-            <span className="ln__level-pill-name">{getLevelTuning(level).name}</span>
-          </div>
-          {/* Reroll — reshuffle the current night's layout if the player
-              doesn't like the spawn or pillar placement. Run continues. */}
-          <button className="ln__reroll-btn" onPointerDown={reroll}>
-            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden>
-              <path d="M4 12 A 8 8 0 0 1 19 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-              <path d="M14 4 L 19 7 L 16 11" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M20 12 A 8 8 0 0 1 5 17" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-              <path d="M10 20 L 5 17 L 8 13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span>RESHUFFLE LEVEL</span>
-          </button>
+
         </div>
       )}
 
@@ -518,6 +506,17 @@ export function BlockParty() {
       {/* Perk modal — pauses the loop (d.perkPending). Three cards rolled
           fresh on each level-up; the player picks one and the loop
           resumes. */}
+      {exitToastKey > 0 && (
+        <div
+          key={`exit-toast-${exitToastKey}`}
+          className="bp__exit-toast"
+          aria-live="polite"
+        >
+          <span className="bp__exit-toast-eyebrow">★ EXIT OPEN ★</span>
+          <span className="bp__exit-toast-sub">find the violet beacon</span>
+        </div>
+      )}
+
       {weaponToast && (() => {
         const w = WEAPONS[weaponToast.id];
         const stars = '★'.repeat(weaponToast.level);

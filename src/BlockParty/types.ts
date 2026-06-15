@@ -66,6 +66,14 @@ export interface EnemyProjectile {
   ttl: number;
 }
 
+// Violet exit beacon spawned when the player meets the night's kill goal.
+// Touching it within EXIT_PICKUP_RADIUS clears the night.
+export interface ExitStone {
+  position: THREE.Vector3;
+  /** Time the exit was summoned — drives the "EXIT OPEN" toast cooldown. */
+  bornAt: number;
+}
+
 // Power-up dropped on the street. Walking into it auto-applies the perk;
 // no modal, no pause. Each perk type has its own tint + label so the
 // world tells the player what they're picking up.
