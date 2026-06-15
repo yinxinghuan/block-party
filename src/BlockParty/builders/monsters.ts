@@ -5,18 +5,11 @@
 // can animate the shamble and snap the arms during a bite.
 
 import * as THREE from 'three';
-import { P, box, darken, finish } from './prims';
+import { P, MP_HORROR, box, cyl, cone, darken, finish } from './prims';
 
-// Horror palette — same MP values the lab uses, but inlined to keep the
-// builder self-contained.
-const MP = {
-  rot: 0x83a05a, rotD: 0x5f7a3e, rotG: 0x4a6230,   // rotten flesh
-  bone: 0xe9e2cd,                                   // exposed rib
-  suitD: 0x12121a,                                  // shoes / near-black
-  glowYel: 0xffd23f,
-  glowRed: 0xff3322,                                // boss eyes
-  glowGrn: 0x9bff5a,
-};
+// Horror palette — aliased from MP_HORROR so the ported builders look
+// exactly like the lab's reference.
+const MP = MP_HORROR;
 const EYE = 0x201b18;
 const glow = (c: number, ei = 0.9) => ({ e: c, ei });
 
@@ -162,4 +155,171 @@ export function flashWhite(group: THREE.Group, flash01: number) {
       std.emissiveIntensity = naturalI + flash01 * 3.2;
     }
   });
+}
+
+// ─── PORTED MONSTERS — werewolf, skeleton, mummy ────────────────────────
+// All keep the same userData.rig shape so Scene.tsx's shamble/strike
+// animation code Just Works on them.
+
+interface RiggedGroup extends THREE.Group {
+  userData: { rig: ZombieRig; armBase: number };
+}
+
+function attachRig(g: RiggedGroup, legL: THREE.Group, legR: THREE.Group, armL: THREE.Group, armR: THREE.Group, armBase: number) {
+  legL.rotation.x = 0;
+  legR.rotation.x = 0;
+  armL.rotation.x = armBase;
+  armR.rotation.x = armBase;
+  g.add(legL); g.add(legR); g.add(armL); g.add(armR);
+  g.userData = { rig: { legL, legR, armL, armR, armBase }, armBase };
+}
+
+// WEREWOLF — hunched, forward muzzle, claws. Sprints (used for runners).
+export function makeWerewolf(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const BW = 1.18, BD = 0.62, torsoH = 0.92, legH = 0.66, shoeH = 0.14;
+  const lx = 0.30, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.40, 0.16, 0.40, MP.furD, 0, 0.08 - hipY, 0.10));
+    for (let c = -1; c <= 1; c++) L.add(box(0.07, 0.06, 0.10, MP.bone, c * 0.12, 0.04 - hipY, 0.30));
+    L.add(box(0.34, legH, BD - 0.16, MP.fur, 0, (shoeH + legH / 2) - hipY, 0));
+  }
+  const torsoY = hipY + torsoH / 2;
+  const torso = new THREE.Group();
+  torso.position.set(0, torsoY, 0); torso.rotation.x = 0.20;
+  torso.add(box(BW, torsoH, BD, MP.fur, 0, 0, 0));
+  torso.add(box(BW * 0.6, 0.40, 0.06, MP.furL, 0, 0.05, BD / 2 + 0.01));
+  torso.add(box(BW + 0.10, 0.34, BD * 0.7, MP.furD, 0, torsoH / 2 + 0.02, -0.06));
+  g.add(torso);
+  const ax = BW / 2 + 0.12, shoulderY = torsoY + torsoH / 2 - 0.10, armH = torsoH + 0.40;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0.04); armR.position.set(ax, shoulderY, 0.04);
+  for (const A of [armL, armR]) {
+    A.add(box(0.26, armH, 0.28, MP.fur, 0, -armH / 2 + 0.10, 0));
+    A.add(box(0.30, 0.18, 0.30, MP.furD, 0, -armH + 0.16, 0.06));
+    for (let c = -1; c <= 1; c++) A.add(box(0.06, 0.05, 0.13, MP.bone, c * 0.10, -armH + 0.12, 0.22));
+  }
+  const tail = box(0.20, 0.20, 0.66, MP.furD, 0, torsoY - 0.10, -BD / 2 - 0.24);
+  tail.rotation.x = -0.5; g.add(tail);
+  const HW = 0.56, HH = 0.50, HDP = 0.52;
+  const headY = torsoY + torsoH / 2 + 0.04, headZ = 0.18;
+  g.add(box(HW, HH, HDP, MP.fur, 0, headY, headZ));
+  g.add(box(0.34, 0.26, 0.34, MP.furL, 0, headY - 0.08, headZ + HDP / 2 + 0.10));
+  g.add(box(0.16, 0.12, 0.10, EYE, 0, headY - 0.02, headZ + HDP / 2 + 0.28));
+  for (const sx of [-1, 1]) g.add(box(0.06, 0.12, 0.05, P.white, sx * 0.09, headY - 0.18, headZ + HDP / 2 + 0.20));
+  for (const sx of [-1, 1]) g.add(cone(0.16, 0.34, 4, MP.furD, sx * 0.20, headY + HH / 2 + 0.14, headZ - 0.04));
+  const eyeY = headY + 0.08;
+  for (const sx of [-1, 1]) g.add(box(0.10, 0.07, 0.04, MP.glowYel, sx * 0.15, eyeY, headZ + HDP / 2 + 0.01, { e: MP.glowYel, ei: 0.9 }));
+  attachRig(g, legL, legR, armL, armR, 0.28);
+  finish(g);
+  return g;
+}
+
+// SKELETON — bare bones with spine + ribs. Brute tier.
+export function makeSkeleton(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const bone = MP.bone, bD = MP.boneD;
+  const shoeH = 0.12, legH = 0.92, lx = 0.20, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.24, shoeH, 0.32, bD, 0, shoeH / 2 - hipY, 0.06));
+    L.add(cyl(0.07, 0.07, legH * 0.5, 6, bone, 0, (shoeH + legH * 0.27) - hipY, 0));
+    L.add(box(0.10, 0.10, 0.10, bD, 0, (shoeH + legH * 0.52) - hipY, 0));
+    L.add(cyl(0.08, 0.08, legH * 0.5, 6, bone, 0, (shoeH + legH * 0.78) - hipY, 0));
+  }
+  g.add(box(0.46, 0.22, 0.30, bone, 0, hipY + 0.05, 0));
+  const ribBase = hipY + 0.20;
+  g.add(box(0.10, 0.86, 0.12, bD, 0, ribBase + 0.40, -0.06));
+  const ribW = [0.52, 0.58, 0.56, 0.48];
+  ribW.forEach((w, i) => g.add(box(w, 0.07, 0.34, bone, 0, ribBase + 0.10 + i * 0.18, 0.02)));
+  g.add(box(0.40, 0.16, 0.30, bone, 0, ribBase + 0.82, 0));
+  const shoulderY = ribBase + 0.86, ax = 0.40;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(cyl(0.06, 0.06, 0.46, 6, bone, 0, -0.20, 0));
+    A.add(box(0.09, 0.09, 0.09, bD, 0, -0.44, 0));
+    A.add(cyl(0.055, 0.055, 0.42, 6, bone, 0, -0.66, 0.02));
+    for (let c = -1; c <= 1; c++) A.add(box(0.04, 0.12, 0.04, bone, c * 0.06, -0.92, 0.03));
+  }
+  const HW = 0.50, HH = 0.50, HDP = 0.46;
+  const headY = shoulderY + 0.10 + HH / 2;
+  g.add(box(HW, HH, HDP, bone, 0, headY, 0));
+  g.add(box(HW - 0.06, 0.18, HDP - 0.04, bD, 0, headY - HH / 2 + 0.08, 0.02));
+  const fz = HDP / 2 + 0.01;
+  for (const sx of [-1, 1]) g.add(box(0.15, 0.16, 0.06, EYE, sx * 0.14, headY + 0.06, fz));
+  g.add(box(0.07, 0.10, 0.05, EYE, 0, headY - 0.04, fz));
+  for (let i = -2; i <= 2; i++) g.add(box(0.045, 0.09, 0.04, bD, i * 0.09, headY - HH / 2 + 0.04, fz));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// MUMMY — wrapped corpse with bandage layers + one glowing eye. Spitter.
+export function makeMummy(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const shoeH = 0.16, legH = 0.86, lx = 0.21, BD = 0.50, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.32, shoeH, BD, MP.bandD, 0, shoeH / 2 - hipY, 0.04));
+    for (let i = 0; i < 5; i++) {
+      const c = i % 2 ? MP.band : MP.bandD; const off = (i % 2 ? 0.02 : -0.02);
+      L.add(box(0.32, 0.16, BD - 0.06, c, off, (shoeH + 0.08 + i * 0.16) - hipY, 0));
+    }
+  }
+  const torsoY = hipY, BW = 0.96, torsoH = 0.84;
+  for (let i = 0; i < 6; i++) {
+    const c = i % 2 ? MP.band : MP.bandD; const w = BW - (i % 3) * 0.04; const off = (i % 2 ? 0.03 : -0.03);
+    g.add(box(w, 0.16, BD, c, off, torsoY + 0.09 + i * 0.15, 0));
+  }
+  const flap = box(0.14, 0.42, 0.05, MP.bandD, 0.20, torsoY + 0.30, BD / 2 + 0.02);
+  flap.rotation.z = 0.4; g.add(flap);
+  const ax = BW / 2 + 0.12, shoulderY = torsoY + torsoH - 0.06;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    for (let i = 0; i < 5; i++) {
+      const c = i % 2 ? MP.band : MP.bandD;
+      A.add(box(0.22, 0.16, 0.24, c, 0, -0.08 - i * 0.15, 0));
+    }
+    A.add(box(0.06, 0.34, 0.04, MP.band, 0, -0.86, 0.10));
+  }
+  const HW = 0.52, HH = 0.58, HDP = 0.48;
+  const headY = torsoY + torsoH + 0.06 + HH / 2;
+  for (let i = 0; i < 4; i++) {
+    const c = i % 2 ? MP.band : MP.bandD; const off = (i % 2 ? 0.02 : -0.02);
+    g.add(box(HW, 0.16, HDP, c, off, headY - HH / 2 + 0.08 + i * 0.15, 0));
+  }
+  const fz = HDP / 2 + 0.01;
+  g.add(box(0.18, 0.06, 0.04, EYE, -0.06, headY + 0.04, fz));
+  g.add(box(0.09, 0.05, 0.04, MP.glowGrn, -0.06, headY + 0.04, fz + 0.01, { e: MP.glowGrn, ei: 0.9 }));
+  const tail = box(0.10, 0.40, 0.05, MP.band, -HW / 2 - 0.02, headY - 0.10, 0.04);
+  tail.rotation.z = -0.3; g.add(tail);
+  attachRig(g, legL, legR, armL, armR, -1.1);
+  finish(g);
+  return g;
+}
+
+// Dispatcher — Scene.tsx calls this when spawning a new monster. Picks
+// the right body builder per tier + applies the per-tier scale.
+export function makeMonster(tier: ZombieTier): ZombieGroup {
+  let g: RiggedGroup;
+  switch (tier) {
+    case 'runner':  g = makeWerewolf(); break;
+    case 'brute':   g = makeSkeleton(); break;
+    case 'stalker': g = makeMummy();    break;
+    default:        return makeZombie(tier);    // lurker / exploder / boss
+  }
+  // Match the lab proportions to block-party world scale.
+  const targetScale =
+    tier === 'runner'  ? 0.62 :
+    tier === 'brute'   ? 0.78 :
+    tier === 'stalker' ? 0.72 :
+                         0.66;
+  g.scale.setScalar(targetScale);
+  return g as ZombieGroup;
 }

@@ -23,6 +23,21 @@ export const P = {
   hairDark: 0x3a2f28, hairGrey: 0xd2d0d4, hairBlond: 0xf2c531, hairBrown: 0x6b4423,
 };
 
+// Horror palette — extracted from _lowpoly_lab/builders/monsters.js MP so
+// all the ported builders (werewolf / skeleton / mummy / etc.) share the
+// same tints they were tuned to.
+export const MP_HORROR = {
+  pale: 0xcdd2cf, paleD: 0xb0b6b2,
+  suit: 0x1b1b22, suitD: 0x12121a,
+  blood: 0x7d1820, bloodD: 0x521017,
+  bone:  0xe9e2cd, boneD: 0xcdc4a7,
+  rot:   0x83a05a, rotD:  0x5f7a3e, rotG: 0x4a6230,
+  fur:   0x5b4a3b, furD:  0x3f3327, furL: 0x6f5a46,
+  spectre: 0xbcd6e2,
+  band:  0xd9cdb0, bandD: 0xb6a988,
+  glowRed: 0xff3322, glowYel: 0xffd23f, glowGrn: 0x9bff5a, glowPale: 0xd8ecff,
+};
+
 // Cached materials so 24 zombies don't allocate 24× the same materials.
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 
@@ -55,6 +70,30 @@ export function box(
   opt?: MatOpt,
 ): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M(hex, opt));
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+export function cyl(
+  rt: number, rb: number, h: number, seg: number, hex: number,
+  x: number, y: number, z: number,
+  opt?: MatOpt,
+): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), M(hex, opt));
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+export function cone(
+  r: number, h: number, seg: number, hex: number,
+  x: number, y: number, z: number,
+  opt?: MatOpt,
+): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, seg), M(hex, opt));
   m.position.set(x, y, z);
   m.castShadow = true;
   m.receiveShadow = true;

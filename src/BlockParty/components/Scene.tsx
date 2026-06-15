@@ -8,7 +8,7 @@ import {
 } from '../constants';
 import { useGameLoop, GameRef, PickupKind, SfxKey } from '../hooks/useGameLoop';
 import type { Stick } from '../types';
-import { makeZombie, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
+import { makeMonster, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
 import { makeSurvivor, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
 import { makeWeapon, WEAPONS } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
@@ -982,7 +982,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       live.add(m.id);
       let slot = slots.current.get(m.id);
       if (!slot) {
-        const group = makeZombie(m.tier as ZombieTier);
+        const group = makeMonster(m.tier as ZombieTier);
         // Strike-warning ground ring — bright red disc, only visible during
         // bite windup. Kept separate so the zombie body can scale freely.
         const ringGeom = new THREE.RingGeometry(0.7, 0.95, 32);
