@@ -913,60 +913,83 @@ function Fireflies() {
   );
 }
 
-// Per-crystal mesh sync. Renders the 4 types in distinct colors with
-// emissive shimmer + slow rotation.
+// XP gems — InstancedMesh per layer instead of a per-gem <group> of 3
+// meshes. The old renderer was the single biggest fill-rate hit at
+// endless L7+: each gem had an octahedron + two additive-blending halo
+// circles (inner 0.65u, outer 1.6u). With 25-30 gems on screen the
+// outer-halo overdraw alone was painting most of the screen many times
+// over, killing fragment-shader budget on mobile.
+//
+// New layout: ONE InstancedMesh for the octahedron + ONE for the inner
+// halo, regardless of gem count. The outer halo is dropped — the inner
+// halo already gives the "I'm a pickup" tell at the distance players
+// actually navigate at. CrystalLights pool still adds a green PointLight
+// per nearest gem so they still cast a soft glow on the asphalt.
+const GEM_COLOR = '#7fffa8';
+const GEM_OCT_GEOM = new THREE.OctahedronGeometry(0.35, 0);
+const GEM_HALO_GEOM = new THREE.CircleGeometry(0.65, 14);
+const GEM_OCT_MAT = new THREE.MeshStandardMaterial({
+  color: GEM_COLOR, emissive: GEM_COLOR, emissiveIntensity: 1.8,
+  roughness: 0.3, metalness: 0.6,
+});
+const GEM_HALO_MAT = new THREE.MeshBasicMaterial({
+  color: GEM_COLOR, transparent: true, opacity: 0.55,
+  depthWrite: false, blending: THREE.AdditiveBlending,
+});
+
 function Crystals({ state }: { state: React.MutableRefObject<GameRef> }) {
-  const refs = useRef<Map<number, THREE.Group>>(new Map());
-  const [, force] = useState(0);
-  const lastCount = useRef(-1);
+  // Pool large enough for any feasible endless surge — crystalInitial
+  // caps at 4 + ambient respawn every 2.5s; ~24-30 on field at peak.
+  const POOL = 48;
+  const octRef = useRef<THREE.InstancedMesh>(null);
+  const haloRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const hidden = useMemo(() => {
+    const m = new THREE.Object3D();
+    m.position.set(0, -1000, 0);
+    m.scale.setScalar(0);
+    m.updateMatrix();
+    return m.matrix;
+  }, []);
+
   useFrame(({ clock }) => {
     const d = state.current;
+    const oct = octRef.current;
+    const halo = haloRef.current;
+    if (!oct || !halo) return;
     const t = clock.getElapsedTime();
-    if (d.crystals.length !== lastCount.current) {
-      lastCount.current = d.crystals.length;
-      force(x => x + 1);
+    const n = Math.min(POOL, d.crystals.length);
+    for (let i = 0; i < n; i++) {
+      const cr = d.crystals[i];
+      const y = 0.35 + Math.sin(t * 1.6 + cr.id) * 0.10;
+      // Octahedron — bobs + slow spin around Y.
+      dummy.position.set(cr.position.x, y, cr.position.z);
+      dummy.rotation.set(0, t * 0.8 + cr.id, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      oct.setMatrixAt(i, dummy.matrix);
+      // Inner halo — lies flat just above the asphalt, no spin.
+      dummy.position.set(cr.position.x, 0.05, cr.position.z);
+      dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      halo.setMatrixAt(i, dummy.matrix);
     }
-    for (const cr of d.crystals) {
-      const g = refs.current.get(cr.id);
-      if (!g) continue;
-      g.position.copy(cr.position);
-      g.position.y = 0.35 + Math.sin(t * 1.6 + cr.id) * 0.10;
-      g.rotation.y = t * 0.8 + cr.id;
+    // Collapse unused slots so stale positions don't draw.
+    for (let i = n; i < POOL; i++) {
+      oct.setMatrixAt(i, hidden);
+      halo.setMatrixAt(i, hidden);
     }
+    oct.instanceMatrix.needsUpdate = true;
+    halo.instanceMatrix.needsUpdate = true;
+    oct.count = POOL;
+    halo.count = POOL;
   });
-  const d = state.current;
+
   return (
     <>
-      {d.crystals.map(cr => {
-        // All XP gems render the same cool-green tone (Vampire Survivors style).
-        // Reserved for future tier coloring once perks land.
-        const color = '#7fffa8';
-        return (
-          <group
-            key={cr.id}
-            ref={el => {
-              if (el) refs.current.set(cr.id, el);
-              else refs.current.delete(cr.id);
-            }}
-          >
-            <mesh castShadow>
-              <octahedronGeometry args={[0.35, 0]} />
-              <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.8} roughness={0.3} metalness={0.6} />
-            </mesh>
-            {/* inner halo — bright disc directly under the crystal */}
-            <mesh position={[0, -0.3, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <circleGeometry args={[0.65, 22]} />
-              <meshBasicMaterial color={color} transparent opacity={0.55} depthWrite={false} blending={THREE.AdditiveBlending} />
-            </mesh>
-            {/* outer halo — much wider, dim, so the crystal advertises its
-                position from beyond the blockParty's direct reach */}
-            <mesh position={[0, -0.29, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <circleGeometry args={[1.6, 28]} />
-              <meshBasicMaterial color={color} transparent opacity={0.18} depthWrite={false} blending={THREE.AdditiveBlending} />
-            </mesh>
-          </group>
-        );
-      })}
+      <instancedMesh ref={octRef} args={[GEM_OCT_GEOM, GEM_OCT_MAT, POOL]} />
+      <instancedMesh ref={haloRef} args={[GEM_HALO_GEOM, GEM_HALO_MAT, POOL]} />
     </>
   );
 }
