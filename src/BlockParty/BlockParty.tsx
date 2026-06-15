@@ -26,20 +26,8 @@ type Phase = 'splash' | 'playing' | 'gameover';
 const HIGH_KEY = 'blockParty_high';
 
 interface Pellet { id: number; value: number; kind: PickupKind; dx: number; dy: number; }
-interface Banner { id: number; kind: PickupKind; }
 
 let pelletIdCounter = 1;
-let bannerIdCounter = 1;
-
-// Pickup banner — single line per gem type. Only `gold` is used now (every
-// pickup is an XP gem); the others stay for type compatibility with the
-// PickupKind union and future weapon-drop banners.
-const PICKUP_INFO: Record<PickupKind, { headline: string; sub: string }> = {
-  gold:  { headline: 'XP GEM', sub: '+10 score' },
-  red:   { headline: '+HP',     sub: '+1 heart' },
-  green: { headline: 'POWER',   sub: '5s boost' },
-  blue:  { headline: 'AMMO',    sub: 'top up' },
-};
 
 export function BlockParty() {
   const [phase, setPhase] = useState<Phase>('splash');
@@ -75,7 +63,6 @@ export function BlockParty() {
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [pellets, setPellets] = useState<Pellet[]>([]);
-  const [banners, setBanners] = useState<Banner[]>([]);
   const [hitFlashKey, setHitFlashKey] = useState(0);
   const [level, setLevel] = useState(1);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -175,19 +162,14 @@ export function BlockParty() {
 
   // Two-channel pickup feedback:
   //   • Center pellet (~600ms): just "+N" near the player for instant
-  //     "score went up" satisfaction
-  //   • Top banner (~2.2s): full effect description with crystal icon so
-  //     the player has time to read what the pickup actually did
+  //     "score went up" satisfaction. The score number on the HUD pill and
+  //     the XP bar are the totalizer; no separate pickup banner needed.
   const onPickup = useCallback((kind: PickupKind, value: number) => {
     const pid = pelletIdCounter++;
     const dx = (Math.random() - 0.5) * 60;
     const dy = (Math.random() - 0.5) * 30;
     setPellets(prev => [...prev, { id: pid, kind, value, dx, dy }]);
     window.setTimeout(() => setPellets(prev => prev.filter(p => p.id !== pid)), 700);
-
-    const bid = bannerIdCounter++;
-    setBanners(prev => [...prev, { id: bid, kind }]);
-    window.setTimeout(() => setBanners(prev => prev.filter(b => b.id !== bid)), 1400);
   }, []);
 
   const onStrikeHit = useCallback(() => {
@@ -238,7 +220,6 @@ export function BlockParty() {
     setLevel(1);
     setTimeLeft(getLevelTuning(1).timeLimit);
     setPellets([]);
-    setBanners([]);
     setClearOverlay(null);
     setVictory(false);
     setPhase('playing');
@@ -482,25 +463,6 @@ export function BlockParty() {
               +{p.value}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Pickup effect banner — slides in below the HUD, holds for ~1.6s,
-          fades out. Tells the player what the pickup actually does. */}
-      {phase === 'playing' && banners.length > 0 && (
-        <div className="ln__banners">
-          {banners.map((b, i) => {
-            const info = PICKUP_INFO[b.kind];
-            return (
-              <div key={b.id} className={`ln__banner ln__banner--${b.kind}`} style={{ marginTop: i === 0 ? 0 : 4 }}>
-                <span className="ln__banner-dot" />
-                <div className="ln__banner-text">
-                  <span className="ln__banner-headline">{info.headline}</span>
-                  <span className="ln__banner-sub">{info.sub}</span>
-                </div>
-              </div>
-            );
-          })}
         </div>
       )}
 

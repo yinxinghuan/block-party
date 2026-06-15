@@ -444,72 +444,6 @@
     &--blue  { color: #6fc6ff; }
   }
 
-  // ----- Pickup tally chips (right edge, below the corner HUD) -----
-  // Was a centered top banner; XP gems fire on every kill and the centered
-  // toast obscured the action. The score+XP HUD pill on the left and the
-  // floating +N near the player already carry the totalizer/feedback; this
-  // chip is now a small right-edge flash for the pickup label only.
-  &__banners {
-    position: absolute;
-    top: calc(env(safe-area-inset-top, 8px) + 138px);
-    right: 10px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    z-index: 11;
-    pointer-events: none;
-  }
-  &__banner {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px 4px 7px;
-    background: linear-gradient(135deg, rgba(28,18,28,.72), rgba(12,8,18,.72));
-    backdrop-filter: blur(10px) saturate(140%);
-    -webkit-backdrop-filter: blur(10px) saturate(140%);
-    border: 1px solid rgba(255,255,255,.09);
-    border-radius: 999px;
-    box-shadow: 0 6px 16px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
-    animation: ln-banner-flash 1400ms cubic-bezier(.22,.61,.36,1) forwards;
-    will-change: transform, opacity;
-  }
-  &__banner-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    box-shadow:
-      0 0 8px currentColor,
-      inset 0 -1px 2px rgba(0,0,0,.25),
-      inset 0 1px 2px rgba(255,255,255,.55);
-  }
-  &__banner-text {
-    display: inline-flex;
-    flex-direction: row;
-    align-items: baseline;
-    gap: 6px;
-  }
-  &__banner-headline {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9.5px;
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: .16em;
-    color: currentColor;
-    text-shadow: 0 2px 6px rgba(0,0,0,.5);
-  }
-  &__banner-sub {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: .10em;
-    line-height: 1;
-    color: rgba(240, 232, 220, .65);
-  }
-  &__banner--gold  { color: #ffd64a; .ln__banner-dot { background: #ffd64a; } }
-  &__banner--red   { color: #ff9a6a; .ln__banner-dot { background: #ff5e5e; } }
-  &__banner--green { color: #6cff9e; .ln__banner-dot { background: #54ff8e; } }
-  &__banner--blue  { color: #6fc6ff; .ln__banner-dot { background: #5aa8ff; } }
   &__hit-flash {
     position: absolute;
     inset: 0;
@@ -993,22 +927,6 @@
   0%   { opacity: 0; transform: translate(-50%, 8px) scale(.7); }
   20%  { opacity: 1; transform: translate(-50%, -8px) scale(1.20); }
   100% { opacity: 0; transform: translate(-50%, -70px) scale(.95); }
-}
-@keyframes ln-banner-pop {
-  0%   { opacity: 0; transform: translateY(-12px) scale(.9); }
-  10%  { opacity: 1; transform: translateY(0) scale(1.04); }
-  18%  { transform: translateY(0) scale(1); }
-  80%  { opacity: 1; }
-  100% { opacity: 0; transform: translateY(-4px) scale(.96); }
-}
-// Right-edge flash variant for the slim tally chip — slides in from the
-// right, holds, fades out toward the right.
-@keyframes ln-banner-flash {
-  0%   { opacity: 0; transform: translateX(14px) scale(.92); }
-  14%  { opacity: 1; transform: translateX(0) scale(1.03); }
-  24%  { transform: translateX(0) scale(1); }
-  75%  { opacity: 1; }
-  100% { opacity: 0; transform: translateX(8px) scale(.97); }
 }
 @keyframes ln-hit-flash {
   0%   { opacity: 1; }
