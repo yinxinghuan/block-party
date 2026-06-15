@@ -607,6 +607,75 @@ export function useGameLoop(p: GameLoopParams) {
         continue;
       }
 
+      // GHOST — phaser. Floats straight at the player ignoring pillar
+      // collisions (handled later by the renderer; gameplay-wise the
+      // pillar push code skips ghosts). Touches to deal melee damage
+      // like a lurker, but you can't hide behind a parked car from it.
+      if (m.tier === 'ghost') {
+        if (m.state === 'cooldown') {
+          m.cooldownT -= c;
+          if (dist > 0.001) {
+            const n = 1 / dist;
+            m.velocity.x = dx * n * monsterBaseSpeed * 0.5;
+            m.velocity.z = dz * n * monsterBaseSpeed * 0.5;
+          }
+          if (m.cooldownT <= 0) m.state = 'lurking';
+        } else if (m.state === 'lurking') {
+          if (dist > 0.001) {
+            const n = 1 / dist;
+            m.velocity.x = dx * n * monsterBaseSpeed;
+            m.velocity.z = dz * n * monsterBaseSpeed;
+          }
+          if (dist > MONSTER_STRIKE_RANGE_MIN && dist < myRangeMax) {
+            m.state = 'striking';
+            m.strikeT = 0;
+            const inv = 1 / Math.max(dist, 0.001);
+            m.strikeAimX = dx * inv;
+            m.strikeAimZ = dz * inv;
+            emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+            p.playSfx('strike_telegraph');
+          }
+        } else if (m.state === 'striking') {
+          m.velocity.x *= 0.85;
+          m.velocity.z *= 0.85;
+          m.strikeT += c;
+          if (m.strikeT >= myTelegraph + MONSTER_STRIKE_LIVE) {
+            m.state = 'cooldown';
+            m.cooldownT = tuning.strikeCooldown;
+            m.strikeT = 0;
+          }
+        }
+        m.position.x += m.velocity.x * c;
+        m.position.z += m.velocity.z * c;
+        if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+        m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+        m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+
+        // STRIKE HIT — ghost has melee range (no projectile).
+        if (m.state === 'striking' && m.strikeT >= myTelegraph) {
+          const handX = m.position.x + m.strikeAimX * myRangeMax;
+          const handZ = m.position.z + m.strikeAimZ * myRangeMax;
+          const hdx = handX - d.pos.x;
+          const hdz = handZ - d.pos.z;
+          if (Math.hypot(hdx, hdz) < MONSTER_STRIKE_HIT_RADIUS && d.time > GRACE_PERIOD && d.iframesT <= 0) {
+            emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+            p.playSfx('strike_hit');
+            p.haptic?.('heavy');
+            p.onStrikeHit?.();
+            d.hp -= 1;
+            d.iframesT = 1.2;
+            shakeCamera(d, 0.85, 0.32);
+            if (d.hp <= 0) {
+              p.playSfx('game_over');
+              d.gameOver = true;
+              setTimeout(() => p.onGameOver(Math.floor(d.score)), 600);
+              return;
+            }
+          }
+        }
+        continue;
+      }
+
       // MELEE — lurkers, runners, brutes, and boss must close to touch range.
       if (m.state === 'cooldown') {
         m.cooldownT -= c;

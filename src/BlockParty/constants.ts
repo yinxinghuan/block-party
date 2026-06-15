@@ -56,44 +56,47 @@ export const BULLET_TTL = 1.2;         // seconds before despawn
 export const BULLET_RADIUS = 0.30;     // collision against monsters
 export const BULLET_DMG = 1;           // baseline damage per shot
 
-// Per-tier monster HP — 6 tiers now.
-export const MONSTER_HP: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+// Per-tier monster HP — 7 tiers now.
+export const MONSTER_HP: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost' | 'boss', number> = {
   lurker:   3,
   runner:   2,   // fast, fragile — dies in one or two shots
   brute:    14,  // bullet sponge — survives a long burst
   stalker:  6,   // ranged spitter
   exploder: 4,   // moderate HP, but you really don't want it close
-  boss:     32,
+  ghost:    5,   // phaser — ignores cover, light melee touch
+  boss:     32,  // vampire
 };
 
 // Score awarded per kill, per tier.
-export const SCORE_KILL: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+export const SCORE_KILL: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost' | 'boss', number> = {
   lurker:   10,
   runner:   15,
   brute:    40,
   stalker:  25,
   exploder: 20,
+  ghost:    30,
   boss:     500,
 };
 
 // Per-tier speed multiplier on top of monsterBaseSpeed.
-export const MONSTER_SPEED_K: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+export const MONSTER_SPEED_K: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost' | 'boss', number> = {
   lurker:   1.00,
   runner:   1.85,
   brute:    0.55,
   stalker:  0.92,
   exploder: 1.30,
+  ghost:    1.10,
   boss:     0.70,
 };
 
-// Per-tier knockback velocity when shot — small mass = flies. Brute + boss
-// resist; lurkers + exploders get blasted back.
-export const MONSTER_KNOCKBACK_V: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+// Per-tier knockback velocity when shot.
+export const MONSTER_KNOCKBACK_V: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost' | 'boss', number> = {
   lurker:   11.0,
   runner:    9.0,
   brute:     2.8,
   stalker:   6.0,
   exploder: 12.0,
+  ghost:     7.0,
   boss:      2.0,
 };
 
@@ -169,10 +172,10 @@ export const LEVELS: LevelTuning[] = [
 // scripted at night 3 start. Stalker (spitter) ratio stays low so ranged
 // enemies are a special threat, not the baseline. Exploder appears from
 // night 2 onward.
-export const TIER_WEIGHTS: Record<number, Partial<Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder', number>>> = {
-  1: { lurker: 70, runner: 14, brute: 10, stalker: 6,  exploder: 0  },
-  2: { lurker: 50, runner: 22, brute: 13, stalker: 10, exploder: 5  },
-  3: { lurker: 38, runner: 26, brute: 14, stalker: 13, exploder: 9  },
+export const TIER_WEIGHTS: Record<number, Partial<Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost', number>>> = {
+  1: { lurker: 70, runner: 14, brute: 10, stalker: 6,  exploder: 0, ghost: 0  },
+  2: { lurker: 48, runner: 22, brute: 12, stalker: 10, exploder: 4, ghost: 4  },
+  3: { lurker: 34, runner: 24, brute: 13, stalker: 12, exploder: 9, ghost: 8  },
 };
 
 // Periodic surge — every SURGE_PERIOD seconds we drop a burst of zombies

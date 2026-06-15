@@ -27,7 +27,7 @@ export interface ZombieGroup extends THREE.Group {
   userData: { rig: ZombieRig; armBase: number };
 }
 
-export type ZombieTier = 'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss';
+export type ZombieTier = 'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost' | 'boss';
 
 // Per-tier visual tuning. Boss gets red glowing eyes + a slightly redder rot
 // tint so it reads as the boss at thumbnail size.
@@ -38,20 +38,17 @@ interface TierLook {
 }
 
 const TIER_LOOK: Record<ZombieTier, TierLook> = {
-  // height ≈ ~1.6u after scale (block-party world)
   lurker:   { scale: 0.66, eyeGlow: MP.glowYel,  fleshTint: MP.rot },
-  // Runner — smaller, leaner, ORANGE eye for "twitchy". Sprints.
   runner:   { scale: 0.55, eyeGlow: 0xff7820,    fleshTint: 0xb05030 },
-  // Brute — slightly taller + dark crimson; the silhouette reads "tank"
-  // when in a crowd of normal shamblers.
   brute:    { scale: 0.95, eyeGlow: 0xff1010,    fleshTint: 0x5a2418 },
-  // SPITTER (ranged) — acid-green tint, slightly larger so it pops in
-  // the crowd as "that's the shooter".
   stalker:  { scale: 0.72, eyeGlow: MP.glowGrn,  fleshTint: 0x6fb850 },
-  // Exploder — unstable; angry-orange flesh + bright red eye so the
-  // player knows to keep distance.
   exploder: { scale: 0.62, eyeGlow: 0xff2020,    fleshTint: 0xc05020 },
-  // ~2.2x lurker, red eyes, darker rot.
+  // Ghost — only used by makeZombie if it ever falls through; the real
+  // ghost builder is makeGhost which doesn't use zombie geometry at all.
+  ghost:    { scale: 0.66, eyeGlow: MP.glowPale, fleshTint: MP.spectre },
+  // Boss now uses the vampire builder; this entry is only here to keep
+  // the TierLook record total. The vampire's own colors live in its
+  // builder.
   boss:     { scale: 1.45, eyeGlow: MP.glowRed,  fleshTint: darken(MP.rot, 0.78) },
 };
 
@@ -304,21 +301,97 @@ export function makeMummy(): RiggedGroup {
   return g;
 }
 
-// Dispatcher — Scene.tsx calls this when spawning a new monster. Picks
-// the right body builder per tier + applies the per-tier scale.
+// GHOST — legless wailing spectre with a glowing spectral core. No rig
+// (no legs to swing) so we hand back a fake rig where all 4 pivots are
+// empty groups — the existing shamble code can spin them harmlessly.
+export function makeGhost(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const sheet = MP.spectre, op = 0.62;
+  const baseY = 0.55;
+  const BW = 0.92, BD = 0.46;
+  g.add(box(BW, 0.70, BD, sheet, 0, baseY + 0.95, 0, { o: op }));
+  g.add(box(BW - 0.10, 0.40, BD - 0.04, sheet, 0, baseY + 0.50, 0, { o: op }));
+  const tails = [-0.30, 0, 0.30]; const th = [0.34, 0.46, 0.30];
+  tails.forEach((tx, i) => g.add(box(0.22, th[i], BD - 0.10, sheet, tx, baseY + 0.20 - (0.46 - th[i]) / 2, 0, { o: op })));
+  for (const sx of [-1, 1]) {
+    const arm = box(0.18, 0.46, 0.22, sheet, sx * (BW / 2 + 0.06), baseY + 0.92, 0.04, { o: op });
+    arm.rotation.z = sx * 0.5;
+    g.add(arm);
+  }
+  const headY = baseY + 0.95 + 0.35 + 0.26;
+  g.add(box(0.66, 0.58, 0.50, sheet, 0, headY, 0, { o: op }));
+  g.add(box(0.58, 0.16, 0.46, sheet, 0, headY + 0.30, 0, { o: op }));
+  const fz = 0.26;
+  for (const sx of [-1, 1]) g.add(box(0.15, 0.20, 0.05, EYE, sx * 0.17, headY + 0.06, fz));
+  g.add(box(0.20, 0.24, 0.05, EYE, 0, headY - 0.18, fz));
+  g.add(box(0.30, 0.40, 0.10, MP.glowPale, 0, baseY + 0.80, 0, { e: MP.glowPale, ei: 0.9 }));
+  // Stub rig — ghost doesn't have rotateable limbs, but Scene.tsx's
+  // useFrame happily writes rotations onto empty groups.
+  const stub = (): THREE.Group => new THREE.Group();
+  attachRig(g, stub(), stub(), stub(), stub(), 0);
+  finish(g);
+  return g;
+}
+
+// VAMPIRE — gaunt suited noble with a blood cape, fanged head, slicked
+// hair. The night-3 BOSS now, replacing the scaled-up zombie.
+export function makeVampire(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const BW = 0.86, BD = 0.48, torsoH = 0.88, legH = 0.96, shoeH = 0.16;
+  const lx = 0.22, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.30, shoeH, BD + 0.04, MP.suitD, 0, shoeH / 2 - hipY, 0.04));
+    L.add(box(0.26, legH, BD - 0.10, MP.suit, 0, (shoeH + legH / 2) - hipY, 0));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, MP.suit, 0, torsoY, 0));
+  g.add(box(0.30, torsoH * 0.84, 0.04, P.cream, 0, torsoY + 0.02, BD / 2 + 0.01));
+  g.add(box(0.16, 0.10, 0.05, MP.blood, 0, torsoY + torsoH * 0.30, BD / 2 + 0.03));
+  const ax = BW / 2 + 0.14, shoulderY = torsoY + torsoH / 2, armH = torsoH + 0.30;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) A.add(box(0.20, armH, BD - 0.10, MP.suit, 0, -armH / 2 + 0.10, 0));
+  g.add(box(BW + 0.28, torsoH + legH * 0.7, 0.06, MP.bloodD, 0, torsoY - 0.10, -BD / 2 - 0.04));
+  for (const sx of [-1, 1]) {
+    const wing = box(0.10, 0.62, 0.34, MP.blood, sx * (BW / 2 + 0.04), torsoY + torsoH / 2 + 0.30, -0.12);
+    wing.rotation.z = sx * -0.34;
+    g.add(wing);
+  }
+  const HW = 0.50, HH = 0.62, HDP = 0.46;
+  const headY = torsoY + torsoH / 2 + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, MP.pale, 0, headY, 0));
+  g.add(box(HW - 0.06, 0.14, HDP - 0.04, MP.paleD, 0, headY - HH / 2 + 0.10, 0.02));
+  const fz = HDP / 2 + 0.01, eyeY = headY + 0.05, eyeX = HW * 0.25;
+  for (const sx of [-1, 1]) g.add(box(0.12, 0.08, 0.04, MP.glowRed, sx * eyeX, eyeY, fz, { e: MP.glowRed, ei: 1.1 }));
+  for (const sx of [-1, 1]) g.add(box(0.05, 0.10, 0.04, P.white, sx * 0.08, headY - HH / 2 + 0.04, fz));
+  const topHead = headY + HH / 2;
+  g.add(box(HW + 0.04, 0.18, HDP + 0.04, MP.suit, 0, topHead + 0.04, 0));
+  g.add(box(HW + 0.04, 0.30, 0.12, MP.suit, 0, headY + 0.10, -HDP * 0.5));
+  g.add(box(0.12, 0.16, 0.05, MP.suit, 0, headY + HH * 0.5 - 0.04, fz - 0.01));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// Dispatcher — Scene.tsx calls this when spawning a new monster.
 export function makeMonster(tier: ZombieTier): ZombieGroup {
   let g: RiggedGroup;
   switch (tier) {
     case 'runner':  g = makeWerewolf(); break;
     case 'brute':   g = makeSkeleton(); break;
     case 'stalker': g = makeMummy();    break;
-    default:        return makeZombie(tier);    // lurker / exploder / boss
+    case 'ghost':   g = makeGhost();    break;
+    case 'boss':    g = makeVampire();  break;
+    default:        return makeZombie(tier);    // lurker / exploder
   }
-  // Match the lab proportions to block-party world scale.
   const targetScale =
     tier === 'runner'  ? 0.62 :
     tier === 'brute'   ? 0.78 :
     tier === 'stalker' ? 0.72 :
+    tier === 'ghost'   ? 0.70 :
+    tier === 'boss'    ? 1.40 :
                          0.66;
   g.scale.setScalar(targetScale);
   return g as ZombieGroup;
