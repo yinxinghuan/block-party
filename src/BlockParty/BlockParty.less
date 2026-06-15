@@ -377,11 +377,16 @@
   &__cta:active { transform: translateY(2px); }
   &__final-score {
     font-family: 'Baloo 2', sans-serif;
-    font-size: 128px;
+    // Responsive cap — endless lets the score climb past 6-7 digits and
+    // the old fixed 128px clipped on every phone (6 digits × 128 × ~0.6
+    // = ~460px > viewport). clamp() lets desktop keep the big hero
+    // numeral while mobile shrinks to fit.
+    font-size: clamp(56px, 18vw, 128px);
     font-weight: 800;
     margin: 0;
     line-height: 1.1;
     letter-spacing: -.01em;
+    white-space: nowrap;
     // Internal padding gives the filter drop-shadow + Baloo 2 glyph ink
     // (which extends past the advance width on chars like "2") room to render
     // without being clipped by the flex-shrunk box.

@@ -583,7 +583,7 @@ export function BlockParty() {
           <div className="ln__gameover-eyebrow">
             {finalScore > 0 && finalScore === highScore ? 'NEW RECORD' : 'BITTEN'}
           </div>
-          <div className="ln__final-score">{finalScore}</div>
+          <div className="ln__final-score">{finalScore.toLocaleString()}</div>
           <div className="ln__final">FELL ON NIGHT {hud.level} · {getLevelTuning(hud.level).name.toUpperCase()}</div>
           <button className="ln__cta" onPointerDown={() => start()}>
             {t('again')}

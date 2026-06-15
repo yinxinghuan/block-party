@@ -737,10 +737,22 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
     flashlight.add(heroLight);
     heroLightRef.current = heroLight;
 
+    // Contact shadow blob — child of root so it follows the player's
+    // ground XZ but stays flat on the asphalt while the survivor itself
+    // bobs up and down with idle hop. Solid disc + translucent black =
+    // fakes a soft ambient shadow without re-enabling the expensive
+    // PointLight shadow map.
+    const shadow = new THREE.Mesh(SHADOW_GEOM, SHADOW_MAT);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.02;
+    shadow.scale.setScalar(1.2);
+    root.add(shadow);
+
     root.add(survivor);
     survivorRef.current = survivor;
     return () => {
       root.remove(survivor);
+      root.remove(shadow);
       survivorRef.current = null;
       heroLightRef.current = null;
     };
@@ -928,6 +940,19 @@ function Fireflies() {
 const GEM_COLOR = '#7fffa8';
 const GEM_OCT_GEOM = new THREE.OctahedronGeometry(0.35, 0);
 const GEM_HALO_GEOM = new THREE.CircleGeometry(0.65, 14);
+
+// Shared contact-shadow blob — flat circle painted dark + translucent
+// under any entity that's not visibly sitting on the ground (monsters,
+// player). Cheap arcade trick replacing the real PointLight shadow we
+// disabled in perf #1: one InstancedMesh covers every monster's shadow
+// in a single draw call, and the player gets one mesh under its root.
+const SHADOW_GEOM = new THREE.CircleGeometry(0.55, 16);
+const SHADOW_MAT = new THREE.MeshBasicMaterial({
+  color: '#000000',
+  transparent: true,
+  opacity: 0.45,
+  depthWrite: false,
+});
 const GEM_OCT_MAT = new THREE.MeshStandardMaterial({
   color: GEM_COLOR, emissive: GEM_COLOR, emissiveIntensity: 1.8,
   roughness: 0.3, metalness: 0.6,
@@ -1526,6 +1551,57 @@ function WallEdges() {
 // flash on the live-hit frame.
 // Zombies — instantiate the imperative voxel builder once per monster, cache
 // the group + its rig refs, and animate shamble + bite + hit-flash each frame.
+// Contact shadow blobs for all live monsters — one InstancedMesh drives
+// the whole roster, capacity covers the endless monsterMax cap (90)
+// plus the boss. Per-instance scale by tier so the boss casts a bigger
+// puddle than a lurker. Dying monsters launch into the air; we hide
+// their shadow once dying flips so it doesn't drag along the ground
+// under a ragdoll mid-flight.
+const MONSTER_SHADOW_POOL = 96;
+const MONSTER_SHADOW_SCALE: Record<ZombieTier, number> = {
+  lurker:   1.05,
+  runner:   0.95,
+  brute:    1.55,
+  stalker:  1.10,
+  exploder: 1.05,
+  ghost:    1.30,
+  boss:     2.40,
+};
+function MonsterShadows({ state }: { state: React.MutableRefObject<GameRef> }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const hidden = useMemo(() => {
+    const m = new THREE.Object3D();
+    m.position.set(0, -1000, 0);
+    m.scale.setScalar(0);
+    m.updateMatrix();
+    return m.matrix;
+  }, []);
+  useFrame(() => {
+    const m = meshRef.current;
+    if (!m) return;
+    const d = state.current;
+    const n = Math.min(MONSTER_SHADOW_POOL, d.monsters.length);
+    let i = 0;
+    for (; i < n; i++) {
+      const mon = d.monsters[i];
+      // Dying corpses are mid-flight — kill the shadow so it doesn't
+      // ride the ragdoll across the asphalt.
+      if (mon.dying) { m.setMatrixAt(i, hidden); continue; }
+      const s = MONSTER_SHADOW_SCALE[mon.tier] ?? 1.0;
+      dummy.position.set(mon.position.x, 0.02, mon.position.z);
+      dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.scale.set(s, s, s);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    for (; i < MONSTER_SHADOW_POOL; i++) m.setMatrixAt(i, hidden);
+    m.instanceMatrix.needsUpdate = true;
+    m.count = MONSTER_SHADOW_POOL;
+  });
+  return <instancedMesh ref={meshRef} args={[SHADOW_GEOM, SHADOW_MAT, MONSTER_SHADOW_POOL]} />;
+}
+
 function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
   // Per-monster cached visuals (built lazily on first useFrame tick).
   type Slot = {
@@ -1954,6 +2030,7 @@ export function Scene(props: SceneProps) {
       <Crystals state={state} />
       <CrystalLights state={state} />
       <Player state={state} survivorId={props.survivor} />
+      <MonsterShadows state={state} />
       <Monsters state={state} />
       <Bullets state={state} />
       <MuzzleFlash state={state} />
