@@ -56,19 +56,54 @@ export const BULLET_TTL = 1.2;         // seconds before despawn
 export const BULLET_RADIUS = 0.30;     // collision against monsters
 export const BULLET_DMG = 1;           // baseline damage per shot
 
-// Per-tier monster HP — tuned so a lurker dies in ~3 shots, stalker ~6, boss ~30.
-export const MONSTER_HP: Record<'lurker' | 'stalker' | 'boss', number> = {
-  lurker: 3,
-  stalker: 6,
-  boss: 30,
+// Per-tier monster HP — 6 tiers now.
+export const MONSTER_HP: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+  lurker:   3,
+  runner:   2,   // fast, fragile — dies in one or two shots
+  brute:    14,  // bullet sponge — survives a long burst
+  stalker:  6,   // ranged spitter
+  exploder: 4,   // moderate HP, but you really don't want it close
+  boss:     32,
 };
 
 // Score awarded per kill, per tier.
-export const SCORE_KILL: Record<'lurker' | 'stalker' | 'boss', number> = {
-  lurker: 10,
-  stalker: 25,
-  boss: 500,
+export const SCORE_KILL: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+  lurker:   10,
+  runner:   15,
+  brute:    40,
+  stalker:  25,
+  exploder: 20,
+  boss:     500,
 };
+
+// Per-tier speed multiplier on top of monsterBaseSpeed.
+export const MONSTER_SPEED_K: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+  lurker:   1.00,
+  runner:   1.85,
+  brute:    0.55,
+  stalker:  0.92,
+  exploder: 1.30,
+  boss:     0.70,
+};
+
+// Per-tier knockback velocity when shot — small mass = flies. Brute + boss
+// resist; lurkers + exploders get blasted back.
+export const MONSTER_KNOCKBACK_V: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss', number> = {
+  lurker:   11.0,
+  runner:    9.0,
+  brute:     2.8,
+  stalker:   6.0,
+  exploder: 12.0,
+  boss:      2.0,
+};
+
+// Bullets-per-kill comment for posterity:
+//   lurker  3 hp  → 3 shots
+//   runner  2 hp  → 2 shots (but they're FAST)
+//   brute  14 hp  → ~14 shots, encourages keeping distance + perks
+//   stalker 6 hp  → 6 shots (rare so OK)
+//   exploder 4 hp → 4 shots; race to kill before they reach you
+//   boss   32 hp  → 32 shots
 
 
 // ===== NIGHT TUNINGS =====
@@ -129,6 +164,16 @@ export const LEVELS: LevelTuning[] = [
   // shrinks so you can't dance through bites the way Night 1 lets you.
   { level: 3, name: 'Night 3', timeLimit: 45, lurkerCount: 28, stalkerCount: 5, monsterMax: 72, monsterSpeed: 1.22, monsterFleeSpeed: 1.05, monsterSpawnInterval: 0.22, stalkerSpawnRatio: 0.22, strikeTelegraph: 0.90, strikeRangeMax: 1.2, strikeCooldown: 2.0, crystalInitial: 2, pillarCount: 42, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
 ];
+
+// Per-night tier weights for the spawn roll. Boss never rolls here — it's
+// scripted at night 3 start. Stalker (spitter) ratio stays low so ranged
+// enemies are a special threat, not the baseline. Exploder appears from
+// night 2 onward.
+export const TIER_WEIGHTS: Record<number, Partial<Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder', number>>> = {
+  1: { lurker: 70, runner: 14, brute: 10, stalker: 6,  exploder: 0  },
+  2: { lurker: 50, runner: 22, brute: 13, stalker: 10, exploder: 5  },
+  3: { lurker: 38, runner: 26, brute: 14, stalker: 13, exploder: 9  },
+};
 
 // Periodic surge — every SURGE_PERIOD seconds we drop a burst of zombies
 // from random edges on top of the constant trickle, so the pressure

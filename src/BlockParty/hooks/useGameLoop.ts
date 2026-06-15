@@ -11,6 +11,7 @@ import {
   getLevelTuning, LEVELS,
   AIM_RANGE, FIRE_ARC_HALF, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS,
   SURGE_PERIOD, SURGE_COUNT_BASE, SURGE_COUNT_PER_NIGHT,
+  MONSTER_SPEED_K, MONSTER_KNOCKBACK_V, TIER_WEIGHTS,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
@@ -241,6 +242,23 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   });
 }
 
+// Weighted tier roll for the per-night spawn distribution. Boss is never
+// rolled here — it's scripted at the start of night 3. Falls back to
+// lurker if the weights table is empty for some reason.
+function rollSpawnTier(level: number): Exclude<MonsterTier, 'boss'> {
+  const weights = TIER_WEIGHTS[Math.max(1, Math.min(3, level))] ?? { lurker: 100 };
+  let total = 0;
+  for (const v of Object.values(weights)) total += v ?? 0;
+  if (total <= 0) return 'lurker';
+  const r = Math.random() * total;
+  let acc = 0;
+  for (const [tier, w] of Object.entries(weights)) {
+    acc += w ?? 0;
+    if (r < acc) return tier as Exclude<MonsterTier, 'boss'>;
+  }
+  return 'lurker';
+}
+
 // Ranged stalker — stops at SPITTER_OPTIMAL_RANGE and spits a green
 // projectile every (telegraph + cooldown). Lurkers + boss stay melee.
 const SPITTER_OPTIMAL_RANGE = 7.5;
@@ -267,8 +285,13 @@ export function startLevel(d: GameRef, level: number) {
   d.rot = Math.PI;
 
   for (let i = 0; i < tuning.crystalInitial; i++) spawnCrystal(d);
-  for (let i = 0; i < tuning.lurkerCount; i++) spawnMonsterTier(d, tuning, 'lurker');
-  for (let i = 0; i < tuning.stalkerCount; i++) spawnMonsterTier(d, tuning, 'stalker');
+  // Initial spawn pool: use the weighted tier roll to pick variety
+  // across the lurker + stalker count budget so even night 1 already
+  // has a runner + a brute or two on screen.
+  const initialCount = tuning.lurkerCount + tuning.stalkerCount;
+  for (let i = 0; i < initialCount; i++) {
+    spawnMonsterTier(d, tuning, rollSpawnTier(level));
+  }
   if (tuning.isBoss) spawnMonsterTier(d, tuning, 'boss');
 }
 
@@ -428,9 +451,9 @@ export function useGameLoop(p: GameLoopParams) {
       const dist = Math.hypot(dx, dz);
       if (dist < nearestDist) nearestDist = dist;
 
-      const speedK     = m.tier === 'boss' ? 0.70 : m.tier === 'stalker' ? 0.92 : 1.0;
-      const telegraphK = m.tier === 'boss' ? 0.85 : m.tier === 'stalker' ? 0.92 : 1.0;
-      const rangeK     = m.tier === 'boss' ? 1.10 : m.tier === 'stalker' ? 1.05 : 1.0;
+      const speedK     = MONSTER_SPEED_K[m.tier];
+      const telegraphK = m.tier === 'boss' ? 0.85 : m.tier === 'stalker' ? 0.92 : m.tier === 'runner' ? 0.85 : 1.0;
+      const rangeK     = m.tier === 'boss' ? 1.10 : m.tier === 'stalker' ? 1.05 : m.tier === 'brute' ? 1.15 : 1.0;
       const monsterBaseSpeed = MONSTER_BASE_SPEED * tuning.monsterSpeed * speedK;
       const myTelegraph = tuning.strikeTelegraph * telegraphK;
       const myRangeMax  = tuning.strikeRangeMax  * rangeK;
@@ -522,7 +545,69 @@ export function useGameLoop(p: GameLoopParams) {
         continue;
       }
 
-      // MELEE — lurkers and boss must close to touch range.
+      // EXPLODER — runs at the player and self-destructs. No telegraph
+      // bite, just a brief priming flash then BOOM with AOE damage if
+      // within range. Faster than a lurker.
+      if (m.tier === 'exploder') {
+        const EXPLODE_TRIGGER = 1.5;
+        const EXPLODE_RADIUS = 2.6;
+        if (m.state !== 'striking') {
+          // Sprint toward player.
+          if (dist > 0.001) {
+            const n = 1 / dist;
+            m.velocity.x = dx * n * monsterBaseSpeed;
+            m.velocity.z = dz * n * monsterBaseSpeed;
+          }
+          if (dist < EXPLODE_TRIGGER) {
+            m.state = 'striking';
+            m.strikeT = 0;
+            emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+            p.playSfx('strike_telegraph');
+          }
+        } else {
+          // Priming — slow to a halt, then explode.
+          m.velocity.x *= 0.6;
+          m.velocity.z *= 0.6;
+          m.strikeT += c;
+          if (m.strikeT >= 0.45) {
+            // BOOM: heavy splat shower, AOE check, self-remove + score.
+            spawnBloodSplats(d, m.position.x, m.position.z, 22, 1.5);
+            shakeCamera(d, 0.40, 0.18);
+            p.playSfx('strike_hit');
+            const aoeDx = d.pos.x - m.position.x;
+            const aoeDz = d.pos.z - m.position.z;
+            if (Math.hypot(aoeDx, aoeDz) < EXPLODE_RADIUS && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+              d.hp -= 1;
+              d.iframesT = 1.2;
+              shakeCamera(d, 0.95, 0.36);
+              emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+              p.haptic?.('heavy');
+              p.onStrikeHit?.();
+              if (d.hp <= 0) {
+                p.playSfx('game_over');
+                d.gameOver = true;
+                setTimeout(() => p.onGameOver(Math.floor(d.score)), 600);
+                return;
+              }
+            }
+            // Award the kill to the player + remove this exploder.
+            d.kills += 1;
+            d.score += SCORE_KILL.exploder;
+            p.onScore(Math.floor(d.score));
+            emitFx(d, 'monster_kill', m.position.x, m.position.z);
+            d.monsters.splice(i, 1);
+            continue;
+          }
+        }
+        m.position.x += m.velocity.x * c;
+        m.position.z += m.velocity.z * c;
+        if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+        m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+        m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+        continue;
+      }
+
+      // MELEE — lurkers, runners, brutes, and boss must close to touch range.
       if (m.state === 'cooldown') {
         m.cooldownT -= c;
         if (dist > 0.001) {
@@ -744,17 +829,13 @@ export function useGameLoop(p: GameLoopParams) {
           // Splatter — small spray for damage hits, big shower on kill below.
           spawnBloodSplats(d, b.position.x, b.position.z, 4, 0.9);
           // Knockback IMPULSE — set a velocity so the zombie SKIDS back
-          // visibly rather than teleporting one step. The knockback timer
-          // suppresses AI movement while > 0 and the velocity decays each
-          // frame so the slide is short + readable. Mass-based: boss
-          // barely budges, lurker flies, stalker is in between.
-          const kbSpeed =
-            m.tier === 'boss'    ? 2.0 :
-            m.tier === 'stalker' ? 6.0 :
-                                   11.0;
+          // visibly rather than teleporting one step. Per-tier table
+          // (constants.ts) so brute + boss barely move and lurker /
+          // exploder fly back.
+          const kbSpeed = MONSTER_KNOCKBACK_V[m.tier];
           m.knockbackVX = b.dirX * kbSpeed;
           m.knockbackVZ = b.dirZ * kbSpeed;
-          m.knockbackT  = m.tier === 'boss' ? 0.10 : 0.20;
+          m.knockbackT  = (m.tier === 'boss' || m.tier === 'brute') ? 0.10 : 0.20;
           // NB: no shake on per-bullet hits — auto-fire shoots ~3/s and the
           // stacked jitter felt like the whole camera was vibrating. The
           // blood splats + knockback already sell the impact.
@@ -770,7 +851,12 @@ export function useGameLoop(p: GameLoopParams) {
             p.onScore(Math.floor(d.score));
             emitFx(d, 'monster_kill', m.position.x, m.position.z);
             // Big shower on death — more chunks for boss + boss-tier shake.
-            const splats = m.tier === 'boss' ? 32 : m.tier === 'stalker' ? 14 : 10;
+            const splats =
+              m.tier === 'boss'    ? 32 :
+              m.tier === 'brute'   ? 22 :
+              m.tier === 'stalker' ? 14 :
+              m.tier === 'runner'  ?  8 :
+                                     10;
             const intensity = m.tier === 'boss' ? 1.6 : 1.0;
             spawnBloodSplats(d, m.position.x, m.position.z, splats, intensity);
             // Only the boss kill shakes the camera. Lurker/stalker kills
@@ -853,16 +939,14 @@ export function useGameLoop(p: GameLoopParams) {
     d.monsterSpawnTimer += c;
     if (d.monsterSpawnTimer >= tuning.monsterSpawnInterval) {
       d.monsterSpawnTimer = 0;
-      const asStalker = Math.random() < tuning.stalkerSpawnRatio;
-      spawnMonsterTier(d, tuning, asStalker ? 'stalker' : 'lurker');
+      spawnMonsterTier(d, tuning, rollSpawnTier(d.level));
     }
     d.surgeTimer += c;
     if (d.surgeTimer >= SURGE_PERIOD) {
       d.surgeTimer = 0;
       const count = SURGE_COUNT_BASE + (d.level - 1) * SURGE_COUNT_PER_NIGHT;
       for (let i = 0; i < count; i++) {
-        const asStalker = Math.random() < (tuning.stalkerSpawnRatio + 0.15);
-        spawnMonsterTier(d, tuning, asStalker ? 'stalker' : 'lurker');
+        spawnMonsterTier(d, tuning, rollSpawnTier(d.level));
       }
     }
 

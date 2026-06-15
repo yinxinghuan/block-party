@@ -11,7 +11,7 @@ export interface Stick {
 
 export type MonsterState = 'lurking' | 'fleeing' | 'striking' | 'cooldown';
 
-export type MonsterTier = 'lurker' | 'stalker' | 'boss';
+export type MonsterTier = 'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss';
 
 export interface Monster {
   id: number;

@@ -34,7 +34,7 @@ export interface ZombieGroup extends THREE.Group {
   userData: { rig: ZombieRig; armBase: number };
 }
 
-export type ZombieTier = 'lurker' | 'stalker' | 'boss';
+export type ZombieTier = 'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'boss';
 
 // Per-tier visual tuning. Boss gets red glowing eyes + a slightly redder rot
 // tint so it reads as the boss at thumbnail size.
@@ -46,13 +46,20 @@ interface TierLook {
 
 const TIER_LOOK: Record<ZombieTier, TierLook> = {
   // height ≈ ~1.6u after scale (block-party world)
-  lurker:  { scale: 0.66, eyeGlow: MP.glowYel, fleshTint: MP.rot },
-  // SPITTER (ranged) — bigger headswollen acid-green tint so the player
-  // can read "that one's the shooter" at a glance. Slightly larger than
-  // a lurker so the silhouette pops in a crowd.
-  stalker: { scale: 0.72, eyeGlow: MP.glowGrn, fleshTint: 0x6fb850 },
-  // ~2.2x lurker, red eyes, darker rot
-  boss:    { scale: 1.45, eyeGlow: MP.glowRed, fleshTint: darken(MP.rot, 0.78) },
+  lurker:   { scale: 0.66, eyeGlow: MP.glowYel,  fleshTint: MP.rot },
+  // Runner — smaller, leaner, ORANGE eye for "twitchy". Sprints.
+  runner:   { scale: 0.55, eyeGlow: 0xff7820,    fleshTint: 0xb05030 },
+  // Brute — slightly taller + dark crimson; the silhouette reads "tank"
+  // when in a crowd of normal shamblers.
+  brute:    { scale: 0.95, eyeGlow: 0xff1010,    fleshTint: 0x5a2418 },
+  // SPITTER (ranged) — acid-green tint, slightly larger so it pops in
+  // the crowd as "that's the shooter".
+  stalker:  { scale: 0.72, eyeGlow: MP.glowGrn,  fleshTint: 0x6fb850 },
+  // Exploder — unstable; angry-orange flesh + bright red eye so the
+  // player knows to keep distance.
+  exploder: { scale: 0.62, eyeGlow: 0xff2020,    fleshTint: 0xc05020 },
+  // ~2.2x lurker, red eyes, darker rot.
+  boss:     { scale: 1.45, eyeGlow: MP.glowRed,  fleshTint: darken(MP.rot, 0.78) },
 };
 
 export function makeZombie(tier: ZombieTier = 'lurker'): ZombieGroup {
