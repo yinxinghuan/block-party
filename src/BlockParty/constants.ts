@@ -48,13 +48,20 @@ export const GRACE_PERIOD = 3.0;
 // the boss night, when the boss is defeated).
 export const EXIT_PICKUP_RADIUS = 1.8;
 export const EXIT_MIN_DIST = 18.0;     // spawn at least this far from player
-/** Kills needed per night before the exit beacon appears. Night 3 is -1
- *  because the boss must die instead — exit then spawns where boss fell. */
-export const NIGHT_KILL_GOAL: Record<1 | 2 | 3, number> = {
-  1: 25,
-  2: 45,
-  3: -1,    // sentinel — boss death triggers exit
-};
+/** Kills needed before the exit beacon appears. Boss nights (every 3rd
+ *  level) return -1 — the boss death triggers the exit instead. Endless:
+ *  the curve preserves the original N1/N2 hand-tuned values exactly, then
+ *  ramps for L4+ in a 2-non-boss + 1-boss cycle. */
+export function getKillGoal(level: number): number {
+  if (level === 1) return 25;
+  if (level === 2) return 45;
+  if (level % 3 === 0) return -1;  // L3, L6, L9, ... = boss
+  // L4+: each cycle adds 15 to the base; second non-boss in cycle adds 20.
+  // L4=40, L5=60 / L7=55, L8=75 / L10=70, L11=90 / L13=85, L14=105 …
+  const cycle = Math.floor((level - 1) / 3);                 // L4-6 → 1, L7-9 → 2
+  const inCycle = (level - 1) % 3;                           // 0 = first, 1 = second
+  return 25 + cycle * 15 + inCycle * 20;
+}
 
 // ===== AUTO-FIRE (Vampire Survivors / Brotato model) =====
 // Hero auto-locks the nearest non-fleeing monster within AIM_RANGE and fires
@@ -125,9 +132,11 @@ export const MONSTER_KNOCKBACK_V: Record<'lurker' | 'runner' | 'brute' | 'stalke
 
 
 // ===== NIGHT TUNINGS =====
-// 3 nights, each ~45s. Night 3 ends with the boss spawning into a swarm
-// already on the screen. Telegraph + reach shrink, speed climbs, spawn
-// interval shortens, ambient gem trickle stays ~constant.
+// Endless: first 3 nights are hand-tuned data; L4+ are formula-synthesized
+// in computeEndlessTuning(). Boss spawns every 3rd level (L3, L6, L9, ...).
+// Palette + thematic name cycle through twilight → dusk → blackout. Each
+// per-stat knob clamps to a soft cap so late-game becomes "max-difficulty
+// arcade survival" rather than spiraling out of bounds.
 
 export interface LevelPalette {
   floor: string;
@@ -171,35 +180,94 @@ const PALETTE: Record<string, LevelPalette> = {
   blackout: { floor: '#26161c', fog: '#0a0608', ambient: '#421824', hemiSky: '#542026', hemiGround: '#100810', pillar: '#3a1e22' },
 };
 
-export const LEVELS: LevelTuning[] = [
+// First-3-night hand-tuned data. L4+ are synthesized from formulas in
+// computeEndlessTuning() that preserve this curve's slope. Keeping these
+// exact rows means the opening 3 nights stay the player-tested feel.
+const LEVELS_HARDCODED: LevelTuning[] = [
   // Night 1 — busy opening so the screen is already crowded when you draw
   // your first breath. Lower-tier mix with one stalker mixed in.
-  { level: 1, name: 'Night 1', timeLimit: 45, lurkerCount: 14, stalkerCount: 1, monsterMax: 38, monsterSpeed: 0.90, monsterFleeSpeed: 0.90, monsterSpawnInterval: 0.55, stalkerSpawnRatio: 0.10, strikeTelegraph: 1.20, strikeRangeMax: 1.0, strikeCooldown: 2.8, crystalInitial: 4, pillarCount: 30, pillarScaleBias: 1.0,  isBoss: false, palette: PALETTE.twilight, bgmTension: 0.40 },
+  { level: 1, name: 'Twilight', timeLimit: 45, lurkerCount: 14, stalkerCount: 1, monsterMax: 38, monsterSpeed: 0.90, monsterFleeSpeed: 0.90, monsterSpawnInterval: 0.55, stalkerSpawnRatio: 0.10, strikeTelegraph: 1.20, strikeRangeMax: 1.0, strikeCooldown: 2.8, crystalInitial: 4, pillarCount: 30, pillarScaleBias: 1.0,  isBoss: false, palette: PALETTE.twilight, bgmTension: 0.40 },
   // Night 2 — stalkers take over; everything moves faster, fewer beats
   // of safety. Spawn interval cuts the trickle to nearly continuous.
-  { level: 2, name: 'Night 2', timeLimit: 45, lurkerCount: 22, stalkerCount: 3, monsterMax: 56, monsterSpeed: 1.05, monsterFleeSpeed: 0.95, monsterSpawnInterval: 0.35, stalkerSpawnRatio: 0.18, strikeTelegraph: 1.05, strikeRangeMax: 1.1, strikeCooldown: 2.4, crystalInitial: 3, pillarCount: 36, pillarScaleBias: 0.95, isBoss: false, palette: PALETTE.dusk,     bgmTension: 0.65 },
+  { level: 2, name: 'Dusk', timeLimit: 45, lurkerCount: 22, stalkerCount: 3, monsterMax: 56, monsterSpeed: 1.05, monsterFleeSpeed: 0.95, monsterSpawnInterval: 0.35, stalkerSpawnRatio: 0.18, strikeTelegraph: 1.05, strikeRangeMax: 1.1, strikeCooldown: 2.4, crystalInitial: 3, pillarCount: 36, pillarScaleBias: 0.95, isBoss: false, palette: PALETTE.dusk,     bgmTension: 0.65 },
   // Night 3 — boss night. Max swarm, fastest stalkers, telegraph window
   // shrinks so you can't dance through bites the way Night 1 lets you.
-  { level: 3, name: 'Night 3', timeLimit: 45, lurkerCount: 28, stalkerCount: 5, monsterMax: 72, monsterSpeed: 1.22, monsterFleeSpeed: 1.05, monsterSpawnInterval: 0.22, stalkerSpawnRatio: 0.22, strikeTelegraph: 0.90, strikeRangeMax: 1.2, strikeCooldown: 2.0, crystalInitial: 2, pillarCount: 42, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
+  { level: 3, name: 'Blackout', timeLimit: 45, lurkerCount: 28, stalkerCount: 5, monsterMax: 72, monsterSpeed: 1.22, monsterFleeSpeed: 1.05, monsterSpawnInterval: 0.22, stalkerSpawnRatio: 0.22, strikeTelegraph: 0.90, strikeRangeMax: 1.2, strikeCooldown: 2.0, crystalInitial: 2, pillarCount: 42, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
 ];
 
+// Backwards-compat export — referenced by a couple of older sites for
+// the "fell on night N · NAME" gameover line. Endless: still 3 hand-tuned
+// entries here, but the actual game loop reads from getLevelTuning().
+export const LEVELS = LEVELS_HARDCODED;
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+const PALETTE_CYCLE = [PALETTE.twilight, PALETTE.dusk, PALETTE.blackout];
+const NAME_CYCLE    = ['Twilight',       'Dusk',       'Blackout'];
+
+// Endless extrapolation for level 4+. Each 3-level cycle re-tints to
+// twilight → dusk → blackout while the difficulty knobs continue to
+// climb (capped so the late game is "max-difficulty arcade survival"
+// rather than impossible math). Boss spawns every 3rd level.
+function computeEndlessTuning(level: number): LevelTuning {
+  const idx = (level - 1) % 3;
+  const palette = PALETTE_CYCLE[idx];
+  const name = NAME_CYCLE[idx];
+  const isBoss = level % 3 === 0;
+  const k = level - 1;  // 0-based ramp parameter
+
+  return {
+    level,
+    name,
+    timeLimit: 45,  // informational; clear condition is the exit beacon, not the timer
+    lurkerCount:    clamp(14 + k * 3, 14, 50),
+    stalkerCount:   clamp(1 + Math.floor(k / 2), 1, 12),
+    monsterMax:     clamp(38 + k * 10, 38, 120),
+    monsterSpeed:   clamp(0.90 + k * 0.08, 0.90, 1.70),
+    monsterFleeSpeed: clamp(0.90 + k * 0.03, 0.90, 1.30),
+    monsterSpawnInterval: clamp(0.55 - k * 0.06, 0.12, 0.55),
+    stalkerSpawnRatio:    clamp(0.10 + k * 0.025, 0.10, 0.32),
+    strikeTelegraph:      clamp(1.20 - k * 0.06, 0.70, 1.20),
+    strikeRangeMax:       clamp(1.0 + k * 0.03, 1.0, 1.5),
+    strikeCooldown:       clamp(2.8 - k * 0.08, 1.5, 2.8),
+    crystalInitial:       clamp(4 - Math.floor(k / 2), 1, 4),
+    pillarCount:          clamp(30 + k * 2, 30, 60),
+    pillarScaleBias:      0.95 + ((level * 0.31) % 1) * 0.20,  // 0.95-1.15 wobble per level
+    isBoss,
+    palette,
+    bgmTension:           clamp(0.40 + k * 0.08, 0.40, 1.0),
+  };
+}
+
 // Per-night tier weights for the spawn roll. Boss never rolls here — it's
-// scripted at night 3 start. Stalker (spitter) ratio stays low so ranged
-// enemies are a special threat, not the baseline. Exploder appears from
-// night 2 onward.
-export const TIER_WEIGHTS: Record<number, Partial<Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost', number>>> = {
-  1: { lurker: 70, runner: 14, brute: 10, stalker: 6,  exploder: 0, ghost: 0  },
-  2: { lurker: 48, runner: 22, brute: 12, stalker: 10, exploder: 4, ghost: 4  },
-  3: { lurker: 34, runner: 24, brute: 13, stalker: 12, exploder: 9, ghost: 8  },
-};
+// scripted on boss nights. Stalker (spitter) stays a special threat, not
+// the baseline. Endless: L1-L3 are hand-tuned, L4+ continues the ramp so
+// late game is mostly high-tier (lurker floor at 12 so the swarm still
+// reads as a swarm and not just elites).
+export function getTierWeights(level: number): Partial<Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost', number>> {
+  if (level === 1) return { lurker: 70, runner: 14, brute: 10, stalker:  6, exploder: 0, ghost: 0 };
+  if (level === 2) return { lurker: 48, runner: 22, brute: 12, stalker: 10, exploder: 4, ghost: 4 };
+  if (level === 3) return { lurker: 34, runner: 24, brute: 13, stalker: 12, exploder: 9, ghost: 8 };
+  const t = level - 3;  // 1, 2, 3, ... for L4, L5, L6, ...
+  return {
+    lurker:   clamp(34 - t * 3, 12, 34),
+    runner:   clamp(24 + t * 1, 24, 30),
+    brute:    clamp(13 + t * 1, 13, 22),
+    stalker:  clamp(12 + t * 1, 12, 20),
+    exploder: clamp( 9 + t * 1,  9, 18),
+    ghost:    clamp( 8 + t * 1,  8, 16),
+  };
+}
 
 // Periodic surge — every SURGE_PERIOD seconds we drop a burst of zombies
 // from random edges on top of the constant trickle, so the pressure
 // has visible "another wave just hit" peaks rather than feeling flat.
 export const SURGE_PERIOD = 12.0;
 export const SURGE_COUNT_BASE = 5;       // Night 1 surge size
-export const SURGE_COUNT_PER_NIGHT = 2;  // +N per night (so Night 3 surges = 9)
+export const SURGE_COUNT_PER_NIGHT = 2;  // +N per night (Endless: capped at 14 for L7+)
 
 export function getLevelTuning(level: number): LevelTuning {
-  return LEVELS[Math.min(LEVELS.length, Math.max(1, level)) - 1];
+  const safe = Math.max(1, level | 0);
+  if (safe <= LEVELS_HARDCODED.length) return LEVELS_HARDCODED[safe - 1];
+  return computeEndlessTuning(safe);
 }

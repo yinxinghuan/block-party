@@ -1773,9 +1773,12 @@ export function Scene(props: SceneProps) {
       <PerkDrops state={state} />
       <EnemyProjectiles state={state} />
       <ExitBeacon state={state} />
-      <Rain visible={props.level === 2} />
-      <Lightning visible={props.level === 2} />
-      <Embers visible={props.level === 3} />
+      {/* Weather cycles with the palette: dusk = rain + lightning, blackout
+          = embers. Twilight cycles stay clear. Endless: this repeats every
+          3 nights. */}
+      <Rain      visible={((props.level - 1) % 3) === 1} />
+      <Lightning visible={((props.level - 1) % 3) === 1} />
+      <Embers    visible={((props.level - 1) % 3) === 2} />
     </>
   );
 }

@@ -12,8 +12,8 @@ import type { PickupKind, SfxKey } from './hooks/useGameLoop';
 import type { SurvivorId } from './builders/characters';
 import { WEAPONS, type WeaponId } from './builders/weapons';
 import { PERKS } from './perks';
-import { NIGHT_KILL_GOAL } from './constants';
-import { getLevelTuning, LEVELS } from './constants';
+import { getKillGoal } from './constants';
+import { getLevelTuning } from './constants';
 import { useJoystick } from './hooks/useJoystick';
 import { playSfx, setBgmTension, setHeartbeatRate, startBgm, stopBgm, stopHeartbeat, unlockAudio } from './utils/audio';
 import { t } from './i18n';
@@ -70,8 +70,7 @@ export function BlockParty() {
   const [levelTitle, setLevelTitle] = useState<{ level: number; name: string; key: number } | null>(null);
   // Level-clear overlay shown between levels with score bonus.
   const [clearOverlay, setClearOverlay] = useState<{ level: number; bonus: number; total: number } | null>(null);
-  // Victory overlay shown after the final level is cleared.
-  const [victory, setVictory] = useState(false);
+  // (Endless: no terminal victory state — runs end only on death.)
 
   const stateRef = useRef(createGameState());
   // Joystick is live on splash too — first drag flips phase to playing
@@ -221,7 +220,6 @@ export function BlockParty() {
     setTimeLeft(getLevelTuning(1).timeLimit);
     setPellets([]);
     setClearOverlay(null);
-    setVictory(false);
     setPhase('playing');
     showLevelTitle(1);
     // Fire-and-forget audio init. If it fails or hangs, gameplay still works.
@@ -282,32 +280,18 @@ export function BlockParty() {
         const levelBonus = 100 * d.level;
         const total = Math.floor(d.score);
 
-        if (d.victory) {
-          // Final level cleared — show victory screen.
-          setVictory(true);
-          stopBgm();
-          setFinalScore(total);
-          submitScore(total)
-            .then(() => sendBeatNotify(total))
-            .catch(() => { /* silent */ });
-          if (total > highScore) {
-            localStorage.setItem(HIGH_KEY, String(total));
-            setHighScore(total);
-          }
-          setStoreState(earn(storeState, total));
-        } else {
-          setClearOverlay({ level: d.level, bonus: levelBonus + timeBonus, total });
-          window.setTimeout(() => {
-            setClearOverlay(null);
-            startLevel(d, d.level + 1);
-            showLevelTitle(d.level);
-            transitioning = false;
-          }, 1900);
-        }
+        // Endless — every cleared night queues the next. No victory state.
+        setClearOverlay({ level: d.level, bonus: levelBonus + timeBonus, total });
+        window.setTimeout(() => {
+          setClearOverlay(null);
+          startLevel(d, d.level + 1);
+          showLevelTitle(d.level);
+          transitioning = false;
+        }, 1900);
       }
     }, 150);
     return () => window.clearInterval(id);
-  }, [phase, highScore, submitScore, showLevelTitle, sendBeatNotify, storeState, setStoreState]);
+  }, [phase, showLevelTitle]);
 
   // Drive heartbeat tempo from monster proximity. Polls 4× per second —
   // cheap, doesn't need frame-perfect sync because the audible change is
@@ -437,11 +421,10 @@ export function BlockParty() {
           <div className="bp__hud-corner">
             <span className="bp__hud-corner-night">N{level} · {getLevelTuning(level).name.toUpperCase()}</span>
             {(() => {
-              const lvlKey = (level === 1 || level === 2 || level === 3) ? level : 1;
-              const goal = NIGHT_KILL_GOAL[lvlKey as 1 | 2 | 3];
               if (exitOpen) {
                 return <span className="bp__hud-corner-goal bp__hud-corner-goal--open">★ FIND EXIT</span>;
               }
+              const goal = getKillGoal(level);
               if (goal > 0) {
                 return <span className="bp__hud-corner-goal">{Math.min(killsThisNight, goal)} / {goal} KILLS</span>;
               }
@@ -522,7 +505,7 @@ export function BlockParty() {
         <div className="ln__level-intro" key={levelTitle.key}>
           <div className="ln__level-intro-num">NIGHT {levelTitle.level}</div>
           <div className="ln__level-intro-name">{levelTitle.name}</div>
-          <div className="ln__level-intro-sub">SURVIVE 45 SECONDS</div>
+          <div className="ln__level-intro-sub">{t('intro_sub')}</div>
         </div>
       )}
 
@@ -536,22 +519,9 @@ export function BlockParty() {
         </div>
       )}
 
-      {/* Victory — shown after the final night is cleared */}
-      {phase === 'playing' && victory && (
-        <div className="ln__victory">
-          <div className="ln__victory-eyebrow">DAWN BROKE</div>
-          <div className="ln__final-score">{finalScore}</div>
-          <div className="ln__final">SURVIVED ALL {LEVELS.length} NIGHTS</div>
-          <button className="ln__cta" onPointerDown={() => start()}>
-            {t('again')}
-          </button>
-          <button className="ln__leaderboard-btn" onPointerDown={() => setShowLeaderboard(true)}>
-            {t('leaderboard')}
-          </button>
-        </div>
-      )}
+      {/* Endless — no victory overlay; runs end only on death. */}
 
-      {phase === 'gameover' && !victory && (
+      {phase === 'gameover' && (
         <div className="ln__gameover">
           <div className="ln__gameover-eyebrow">
             {finalScore > 0 && finalScore === highScore ? 'NEW RECORD' : 'BITTEN'}

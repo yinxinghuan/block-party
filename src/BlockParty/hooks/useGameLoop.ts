@@ -8,11 +8,11 @@ import {
   CRYSTAL_PICKUP_RADIUS, CRYSTAL_MAX,
   SCORE_GOLD,
   GRACE_PERIOD,
-  getLevelTuning, LEVELS,
+  getLevelTuning,
   AIM_RANGE, FIRE_ARC_HALF, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS,
   SURGE_PERIOD, SURGE_COUNT_BASE, SURGE_COUNT_PER_NIGHT,
-  MONSTER_SPEED_K, MONSTER_KNOCKBACK_V, TIER_WEIGHTS,
-  EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, NIGHT_KILL_GOAL,
+  MONSTER_SPEED_K, MONSTER_KNOCKBACK_V, getTierWeights,
+  EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, getKillGoal,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
@@ -254,7 +254,14 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   if (d.monsters.length >= tuning.monsterMax) return;
   const minDist = tier === 'boss' ? 18 : 14;
   const pos = randomSpawnPos(d, minDist, 2);
-  const hp = MONSTER_HP[tier];
+  // Endless boss scaling — each 3-level cycle past the first adds +50%
+  // HP to the boss. Cycle 1 (L3) = 32 hp, cycle 2 (L6) = 48, cycle 3
+  // (L9) = 64, cycle 4 (L12) = 80, … capped at 5x baseline (160).
+  let hp = MONSTER_HP[tier];
+  if (tier === 'boss') {
+    const cycle = Math.max(1, Math.floor(tuning.level / 3));
+    hp = Math.min(MONSTER_HP.boss * 5, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 0.5)));
+  }
   d.monsters.push({
     id: nextId(),
     position: pos,
@@ -311,7 +318,7 @@ const CORPSE_HIT_DMG: Record<MonsterTier, number> = {
 // rolled here — it's scripted at the start of night 3. Falls back to
 // lurker if the weights table is empty for some reason.
 function rollSpawnTier(level: number): Exclude<MonsterTier, 'boss'> {
-  const weights = TIER_WEIGHTS[Math.max(1, Math.min(3, level))] ?? { lurker: 100 };
+  const weights = getTierWeights(level);
   let total = 0;
   for (const v of Object.values(weights)) total += v ?? 0;
   if (total <= 0) return 'lurker';
@@ -356,7 +363,7 @@ function checkExitTrigger(d: GameRef, killedTier: MonsterTier, killPos: THREE.Ve
     summonExit(d, killPos);
     return;
   }
-  const goal = NIGHT_KILL_GOAL[d.level as 1 | 2 | 3] ?? -1;
+  const goal = getKillGoal(d.level);
   if (goal > 0 && d.killsThisNight >= goal) summonExit(d);
 }
 
@@ -405,25 +412,29 @@ function spawnCrystal(d: GameRef, _type?: CrystalType) {
   d.crystals.push({ id: nextId(), position: pos, type: 'xp' });
 }
 
-// Pillar variant weights — per-night table. The base trio (spike / dome /
-// cluster) stays available all 3 nights; later nights unlock additional
-// scenery (N3 = apocalypse: burning barrels, wrecked trucks, steam grates,
-// body bags) and rebalance against the base set so the street reads
-// progressively more abandoned.
-const PILLAR_VARIANT_WEIGHTS: Record<number, { v: PillarVariant; w: number }[]> = {
-  1: [
+// Pillar variant weights — driven by the level's *palette cycle index*
+// (twilight / dusk / blackout) so the props match the lighting. Endless:
+// every 3rd night returns to the blackout (apocalypse) cycle and unlocks
+// burning barrels, wrecked trucks, steam grates, and body bags. Twilight
+// and dusk cycles share the original streetlamp / sedan / dumpster trio
+// until the N2 siege pass adds more.
+const PILLAR_WEIGHTS_BY_CYCLE: { v: PillarVariant; w: number }[][] = [
+  // (level-1) % 3 === 0 → twilight
+  [
     { v: 'spike',   w: 5 },
     { v: 'dome',    w: 3 },
     { v: 'cluster', w: 2 },
   ],
-  2: [
+  // (level-1) % 3 === 1 → dusk
+  [
     { v: 'spike',   w: 5 },
     { v: 'dome',    w: 3 },
     { v: 'cluster', w: 2 },
-    // N2 siege props (police barricade, boarded shop, etc.) will land in the
-    // next pass — kept identical to N1 for now.
+    // N2 siege props (police barricade, boarded shop, wrecked sedan) will
+    // land in the next pass.
   ],
-  3: [
+  // (level-1) % 3 === 2 → blackout
+  [
     { v: 'spike',      w: 4 },
     { v: 'dome',       w: 2 },
     { v: 'cluster',    w: 2 },
@@ -432,9 +443,9 @@ const PILLAR_VARIANT_WEIGHTS: Record<number, { v: PillarVariant; w: number }[]> 
     { v: 'steamGrate', w: 2 },
     { v: 'bodyBag',    w: 2 },
   ],
-};
+];
 function pickPillarVariant(level: number): PillarVariant {
-  const table = PILLAR_VARIANT_WEIGHTS[level] || PILLAR_VARIANT_WEIGHTS[1];
+  const table = PILLAR_WEIGHTS_BY_CYCLE[(level - 1) % 3] || PILLAR_WEIGHTS_BY_CYCLE[0];
   const total = table.reduce((s, x) => s + x.w, 0);
   let r = Math.random() * total;
   for (const x of table) {
@@ -1258,7 +1269,8 @@ export function useGameLoop(p: GameLoopParams) {
         p.playSfx('pickup_green');
         p.haptic?.('heavy');
         d.levelCleared = true;
-        if (d.level >= LEVELS.length) d.victory = true;
+        // Endless: no terminal victory — every cleared night queues the
+        // next one. Death is the only end state.
         return;
       }
     }
