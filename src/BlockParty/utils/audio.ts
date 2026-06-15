@@ -211,11 +211,12 @@ function makeNoiseLoopBuffer(c: AudioContext, seconds: number): AudioBuffer {
   return buf;
 }
 
-function scheduleDrip() {
+function scheduleDrip(firstRun = false) {
   if (!ctx || !bgmGain || !bgmRunning) return;
-  // Random delay 4-9 seconds, then place a drip at a slightly random
-  // pitch. The recursive nature self-perpetuates while bgm is running.
-  const delay = 4 + Math.random() * 5;
+  // Steady-state cadence is 4-9 s apart. The very first drip lands within
+  // ~0.4-1.4 s of startBgm so the soundscape is present immediately — the
+  // user shouldn't have to fire half a clip before the BGM proves itself.
+  const delay = firstRun ? 0.4 + Math.random() : 4 + Math.random() * 5;
   bgmTimer = window.setTimeout(() => {
     if (!ctx || !bgmGain || !bgmRunning) return;
     const t = ctx.currentTime + 0.02;
@@ -266,12 +267,26 @@ function melodyVoice(freq: number, t0: number, peak: number) {
   }
 }
 
-function scheduleMelody() {
+function scheduleMelody(firstRun = false) {
   if (!ctx || !bgmGain || !bgmRunning) {
     melodyTimer = null;
     return;
   }
-  // Gap shrinks as tension rises: ~18s at tension=0 → ~5s at tension=1.
+  // Steady-state gap shrinks with tension: ~18s at tension=0 → ~5s at
+  // tension=1. The very first phrase lands within ~1-2 s so the eerie
+  // melody layer is part of the BGM from the start instead of 10+ s in,
+  // and it's a guaranteed play (not subject to the usual skip roll).
+  if (firstRun) {
+    melodyTimer = window.setTimeout(() => {
+      if (!ctx || !bgmGain || !bgmRunning) return;
+      const t = ctx.currentTime + 0.02;
+      const idx = Math.floor(Math.random() * MELODY_NOTES_HZ.length);
+      const peak = (0.025 + bgmTension * 0.045);
+      melodyVoice(MELODY_NOTES_HZ[idx], t, peak);
+      scheduleMelody();
+    }, 1000 + Math.random() * 800) as unknown as number;
+    return;
+  }
   const baseGap = 18 - bgmTension * 13;
   const delaySec = baseGap + (Math.random() - 0.5) * 5;
   melodyTimer = window.setTimeout(() => {
@@ -297,7 +312,9 @@ export function startBgm(volume = 0.18) {
 
   bgmGain = c.createGain();
   bgmGain.gain.value = 0;
-  bgmGain.gain.linearRampToValueAtTime(volume, c.currentTime + 2.0);
+  // 0.4s fade-in (was 2.0s) — long enough to avoid a click, short enough
+  // that the BGM is at full level before the player even reads the HUD.
+  bgmGain.gain.linearRampToValueAtTime(volume, c.currentTime + 0.4);
   bgmGain.connect(master);
 
   // DRONE — sine ~55Hz through a lowpass that slowly opens/closes
@@ -342,15 +359,18 @@ export function startBgm(volume = 0.18) {
   windFilt.frequency.value = 600;
   windFilt.Q.value = 0.8;
   windGain = c.createGain();
-  windGain.gain.value = 0.0;
+  // Start at the steady-state mid value (was 0.0 → 6 s swell up) so the
+  // wind layer is already audible the moment BGM unmutes. scheduleWindSwell
+  // then takes over the slow back-and-forth from here.
+  windGain.gain.value = 0.10;
   windSrc.connect(windFilt).connect(windGain).connect(bgmGain);
   windSrc.start();
   // Slow swells via gain LFO — implemented with periodic ramps
   scheduleWindSwell();
 
   bgmRunning = true;
-  scheduleDrip();
-  scheduleMelody();
+  scheduleDrip(true);
+  scheduleMelody(true);
 }
 
 function scheduleWindSwell() {
