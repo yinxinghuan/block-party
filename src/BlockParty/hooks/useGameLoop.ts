@@ -241,6 +241,15 @@ function spawnBloodSplats(
   }
 }
 
+// Damage every monster strike does to the player. L1-7 stays at 1 (the
+// hand-tuned "3 hits to die" loop). At L8+ each bite/spit/blast costs
+// 2 hp — player has 3 hp, so they get exactly ONE clean hit before
+// they're one mistake from dead. The fundamental "I have to dodge"
+// shift that nothing else really delivers.
+function strikePlayerDamage(level: number): number {
+  return level >= 8 ? 2 : 1;
+}
+
 function shakeCamera(d: GameRef, mag: number, dur: number) {
   if (mag > d.cameraShakeMag) {
     d.cameraShakeMag = mag;
@@ -269,19 +278,19 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   const pos = randomSpawnPos(d, minDist, 2);
   let hp = MONSTER_HP[tier];
   if (tier === 'boss') {
-    // Endless boss scaling — slope 0.5→0.7 / cap 5×→7× (pass 2). Each
-    // 3-level cycle past the first adds +70% boss HP.
-    //   L3 cycle 1 = 32, L6 = 54, L9 = 77, L12 = 102, L15 = 122, L24 = 192, L30+ = 224 (cap).
+    // Pass 3 boss scaling — slope 0.7→0.9 / cap 7×→9×. Each cycle adds
+    // +90% boss HP so high-cycle bosses are real DPS checks.
+    //   L3=32, L6=61, L9=90, L12=118, L15=147, L24=234, L33+=288 (cap).
     const cycle = Math.max(1, Math.floor(tuning.level / 3));
-    hp = Math.min(MONSTER_HP.boss * 7, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 0.7)));
+    hp = Math.min(MONSTER_HP.boss * 9, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 0.9)));
   } else {
     // Per-level non-boss HP scaling. L1-3 stay hand-tuned (no scale).
-    // Slope bumped 0.12→0.20 and cap 4×→6× (pass 2) so the player's
-    // compounding perks + weapon levels stop running ahead of monster
-    // toughness deep into endless.
-    //   L4=1.20×, L8=2.00×, L12=2.80×, L15=3.40×, L20=4.40×, L28+=6×.
+    // Pass 3 slope 0.20→0.28 / cap 6×→8×. Player-DPS scaling from
+    // perks + weapon levels really compounds at L15+, so the HP curve
+    // has to keep up further.
+    //   L4=1.28×, L8=2.40×, L12=3.52×, L15=4.36×, L20=5.76×, L28+=8.0×.
     if (tuning.level > 3) {
-      const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.20);
+      const scale = Math.min(8.0, 1 + (tuning.level - 3) * 0.28);
       hp = Math.round(hp * scale);
     }
   }
@@ -326,10 +335,11 @@ function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
   if (d.monsters.length >= tuning.monsterMax) return;
   const pos = randomSpawnPos(d, 16, 2);
   // Base 2× HP + the same per-level scaling everyone else gets, so the
-  // elite stays threatening (not trivially poppable) deep into endless.
+  // elite stays threatening deep into endless. Slope matches the non-
+  // boss main scaling formula (0.28 / cap 8× from pass 3).
   let hp = MONSTER_HP.stalker * 2;
   if (tuning.level > 3) {
-    const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.20);
+    const scale = Math.min(8.0, 1 + (tuning.level - 3) * 0.28);
     hp = Math.round(hp * scale);
   }
   d.monsters.push({
@@ -875,7 +885,7 @@ export function useGameLoop(p: GameLoopParams) {
             const aoeDx = d.pos.x - m.position.x;
             const aoeDz = d.pos.z - m.position.z;
             if (Math.hypot(aoeDx, aoeDz) < EXPLODE_RADIUS && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
-              d.hp -= 1;
+              d.hp -= strikePlayerDamage(d.level);
               d.iframesT = 1.2;
               shakeCamera(d, 0.95, 0.36);
               emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
@@ -962,7 +972,7 @@ export function useGameLoop(p: GameLoopParams) {
             p.playSfx('strike_hit');
             p.haptic?.('heavy');
             p.onStrikeHit?.();
-            d.hp -= 1;
+            d.hp -= strikePlayerDamage(d.level);
             d.iframesT = 1.2;
             shakeCamera(d, 0.85, 0.32);
             if (d.hp <= 0) {
@@ -1037,7 +1047,7 @@ export function useGameLoop(p: GameLoopParams) {
           p.playSfx('strike_hit');
           p.haptic?.('heavy');
           p.onStrikeHit?.();
-          d.hp -= 1;
+          d.hp -= strikePlayerDamage(d.level);
           d.iframesT = 1.2;
           // Heavy player-damage shake.
           shakeCamera(d, 0.85, 0.32);
@@ -1312,7 +1322,7 @@ export function useGameLoop(p: GameLoopParams) {
       const pdx = proj.position.x - d.pos.x;
       const pdz = proj.position.z - d.pos.z;
       if (Math.hypot(pdx, pdz) < PROJECTILE_HIT_RADIUS + PLAYER_RADIUS && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
-        d.hp -= 1;
+        d.hp -= strikePlayerDamage(d.level);
         d.iframesT = 1.2;
         emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
         p.playSfx('strike_hit');
