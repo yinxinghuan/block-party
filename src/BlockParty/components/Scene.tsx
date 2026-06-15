@@ -441,6 +441,12 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
     group: THREE.Group;
     prop: THREE.Group;
     haloMat: THREE.MeshBasicMaterial;
+    beam: THREE.Mesh;
+    beamMat: THREE.MeshBasicMaterial;
+    beamInner: THREE.Mesh;
+    beamInnerMat: THREE.MeshBasicMaterial;
+    twinkle: THREE.Mesh;
+    twinkleMat: THREE.MeshBasicMaterial;
     upgradeRing: THREE.Mesh | null;
     upgradeRingMat: THREE.MeshBasicMaterial | null;
     weaponId: WeaponId;
@@ -459,16 +465,65 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
       if (!slot) {
         const group = new THREE.Group();
         group.position.set(drop.position.x, 0, drop.position.z);
+        const tint = WEAPONS[drop.weaponId].tint;
+        // ---- Diablo-style loot pillar — the tell that this is a weapon
+        // ---- drop, not just another gem on the ground. Two concentric
+        // ---- vertical cylinders (additive blending, no depth-write) give
+        // ---- the beam a hot core + soft outer falloff visible across the
+        // ---- whole arena.
+        const beam = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.42, 0.42, 7.0, 12, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: tint,
+            transparent: true,
+            opacity: 0.32,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          }),
+        );
+        beam.position.y = 3.5;
+        group.add(beam);
+        const beamInner = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.16, 0.16, 7.0, 10, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: tint,
+            transparent: true,
+            opacity: 0.70,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          }),
+        );
+        beamInner.position.y = 3.5;
+        group.add(beamInner);
+        // Twinkle — a small octahedron floating at the top of the beam,
+        // spinning slowly, as a "this is special, look up" cue.
+        const twinkle = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.16, 0),
+          new THREE.MeshBasicMaterial({
+            color: tint,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+        twinkle.position.y = 7.0;
+        group.add(twinkle);
+        // Weapon prop — 60% bigger than the previous baseline so the
+        // silhouette over the halo reads as "obviously different" vs the
+        // small spinning octahedrons of XP gems and perk drops.
         const prop = makeWeapon(drop.weaponId);
-        prop.scale.setScalar(1.4);
-        prop.position.set(0, 0.85, 0);
+        prop.scale.setScalar(2.2);
+        prop.position.set(0, 1.1, 0);
         group.add(prop);
         const halo = new THREE.Mesh(
-          new THREE.RingGeometry(0.55, 0.95, 32),
+          new THREE.RingGeometry(0.70, 1.20, 32),
           new THREE.MeshBasicMaterial({
-            color: WEAPONS[drop.weaponId].tint,
+            color: tint,
             transparent: true,
-            opacity: 0.8,
+            opacity: 0.85,
             depthWrite: false,
             blending: THREE.AdditiveBlending,
             side: THREE.DoubleSide,
@@ -480,6 +535,9 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
         slot = {
           group, prop,
           haloMat: halo.material as THREE.MeshBasicMaterial,
+          beam, beamMat: beam.material as THREE.MeshBasicMaterial,
+          beamInner, beamInnerMat: beamInner.material as THREE.MeshBasicMaterial,
+          twinkle, twinkleMat: twinkle.material as THREE.MeshBasicMaterial,
           upgradeRing: null,
           upgradeRingMat: null,
           weaponId: drop.weaponId,
@@ -488,10 +546,19 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
         root.add(group);
       }
       // Float bobble + spin + halo pulse.
-      slot.prop.position.y = 0.85 + Math.sin(t * 2.4 + drop.id) * 0.10;
+      slot.prop.position.y = 1.1 + Math.sin(t * 2.4 + drop.id) * 0.10;
       slot.prop.rotation.y = t * 1.4;
       const pulse = 0.7 + Math.sin(t * 4 + drop.id) * 0.3;
       slot.haloMat.opacity = 0.55 + pulse * 0.35;
+      // Beam breathes a little so it doesn't feel painted on.
+      const breath = 0.85 + Math.sin(t * 1.4 + drop.id) * 0.15;
+      slot.beamMat.opacity = 0.26 + breath * 0.10;
+      slot.beamInnerMat.opacity = 0.56 + breath * 0.20;
+      // Twinkle drifts up & down with a slow spin.
+      slot.twinkle.position.y = 7.0 + Math.sin(t * 1.6 + drop.id) * 0.20;
+      slot.twinkle.rotation.y = t * 0.6;
+      slot.twinkle.rotation.z = t * 0.4;
+      slot.twinkleMat.opacity = 0.75 + Math.sin(t * 3 + drop.id) * 0.20;
 
       // UPGRADE INDICATOR — second ring (gold) when this drop matches
       // the player's current weapon AND the weapon isn't already maxed.
@@ -532,6 +599,12 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
       if (!live.has(id)) {
         root.remove(slot.group);
         slot.haloMat.dispose();
+        slot.beam.geometry.dispose();
+        slot.beamMat.dispose();
+        slot.beamInner.geometry.dispose();
+        slot.beamInnerMat.dispose();
+        slot.twinkle.geometry.dispose();
+        slot.twinkleMat.dispose();
         if (slot.upgradeRing) {
           slot.upgradeRing.geometry.dispose();
           slot.upgradeRingMat?.dispose();
