@@ -304,65 +304,65 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
   return <group ref={rootRef} />;
 }
 
-// Blood splats + bone chunks thrown by bullet hits and kills. InstancedMesh
-// keeps it cheap even when 100+ splats are in flight.
+// Blood splats + bone chunks thrown by bullet hits and kills. We use two
+// separate InstancedMeshes so each can carry a FIXED material color —
+// per-instance colors via vertexColors on a single mesh was rendering as
+// pure black, almost certainly because the InstancedBufferAttribute we
+// assigned by hand wasn't being picked up by the shader the way the
+// docs suggest. Two pools is simpler and bulletproof.
 function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
-  const POOL = 160;
-  const meshRef = useRef<THREE.InstancedMesh>(null);
-  const colorRef = useRef<THREE.InstancedBufferAttribute | null>(null);
+  const POOL = 220;
+  const bloodRef = useRef<THREE.InstancedMesh>(null);
+  const boneRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const color = useMemo(() => new THREE.Color(), []);
-  useEffect(() => {
-    const m = meshRef.current;
-    if (!m) return;
-    // Per-instance color buffer so blood vs bone can be picked per splat.
-    const arr = new Float32Array(POOL * 3);
-    const attr = new THREE.InstancedBufferAttribute(arr, 3);
-    m.instanceColor = attr;
-    colorRef.current = attr;
+  const hidden = useMemo(() => {
+    const o = new THREE.Object3D();
+    o.position.set(0, -100, 0);
+    o.scale.setScalar(0);
+    o.updateMatrix();
+    return o;
   }, []);
   useFrame(() => {
     const d = state.current;
-    const m = meshRef.current;
-    if (!m) return;
-    const splats = d.bloodSplats;
-    const n = Math.min(POOL, splats.length);
-    for (let i = 0; i < n; i++) {
-      const s = splats[i];
+    const blood = bloodRef.current;
+    const bone = boneRef.current;
+    if (!blood || !bone) return;
+    let bloodI = 0;
+    let boneI = 0;
+    for (const s of d.bloodSplats) {
+      if (bloodI >= POOL && boneI >= POOL) break;
       const age = d.time - s.bornAt;
       const fade = Math.max(0, 1 - age / s.life);
-      const sc = s.scale * (0.6 + fade * 0.5);
+      const sc = s.scale * (0.55 + fade * 0.55);
       dummy.position.set(s.position.x, s.position.y, s.position.z);
       dummy.rotation.set(age * 4, age * 3, age * 5);
       dummy.scale.setScalar(sc);
       dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
-      // Per-instance color: deep red for blood, cream for bone fragments.
-      if (s.isBone) color.setHex(0xe7dfc6);
-      else color.setHex(0x9a1018);
-      const arr = colorRef.current?.array as Float32Array | undefined;
-      if (arr) {
-        arr[i * 3 + 0] = color.r * fade;
-        arr[i * 3 + 1] = color.g * fade;
-        arr[i * 3 + 2] = color.b * fade;
+      if (s.isBone) {
+        if (boneI < POOL) { bone.setMatrixAt(boneI, dummy.matrix); boneI++; }
+      } else {
+        if (bloodI < POOL) { blood.setMatrixAt(bloodI, dummy.matrix); bloodI++; }
       }
     }
-    // Hide the unused part of the pool by collapsing to zero scale.
-    for (let i = n; i < POOL; i++) {
-      dummy.position.set(0, -100, 0);
-      dummy.scale.setScalar(0);
-      dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
-    }
-    m.instanceMatrix.needsUpdate = true;
-    if (colorRef.current) colorRef.current.needsUpdate = true;
-    m.count = POOL;
+    // Collapse unused slots so old positions don't linger.
+    for (let i = bloodI; i < POOL; i++) blood.setMatrixAt(i, hidden.matrix);
+    for (let i = boneI; i < POOL; i++) bone.setMatrixAt(i, hidden.matrix);
+    blood.instanceMatrix.needsUpdate = true;
+    bone.instanceMatrix.needsUpdate = true;
+    blood.count = POOL;
+    bone.count = POOL;
   });
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
-      <boxGeometry args={[1, 1, 1]} />
-      <meshBasicMaterial vertexColors toneMapped={false} />
-    </instancedMesh>
+    <>
+      <instancedMesh ref={bloodRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#a01418" emissive="#5a0a0c" emissiveIntensity={0.5} roughness={0.6} toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh ref={boneRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#e7dfc6" roughness={0.7} toneMapped={false} />
+      </instancedMesh>
+    </>
   );
 }
 
