@@ -122,13 +122,17 @@ export interface Wall {
 }
 
 export type PillarVariant =
-  | 'spike'        // streetlamp (N1+)
-  | 'dome'         // parked sedan (N1+)
-  | 'cluster'      // dumpster (N1+)
-  | 'burnBarrel'   // burning oil drum (N3) — emits warm light
-  | 'wreckTruck'   // crashed box truck (N3) — large obstacle
-  | 'steamGrate'   // ground steam grate, walkable (N3)
-  | 'bodyBag';     // ground body bag, walkable (N3)
+  | 'spike'           // streetlamp (twilight cycle, all)
+  | 'dome'            // parked sedan (twilight cycle, all)
+  | 'cluster'         // dumpster (twilight cycle, all)
+  | 'barricade'       // police A-frame + reflective tape (dusk cycle — siege)
+  | 'boardedShop'     // boarded-up shopfront + nailed planks (dusk cycle)
+  | 'tippedDumpster'  // toppled trash bin + spilled contents (dusk cycle)
+  | 'wreckCruiser'    // overturned police car w/ strobing lightbar (dusk cycle)
+  | 'burnBarrel'      // burning oil drum (blackout cycle — apocalypse)
+  | 'wreckTruck'      // crashed box truck (blackout cycle)
+  | 'steamGrate'      // ground steam grate, walkable (blackout cycle)
+  | 'bodyBag';        // ground body bag, walkable (blackout cycle)
 
 export interface Pillar {
   id: number;

@@ -1021,10 +1021,12 @@ function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
 }
 
 // Pool of PointLights that track the nearest *lit* pillars to the player —
-// streetlamps (variant 'spike') and burning oil drums (variant 'burnBarrel').
-// Each frame we sort the candidates by distance² to the player and assign
-// the top N to the pool, fading intensity with distance. Barrels get a
-// hotter, more orange color and brighter output to read as fire vs lamp.
+// streetlamps (variant 'spike'), burning oil drums ('burnBarrel'), and
+// wrecked police cruisers ('wreckCruiser', red+blue strobing). Each frame
+// we sort the candidates by distance² to the player and assign the top N
+// to the pool, fading intensity with distance and color-coding per source
+// (warm amber for lamps, hot orange for fire, strobing red/blue for the
+// cruiser lightbar).
 function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> }) {
   const POOL = 6;
   const refs = useRef<(THREE.PointLight | null)[]>([]);
@@ -1032,7 +1034,9 @@ function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> })
   const tmpColor = useMemo(() => new THREE.Color(), []);
   useFrame(({ clock }) => {
     const d = state.current;
-    const lit = d.pillars.filter(p => p.variant === 'spike' || p.variant === 'burnBarrel');
+    const lit = d.pillars.filter(p =>
+      p.variant === 'spike' || p.variant === 'burnBarrel' || p.variant === 'wreckCruiser'
+    );
     if (lit.length === 0) {
       for (const l of refs.current) if (l) l.intensity = 0;
       return;
@@ -1051,20 +1055,34 @@ function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> })
       if (!light) continue;
       const entry = sorted[i];
       if (!entry) { light.intensity = 0; continue; }
-      const isFire = entry.p.variant === 'burnBarrel';
-      // Streetlamp head sits ~3.25u up; barrel flame sits ~1.4u up.
-      const yOffset = isFire ? 1.4 : 3.1;
+      const v = entry.p.variant;
+      // Per-variant local Y offset for the actual emissive bit:
+      //   streetlamp head ~3.1u, barrel flame ~1.4u, cruiser lightbar ~1.9u
+      const yOffset = v === 'wreckCruiser' ? 1.9 : v === 'burnBarrel' ? 1.4 : 3.1;
       tmpVec.set(entry.p.position.x, yOffset * entry.p.scale, entry.p.position.z);
       light.position.copy(tmpVec);
       const falloff = Math.max(0.25, 1 - entry.d2 / 420);
-      if (isFire) {
-        // Flicker — small, per-instance phase via id so adjacent barrels
-        // don't pulse in sync.
+      if (v === 'burnBarrel') {
         const phase = (entry.p.id * 0.37) % 6.28;
         const flicker = 0.85 + Math.sin(t * 11 + phase) * 0.08 + Math.sin(t * 23 + phase * 1.7) * 0.05;
         light.intensity = 60 * falloff * flicker;
         light.distance = 17 * entry.p.scale;
         tmpColor.set('#ff8434');
+        light.color.copy(tmpColor);
+      } else if (v === 'wreckCruiser') {
+        // Emergency strobe — alternate red/blue every ~0.35s with a sharp
+        // attack (sin clamped + raised to a power so each flash is brief).
+        // Per-instance phase so adjacent cruisers don't beat in sync.
+        const phase = (entry.p.id * 0.91) % 6.28;
+        const beat = t * 5.4 + phase;
+        const onRed  = Math.pow(Math.max(0, Math.sin(beat)), 6);          // peaks once per cycle
+        const onBlue = Math.pow(Math.max(0, Math.sin(beat + Math.PI)), 6); // 180° offset peak
+        light.intensity = (28 + 60 * (onRed + onBlue)) * falloff;
+        light.distance = 14 * entry.p.scale;
+        // Blend the channels — winner takes color, even split goes magenta.
+        const r = 0.18 + onRed  * 0.95;
+        const b = 0.18 + onBlue * 0.95;
+        tmpColor.setRGB(r, 0.06, b);
         light.color.copy(tmpColor);
       } else {
         light.intensity = 32 * falloff;
@@ -1327,6 +1345,161 @@ function Pillars({ state }: { state: React.MutableRefObject<GameRef> }) {
               <mesh position={[0, 0.36, 0]}>
                 <boxGeometry args={[1.45, 0.04, 0.46]} />
                 <meshStandardMaterial color="#9c8a10" roughness={0.9} />
+              </mesh>
+            </>
+          )}
+          {p.variant === 'barricade' && (
+            <>
+              {/* Police A-frame barricade — two angled legs joined by a top
+                  rail with a white "POLICE LINE" plank running across.
+                  Reflective tape reads as thin emissive accents. */}
+              {/* Left leg */}
+              <mesh position={[-0.50, 0.50, 0]} rotation={[0, 0, 0.32]} castShadow>
+                <boxGeometry args={[0.08, 1.00, 0.08]} />
+                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
+              </mesh>
+              {/* Right leg */}
+              <mesh position={[ 0.50, 0.50, 0]} rotation={[0, 0, -0.32]} castShadow>
+                <boxGeometry args={[0.08, 1.00, 0.08]} />
+                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
+              </mesh>
+              {/* Top rail with white plank face */}
+              <mesh position={[0, 0.90, 0]} castShadow>
+                <boxGeometry args={[1.25, 0.18, 0.10]} />
+                <meshStandardMaterial color="#e8e4dc" roughness={0.7} />
+              </mesh>
+              {/* "POLICE LINE" — represented by 6 thin amber emissive tabs
+                  rather than a baked text label (no fonts in three.js by
+                  default). Reads as reflective tape stripes. */}
+              {[-0.45, -0.27, -0.09, 0.09, 0.27, 0.45].map((xx, i) => (
+                <mesh key={i} position={[xx, 0.90, 0.06]}>
+                  <boxGeometry args={[0.10, 0.14, 0.005]} />
+                  <meshStandardMaterial color="#ffcc40" emissive="#ffaa18" emissiveIntensity={0.9} roughness={0.6} />
+                </mesh>
+              ))}
+              {/* Cross brace between the legs (mid-height X shape) */}
+              <mesh position={[0, 0.32, 0]} rotation={[0, 0, 0.95]}>
+                <boxGeometry args={[1.10, 0.05, 0.04]} />
+                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
+              </mesh>
+              <mesh position={[0, 0.32, 0]} rotation={[0, 0, -0.95]}>
+                <boxGeometry args={[1.10, 0.05, 0.04]} />
+                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
+              </mesh>
+            </>
+          )}
+          {p.variant === 'boardedShop' && (
+            <>
+              {/* Boarded-up shopfront — a frame wall + 3 crossed planks
+                  nailed over a window. Sits flush against an imaginary
+                  building so the back face stays solid. */}
+              {/* Wall slab (the "shopfront" face) */}
+              <mesh position={[0, 1.20, -0.18]} castShadow receiveShadow>
+                <boxGeometry args={[1.80, 2.40, 0.20]} />
+                <meshStandardMaterial color="#221d18" roughness={0.9} />
+              </mesh>
+              {/* Window glow — dim emissive panel behind the planks so the
+                  shop reads as "lights still on, no one home" */}
+              <mesh position={[0, 1.30, -0.08]}>
+                <boxGeometry args={[1.40, 1.60, 0.02]} />
+                <meshStandardMaterial color="#3a2820" emissive="#604030" emissiveIntensity={0.6} roughness={0.7} />
+              </mesh>
+              {/* 3 planks at slight angles */}
+              <mesh position={[0, 1.50, 0.00]} rotation={[0, 0, 0.18]} castShadow>
+                <boxGeometry args={[1.80, 0.20, 0.06]} />
+                <meshStandardMaterial color="#6a4a30" roughness={0.85} />
+              </mesh>
+              <mesh position={[0, 1.05, 0.00]} rotation={[0, 0, -0.10]} castShadow>
+                <boxGeometry args={[1.80, 0.20, 0.06]} />
+                <meshStandardMaterial color="#7a5430" roughness={0.85} />
+              </mesh>
+              <mesh position={[-0.10, 0.65, 0.00]} rotation={[0, 0, 0.06]} castShadow>
+                <boxGeometry args={[1.80, 0.20, 0.06]} />
+                <meshStandardMaterial color="#5a4028" roughness={0.85} />
+              </mesh>
+              {/* Spray-painted "CLOSED" mark — orange emissive smear */}
+              <mesh position={[-0.10, 1.95, 0.04]} rotation={[0, 0, 0.10]}>
+                <boxGeometry args={[0.80, 0.10, 0.005]} />
+                <meshStandardMaterial color="#ff6020" emissive="#ff5020" emissiveIntensity={0.7} roughness={0.8} />
+              </mesh>
+            </>
+          )}
+          {p.variant === 'tippedDumpster' && (
+            <>
+              {/* Toppled trash bin lying on its side, lid flopped open,
+                  with 3 small spilled-trash bags scattered in front. */}
+              {/* Bin body — rotated 90° to its side */}
+              <mesh position={[0, 0.45, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
+                <boxGeometry args={[1.40, 0.90, 1.10]} />
+                <meshStandardMaterial color="#2a3e35" roughness={0.9} />
+              </mesh>
+              {/* Open lid sticking up */}
+              <mesh position={[0, 0.95, 0.50]} rotation={[-0.6, 0, 0]} castShadow>
+                <boxGeometry args={[1.46, 0.08, 1.04]} />
+                <meshStandardMaterial color="#1a2a24" roughness={0.85} />
+              </mesh>
+              {/* Spilled trash bags (3 dark blobs) */}
+              <mesh position={[ 0.85,  0.18, -0.10]} castShadow receiveShadow>
+                <sphereGeometry args={[0.26, 8, 8]} />
+                <meshStandardMaterial color="#1a1a20" roughness={0.95} />
+              </mesh>
+              <mesh position={[ 1.10,  0.14,  0.40]} castShadow receiveShadow>
+                <sphereGeometry args={[0.22, 8, 8]} />
+                <meshStandardMaterial color="#181822" roughness={0.95} />
+              </mesh>
+              <mesh position={[ 0.65,  0.12,  0.55]} castShadow receiveShadow>
+                <sphereGeometry args={[0.19, 8, 8]} />
+                <meshStandardMaterial color="#1c1c24" roughness={0.95} />
+              </mesh>
+              {/* Loose paper scrap — small flat emissive square for contrast */}
+              <mesh position={[0.40, 0.06, -0.30]} rotation={[-Math.PI / 2, 0, 0.4]}>
+                <planeGeometry args={[0.18, 0.26]} />
+                <meshStandardMaterial color="#d4c8a8" roughness={0.9} side={THREE.DoubleSide} />
+              </mesh>
+            </>
+          )}
+          {p.variant === 'wreckCruiser' && (
+            <>
+              {/* Overturned police cruiser — sedan tipped onto its side, with
+                  a still-strobing red+blue lightbar handled by the
+                  StreetlampLights pool (cruiser is added there too). The
+                  livery is the silhouette: black-and-white body + lightbar
+                  shape. */}
+              {/* Cruiser body lying on its right side */}
+              <mesh position={[0, 0.80, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
+                <boxGeometry args={[1.50, 2.20, 0.65]} />
+                <meshStandardMaterial color="#0d0d10" roughness={0.7} />
+              </mesh>
+              {/* White doors patch — middle of the body face */}
+              <mesh position={[0, 0.80, 0.34]} rotation={[Math.PI / 2, 0, 0]}>
+                <boxGeometry args={[1.05, 1.10, 0.03]} />
+                <meshStandardMaterial color="#dadada" roughness={0.7} />
+              </mesh>
+              {/* Cabin / greenhouse */}
+              <mesh position={[0, 1.36, -0.10]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+                <boxGeometry args={[1.30, 1.35, 0.55]} />
+                <meshStandardMaterial color="#181820" roughness={0.7} />
+              </mesh>
+              {/* Lightbar — two boxes side-by-side at the top of the cabin */}
+              <mesh position={[0, 1.92, -0.36]} rotation={[Math.PI / 2, 0, 0]}>
+                <boxGeometry args={[0.65, 0.18, 0.20]} />
+                <meshStandardMaterial color="#fff0c0" emissive="#3060ff" emissiveIntensity={2.0} roughness={0.3} />
+              </mesh>
+              <mesh position={[0, 1.92, 0.16]} rotation={[Math.PI / 2, 0, 0]}>
+                <boxGeometry args={[0.65, 0.18, 0.20]} />
+                <meshStandardMaterial color="#fff0c0" emissive="#ff3040" emissiveIntensity={2.0} roughness={0.3} />
+              </mesh>
+              {/* Wheels (3 visible, 1 hidden under the body) */}
+              {[[-0.74, 0.18,  0.80], [-0.74, 0.18, -0.80], [ 0.74, 0.18, -0.80]].map((pos, i) => (
+                <mesh key={i} position={pos as [number, number, number]} rotation={[0, 0, Math.PI / 2]} castShadow>
+                  <cylinderGeometry args={[0.24, 0.24, 0.20, 12]} />
+                  <meshStandardMaterial color="#0c0c12" roughness={0.95} />
+                </mesh>
+              ))}
+              {/* Skid mark — a dark thin strip behind the wreck */}
+              <mesh position={[0, 0.02, -1.4]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[0.45, 1.6]} />
+                <meshStandardMaterial color="#0a0a0e" roughness={1} />
               </mesh>
             </>
           )}

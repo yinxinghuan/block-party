@@ -425,13 +425,18 @@ const PILLAR_WEIGHTS_BY_CYCLE: { v: PillarVariant; w: number }[][] = [
     { v: 'dome',    w: 3 },
     { v: 'cluster', w: 2 },
   ],
-  // (level-1) % 3 === 1 → dusk
+  // (level-1) % 3 === 1 → dusk · siege cycle. The base trio is rebalanced
+  // down and 4 siege props enter: A-frame barricades, boarded shopfronts,
+  // tipped dumpsters spilling trash, and overturned police cruisers with
+  // a still-strobing red/blue lightbar.
   [
-    { v: 'spike',   w: 5 },
-    { v: 'dome',    w: 3 },
-    { v: 'cluster', w: 2 },
-    // N2 siege props (police barricade, boarded shop, wrecked sedan) will
-    // land in the next pass.
+    { v: 'spike',            w: 4 },
+    { v: 'dome',             w: 2 },
+    { v: 'cluster',          w: 2 },
+    { v: 'barricade',        w: 3 },
+    { v: 'boardedShop',      w: 2 },
+    { v: 'tippedDumpster',   w: 2 },
+    { v: 'wreckCruiser',     w: 2 },
   ],
   // (level-1) % 3 === 2 → blackout
   [
@@ -539,10 +544,14 @@ export function useGameLoop(p: GameLoopParams) {
       // Effective collision radius: scale * base footprint + player radius.
       // Footprints by variant — these match the renderer's bottom geometry.
       const base =
-        p.variant === 'dome' ? 1.15 :
-        p.variant === 'cluster' ? 0.95 :
-        p.variant === 'wreckTruck' ? 1.80 :
-        p.variant === 'burnBarrel' ? 0.55 :
+        p.variant === 'dome'           ? 1.15 :
+        p.variant === 'cluster'        ? 0.95 :
+        p.variant === 'wreckTruck'     ? 1.80 :
+        p.variant === 'wreckCruiser'   ? 1.40 :
+        p.variant === 'boardedShop'    ? 1.05 :
+        p.variant === 'tippedDumpster' ? 1.10 :
+        p.variant === 'barricade'      ? 0.85 :
+        p.variant === 'burnBarrel'     ? 0.55 :
         0.70;
       const r = base * p.scale + PLAYER_RADIUS;
       const dx = d.pos.x - p.position.x;
