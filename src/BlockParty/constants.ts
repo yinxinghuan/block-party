@@ -89,15 +89,16 @@ export const MONSTER_SPEED_K: Record<'lurker' | 'runner' | 'brute' | 'stalker' |
   boss:     0.70,
 };
 
-// Per-tier knockback velocity when shot.
+// Per-tier knockback velocity when shot — bumped ~45% from the earlier
+// pass so each hit visibly THROWS the zombie backward.
 export const MONSTER_KNOCKBACK_V: Record<'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost' | 'boss', number> = {
-  lurker:   11.0,
-  runner:    9.0,
-  brute:     2.8,
-  stalker:   6.0,
-  exploder: 12.0,
-  ghost:     7.0,
-  boss:      2.0,
+  lurker:   16.0,
+  runner:   13.0,
+  brute:     4.0,
+  stalker:   9.0,
+  exploder: 17.0,
+  ghost:    10.0,
+  boss:      2.8,
 };
 
 // Bullets-per-kill comment for posterity:

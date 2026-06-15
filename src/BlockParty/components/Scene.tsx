@@ -1007,22 +1007,59 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       slot.group.position.copy(m.position);
       slot.group.rotation.y = m.rotation;
 
-      // DYING — body is launched; arc upward then fall, tumble forward,
-      // arms + legs frozen straight out so the limp ragdoll reads.
+      // DYING — body is launched; arc upward then fall. deathStyle picks
+      // ONE of 4 distinct tumble + limp-pose combos so a wave of dying
+      // bodies looks chaotic, not like a chorus line.
       if (m.dying) {
         const flightLife = 0.6;
         const t01 = Math.min(1, m.dyingT / flightLife);
-        // Parabolic arc — peak around t01=0.5.
-        slot.group.position.y = 0.5 + Math.sin(t01 * Math.PI) * 1.4;
-        // Forward tumble along world X — independent of facing yaw.
-        slot.group.rotation.x = m.dyingT * 10;
-        slot.group.rotation.z = m.flightSpin * 0.05 * m.dyingT;
+        const arc = (m.deathArc || 1.8);
+        slot.group.position.y = 0.5 + Math.sin(t01 * Math.PI) * arc;
         const rigD = slot.group.userData.rig;
-        if (rigD) {
-          rigD.legL.rotation.x = 0.6;     // legs splayed
-          rigD.legR.rotation.x = -0.6;
-          rigD.armL.rotation.x = -Math.PI / 2 + 0.3;   // arms thrown out
-          rigD.armR.rotation.x = -Math.PI / 2 + 0.3;
+        const style = m.deathStyle | 0;
+        if (style === 0) {
+          // FORWARD FLIP — fast tumble around X, arms thrown forward
+          slot.group.rotation.x = m.dyingT * 13;
+          slot.group.rotation.z = 0;
+          if (rigD) {
+            rigD.legL.rotation.x = 0.7;
+            rigD.legR.rotation.x = -0.7;
+            rigD.armL.rotation.x = -Math.PI / 2 + 0.2;
+            rigD.armR.rotation.x = -Math.PI / 2 + 0.2;
+          }
+        } else if (style === 1) {
+          // SIDE CARTWHEEL — tumble around Z, limbs windmill
+          slot.group.rotation.x = 0;
+          slot.group.rotation.z = m.dyingT * 15 * Math.sign(m.flightSpin || 1);
+          if (rigD) {
+            const wind = m.dyingT * 22;
+            rigD.legL.rotation.x =  Math.sin(wind) * 0.9;
+            rigD.legR.rotation.x = -Math.sin(wind + 1.3) * 0.9;
+            rigD.armL.rotation.x =  Math.sin(wind + 0.6) * 1.2 - 0.6;
+            rigD.armR.rotation.x = -Math.sin(wind + 2.1) * 1.2 - 0.6;
+          }
+        } else if (style === 2) {
+          // SPIN TOP — fast Y-axis spin, short arc, legs/arms flailing out
+          slot.group.position.y = 0.5 + Math.sin(t01 * Math.PI) * (arc * 0.55);
+          slot.group.rotation.y += 0.55;     // accumulate fast spin
+          slot.group.rotation.x = 0.15 + t01 * 0.5;
+          slot.group.rotation.z = 0;
+          if (rigD) {
+            rigD.legL.rotation.x =  1.0;
+            rigD.legR.rotation.x = -1.0;
+            rigD.armL.rotation.x = -Math.PI / 2 - 0.4;
+            rigD.armR.rotation.x = -Math.PI / 2 - 0.4;
+          }
+        } else {
+          // BACK FLOP — slow back-arch tumble, arms slack at sides
+          slot.group.rotation.x = -m.dyingT * 7;
+          slot.group.rotation.z = (m.flightSpin || 8) * 0.04 * m.dyingT;
+          if (rigD) {
+            rigD.legL.rotation.x = -0.2;
+            rigD.legR.rotation.x =  0.2;
+            rigD.armL.rotation.x = -0.4;
+            rigD.armR.rotation.x = -0.4;
+          }
         }
         // Skip the live-AI animation block this frame.
         continue;
@@ -1057,6 +1094,17 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       const hopAmpBase = m.tier === 'boss' ? 0.10 : 0.18;
       const hopAmp = striking ? hopAmpBase * 0.25 : hopAmpBase;
       slot.group.position.y = Math.abs(Math.sin(t * hopFreq + m.id)) * hopAmp;
+
+      // KNOCKBACK FLINCH — brief Y hop + body lean-back during the
+      // knockbackT window so each hit visibly shakes the zombie even if
+      // it doesn't die.
+      if (m.knockbackT > 0) {
+        const kb01 = Math.min(1, m.knockbackT / 0.30);
+        slot.group.position.y += Math.sin(kb01 * Math.PI) * 0.42;
+        slot.group.rotation.x = -kb01 * 0.55;      // lean back
+      } else if (!striking) {
+        slot.group.rotation.x = 0;
+      }
 
       // Ground warning ring — fades up through telegraph, blasts on live.
       slot.ring.visible = striking;

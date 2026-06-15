@@ -256,21 +256,22 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
     flightVX: 0,
     flightVZ: 0,
     flightSpin: 0,
+    deathStyle: 0,
+    deathArc: 0,
     isBoss: tier === 'boss',
   });
 }
 
-// Per-tier launch impulse when killed — light bodies fly far, heavy ones
-// drop in place. Used both for the corpse's own flight and for the
-// "bowling" damage it deals to any monster it slams into.
+// Per-tier launch impulse when killed — bumped 33% so corpses really
+// SAIL across the asphalt instead of slumping forward.
 const LAUNCH_SPEED: Record<MonsterTier, number> = {
-  lurker:   18.0,
-  runner:   17.0,
-  brute:     6.0,
-  stalker:  14.0,
-  exploder: 16.0,
-  ghost:     0.0,    // ghosts pop in place — no body to launch
-  boss:      3.0,
+  lurker:   24.0,
+  runner:   22.0,
+  brute:    10.0,
+  stalker:  20.0,
+  exploder: 22.0,
+  ghost:     0.0,
+  boss:      6.0,
 };
 
 // Damage a flying corpse deals when it body-checks another live monster.
@@ -552,7 +553,9 @@ export function useGameLoop(p: GameLoopParams) {
             other.dyingT = 0;
             other.flightVX = (m.flightVX / Math.max(0.001, vmag)) * launchV2 * 0.85;
             other.flightVZ = (m.flightVZ / Math.max(0.001, vmag)) * launchV2 * 0.85;
-            other.flightSpin = (Math.random() < 0.5 ? 1 : -1) * (10 + Math.random() * 6);
+            other.flightSpin = (Math.random() < 0.5 ? 1 : -1) * (12 + Math.random() * 10);
+            other.deathStyle = Math.floor(Math.random() * 4);
+            other.deathArc = 1.8 + Math.random() * 1.4;
             if (d.crystals.length < CRYSTAL_MAX) {
               d.crystals.push({ id: nextId(), position: other.position.clone(), type: 'xp' });
             }
@@ -583,8 +586,8 @@ export function useGameLoop(p: GameLoopParams) {
         m.knockbackT = Math.max(0, m.knockbackT - c);
         m.position.x += m.knockbackVX * c;
         m.position.z += m.knockbackVZ * c;
-        m.knockbackVX *= 0.86;
-        m.knockbackVZ *= 0.86;
+        m.knockbackVX *= 0.92;     // slower decay = longer visible slide
+        m.knockbackVZ *= 0.92;
         m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
         m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
         continue;       // skip AI this frame while flying back
@@ -1022,10 +1025,16 @@ export function useGameLoop(p: GameLoopParams) {
           // visibly rather than teleporting one step. Per-tier table
           // (constants.ts) so brute + boss barely move and lurker /
           // exploder fly back.
+          // Per-tier table (constants.ts). Add a small lateral kick so
+          // each hit looks slightly different, not a perfectly straight
+          // shove. Knockback window long enough to read as a real
+          // pushback, not a teleport.
           const kbSpeed = MONSTER_KNOCKBACK_V[m.tier];
-          m.knockbackVX = b.dirX * kbSpeed;
-          m.knockbackVZ = b.dirZ * kbSpeed;
-          m.knockbackT  = (m.tier === 'boss' || m.tier === 'brute') ? 0.10 : 0.20;
+          const sideKick = (Math.random() - 0.5) * 0.35;        // ±10° lateral
+          const dirAngle = Math.atan2(b.dirX, b.dirZ) + sideKick;
+          m.knockbackVX = Math.sin(dirAngle) * kbSpeed;
+          m.knockbackVZ = Math.cos(dirAngle) * kbSpeed;
+          m.knockbackT  = (m.tier === 'boss' || m.tier === 'brute') ? 0.15 : 0.30;
           // NB: no shake on per-bullet hits — auto-fire shoots ~3/s and the
           // stacked jitter felt like the whole camera was vibrating. The
           // blood splats + knockback already sell the impact.
@@ -1054,13 +1063,21 @@ export function useGameLoop(p: GameLoopParams) {
             );
             if (m.tier === 'boss') shakeCamera(d, 0.95, 0.55);
             // Launch the corpse — flies along the bullet vector, tumbles
-            // for ~0.6s, bowls into anything in its path.
+            // for ~0.6s, bowls into anything in its path. deathStyle
+            // randomizes the tumble axis + limp pose so a wave of dying
+            // zombies doesn't look like 5 identical ragdolls.
             const launchV = LAUNCH_SPEED[m.tier];
+            // ±20° lateral spray on launch so corpses don't all fly in
+            // a perfectly straight line — busy crowds look chaotic.
+            const launchSide = (Math.random() - 0.5) * 0.7;
+            const launchAngle = Math.atan2(b.dirX, b.dirZ) + launchSide;
             m.dying = true;
             m.dyingT = 0;
-            m.flightVX = b.dirX * launchV;
-            m.flightVZ = b.dirZ * launchV;
-            m.flightSpin = (Math.random() < 0.5 ? 1 : -1) * (10 + Math.random() * 6);
+            m.flightVX = Math.sin(launchAngle) * launchV;
+            m.flightVZ = Math.cos(launchAngle) * launchV;
+            m.flightSpin = (Math.random() < 0.5 ? 1 : -1) * (12 + Math.random() * 10);
+            m.deathStyle = Math.floor(Math.random() * 4);
+            m.deathArc = 1.8 + Math.random() * 1.4;        // 1.8 .. 3.2u peak
             // Drop an XP gem where the zombie fell (capped by CRYSTAL_MAX).
             if (d.crystals.length < CRYSTAL_MAX) {
               d.crystals.push({

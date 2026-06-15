@@ -44,6 +44,12 @@ export interface Monster {
   flightVX: number;
   flightVZ: number;
   flightSpin: number;       // tumble rate while flying (rad/s)
+  /** Death-style variant 0..3 — picks which axis the body tumbles on
+   *  and which limb pose freezes in place so a wave of dying zombies
+   *  doesn't look like 5 copies of the same animation. */
+  deathStyle: number;
+  /** Arc peak height (u) — randomized per kill for visual variety. */
+  deathArc: number;
   // Cached compat aliases — keep `isBoss` for any external code still
   // reading it; new code should switch on `tier`.
   isBoss?: boolean;
