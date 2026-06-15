@@ -334,9 +334,13 @@ export function BlockParty() {
 
   // Keep the canvas mounted on splash so the user sees a live preview
   // of the cop on the street; HUD stays hidden until they start moving.
+  // frameloop="always" on splash too so the Crossy Road idle hop and the
+  // ambient cosmetics (fireflies / neon flicker / streetlamp pulse) run —
+  // gameplay logic is gated on `playing=false` inside useGameLoop, so this
+  // only animates visuals, not state.
   const showCanvas = true;
   const showHud = phase === 'playing';
-  const canvasFrameloop = phase === 'playing' ? 'always' : 'demand';
+  const canvasFrameloop = phase === 'gameover' ? 'demand' : 'always';
 
   // Splash → playing transition. The instant the joystick activates on
   // the splash, kick off the run. The same touch that triggered the
