@@ -85,7 +85,9 @@ export function BlockParty() {
   const [victory, setVictory] = useState(false);
 
   const stateRef = useRef(createGameState());
-  const { stickRef, view } = useJoystick(phase === 'playing');
+  // Joystick is live on splash too — first drag flips phase to playing
+  // (see the splash→start effect below).
+  const { stickRef, view } = useJoystick(phase === 'playing' || phase === 'splash');
 
   const {
     isInAigram, submitScore, fetchLeaderboard,
@@ -276,8 +278,22 @@ export function BlockParty() {
     return () => { window.clearInterval(id); stopHeartbeat(); };
   }, [phase]);
 
-  const showCanvas = phase !== 'splash';
+  // Keep the canvas mounted on splash so the user sees a live preview
+  // of the cop on the street; HUD stays hidden until they start moving.
+  const showCanvas = true;
+  const showHud = phase === 'playing';
   const canvasFrameloop = phase === 'playing' ? 'always' : 'demand';
+
+  // Splash → playing transition. The instant the joystick activates on
+  // the splash, kick off the run. The same touch that triggered the
+  // joystick keeps it active (the window listeners in useJoystick stay
+  // bound across the phase flip), so the player walks the moment they
+  // drag — no second tap needed.
+  useEffect(() => {
+    if (phase === 'splash' && view.active) {
+      start();
+    }
+  }, [phase, view.active, start]);
 
   return (
     <div className="ln">
@@ -317,7 +333,7 @@ export function BlockParty() {
         </div>
       )}
 
-      {showCanvas && (
+      {showHud && (
         <div className="ln__hud">
           {/* HUD priority — three tiers, condensed from the old 8-element
               scatter:
@@ -379,7 +395,7 @@ export function BlockParty() {
         </div>
       )}
 
-      {showCanvas && <img className="ln__watermark" src={alteruSvg} alt="AlterU" />}
+      <img className="ln__watermark" src={alteruSvg} alt="AlterU" />
 
       {/* Floating "+N" — instant satisfaction near the player */}
       {phase === 'playing' && pellets.length > 0 && (
@@ -428,11 +444,11 @@ export function BlockParty() {
 
       {phase === 'splash' && (
         <SplashScene
-          onStart={() => start()}
           onOpenStore={() => setStoreOpen(true)}
+          onOpenLeaderboard={() => setShowLeaderboard(true)}
           highScore={highScore}
           picked={storeState.picked}
-          balance={storeState.balance}
+          champion={null}
         />
       )}
 

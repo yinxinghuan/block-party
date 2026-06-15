@@ -1,514 +1,209 @@
-.ln-splash {
+// Splash overlay — sits on top of the live 3D scene. Pointer-events
+// transparent except for the corner chips, so a drag anywhere on the
+// playfield starts the joystick (and the game).
+.bp-splash {
   position: absolute;
   inset: 0;
   z-index: 20;
-  overflow: hidden;
+  pointer-events: none;
   color: #f4f4f4;
   font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  // Subtle vignette so the title and chips read cleanly against any
+  // night palette behind them.
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.10) 45%, rgba(0,0,0,0) 65%),
+    radial-gradient(120% 60% at 50% 100%, rgba(0,0,0,.45) 0%, rgba(0,0,0,.05) 50%, rgba(0,0,0,0) 70%);
 
-  // Cave void — deep blue-black radial from upper center fading to true black
-  // around the edges. Sets the cold-cave-mouth mood.
-  &__void {
+  &__title {
     position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(70% 60% at 50% 30%, #1a2238 0%, #0c1322 45%, #060912 80%, #02030a 100%);
-  }
-
-  // Warm glow from below — implies the player's block-party just out of frame.
-  // Sits behind silhouettes so it lights the cave-floor area but reads
-  // against the dark stalagmites.
-  &__warm-glow {
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(60% 35% at 50% 92%, rgba(255, 170, 80, .35) 0%, rgba(255, 130, 50, .12) 35%, rgba(0, 0, 0, 0) 75%);
-    filter: blur(6px);
-    animation: ln-splash-glow-breathe 5.2s ease-in-out infinite alternate;
-    mix-blend-mode: screen;
-  }
-
-  // Stalactites — irregular spikes from the cave roof. Back layer drifts
-  // slowly for parallax, front layer is the higher-contrast foreground.
-  &__stalactites {
-    position: absolute;
-    top: 0;
-    pointer-events: none;
-    svg { width: 100%; height: 100%; display: block; overflow: visible; }
-    &--back {
-      left: -50%;
-      width: 200%;
-      height: 18%;
-      opacity: .8;
-      filter: blur(.7px);
-      animation: ln-splash-cave-drift 80s linear infinite;
-    }
-    &--front {
-      left: 0;
-      width: 100%;
-      height: 22%;
-    }
-  }
-  // Stalagmites — at the bottom, in front of the warm glow so they read
-  // as silhouettes against light.
-  &__stalagmites {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 16%;
-    pointer-events: none;
-    svg { width: 100%; height: 100%; display: block; }
-  }
-
-  // Particle layers — embers rise from below in warm orange,
-  // motes drift around in cool blue.
-  &__embers,
-  &__motes {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-  &__ember {
-    position: absolute;
-    bottom: -10px;
-    background: #ffb058;
-    border-radius: 50%;
-    opacity: .85;
-    box-shadow: 0 0 6px rgba(255, 170, 80, .8), 0 0 14px rgba(255, 120, 40, .35);
-    animation-name: ln-splash-ember-rise;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-  }
-  &__mote {
-    position: absolute;
-    top: 30%;
-    background: #cfe2ff;
-    border-radius: 50%;
-    opacity: .55;
-    box-shadow: 0 0 8px rgba(180, 220, 255, .85);
-    animation-name: ln-splash-mote-drift;
-    animation-timing-function: ease-in-out;
-    animation-iteration-count: infinite;
-  }
-
-  &__content {
-    position: absolute;
-    inset: 0;
-    z-index: 5;
+    top: calc(env(safe-area-inset-top, 0px) + 56px);
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 24px;
-    padding-bottom: max(48px, env(safe-area-inset-bottom, 24px));
+    line-height: .92;
     text-align: center;
-  }
-
-  &__title {
-    // Cinzel Roman caps. Color shifted from warm amber (which clashed with
-    // the warm block-party glow below) to cold bone-silver — like moonlight on
-    // a stone monument. The contrast against the warm block-party reads as
-    // "you have one flame in a cold dead place" — the game's whole pitch.
-    margin: 0 0 22px;
-    font-family: 'Cinzel', 'Trajan Pro', 'Times New Roman', serif;
-    font-size: clamp(54px, 15.5vw, 90px);
+    letter-spacing: .04em;
+    font-family: 'Cinzel', 'Space Grotesk', serif;
     font-weight: 900;
+    font-size: 60px;
+    text-shadow: 0 4px 24px rgba(0,0,0,.7), 0 0 26px rgba(220,80,140,.35);
+  }
+  &__title-mark {
+    display: block;
+  }
+  &__title-mark--block {
+    color: #f4e4e4;
+  }
+  &__title-mark--party {
+    color: #ff5b8a;
+    text-shadow: 0 4px 26px rgba(0,0,0,.75), 0 0 32px rgba(255,80,140,.55);
     letter-spacing: .08em;
-    line-height: 1;
-    display: flex;
-    flex-direction: row;
-    align-items: baseline;
-    gap: .02em;
-    text-shadow:
-      0 4px 0  rgba(0, 0, 0, .60),
-      0 10px 38px rgba(180, 210, 240, .35),
-      0 0 100px rgba(140, 180, 220, .25);
-  }
-  &__title-emph {
-    background: linear-gradient(180deg, #f4f6fa 0%, #c7d3e2 60%, #6b7a90 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    &--accent {
-      // Accent half stays cool but gets a hint of warm at the bottom edge,
-      // suggesting the block-party's light just brushing the stone from below.
-      background: linear-gradient(180deg, #fafcff 0%, #d6e1f0 50%, #c8a07a 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-      filter: drop-shadow(0 4px 14px rgba(170, 200, 240, .35));
-    }
-  }
-  &__subtitle {
-    margin: 0 0 36px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: .18em;
-    text-transform: uppercase;
-    color: rgba(220, 200, 170, .70);
-    white-space: nowrap;
   }
 
   &__best {
-    margin-bottom: 24px;
-    padding: 6px 18px;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 8px;
-    background: rgba(255,180,80,.10);
-    border: 1px solid rgba(255, 200, 130, .25);
-    border-radius: 999px;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 184px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255,210,170,.85);
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    text-shadow: 0 2px 8px rgba(0,0,0,.7);
+    white-space: nowrap;
   }
-  &__best-label {
+
+  // -------- Top corner chips --------
+  &__chip,
+  &__champion {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 16px);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px 8px;
+    background: rgba(20, 12, 22, .68);
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 6px 18px rgba(0,0,0,.45);
+    pointer-events: auto;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
-    font-weight: 500;
-    letter-spacing: .25em;
-    color: rgba(255, 220, 130, .75);
-  }
-  &__best-value {
-    font-family: 'Baloo 2', sans-serif;
-    font-size: 18px;
-    font-weight: 800;
-    color: #ffd84a;
-    letter-spacing: -.01em;
-  }
-
-  // How-to-play card — taught above the CTA so the player sees rules
-  // before tapping in. Compact: 4 colored crystal icons + labels + a
-  // one-line monster threat warning.
-  &__rules {
-    width: min(360px, 88%);
-    margin: 0 0 22px;
-    padding: 14px 18px 12px;
-    background: rgba(20, 14, 26, .42);
-    border: 1px solid rgba(255, 200, 130, .14);
-    border-radius: 14px;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-  }
-  &__rules-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    align-items: center;
-    gap: 4px;
-    justify-items: center;
-    & + & { margin-top: 4px; }
-  }
-  &__rule-line {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 500;
-    line-height: 1.45;
-    letter-spacing: .04em;
-    color: rgba(255, 230, 200, .90);
-    text-align: center;
-    margin: 0 0 6px;
-    &:last-child { margin-bottom: 0; }
-  }
-  &__rules-warn {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 90, 80, .18);
-    text-align: center;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: .20em;
-    text-transform: uppercase;
-    color: rgba(255, 130, 110, .80);
-  }
-
-  &__cta {
-    position: relative;
-    background: linear-gradient(135deg, #ffe17a 0%, #ff9844 60%, #ff6b3a 100%);
-    color: #1a1a1a;
-    border: none;
-    padding: 18px 44px;
-    border-radius: 999px;
-    font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 16px;
-    letter-spacing: .12em;
+    letter-spacing: .15em;
     text-transform: uppercase;
+    color: #f4f4f4;
     cursor: pointer;
-    box-shadow:
-      0 18px 40px rgba(255, 150, 60, .55),
-      inset 0 1px 0 rgba(255,255,255,.65);
-    z-index: 1;
-    transition: transform .15s ease;
-    &:active { transform: translateY(2px); }
-  }
-  &__cta-text { position: relative; z-index: 2; }
-  &__cta-pulse {
-    position: absolute;
-    inset: -4px;
-    border-radius: 999px;
-    border: 2px solid rgba(255, 200, 100, .7);
-    animation: ln-splash-cta-pulse 1.8s ease-out infinite;
-    pointer-events: none;
-  }
-
-  // Survivor picker — single-line title + a row of archetype pills. Tap a
-  // pill to clock in as that survivor. Each pill carries the archetype's
-  // tint as a CSS custom property so its dot + border match the body.
-  &__picker-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .24em;
-    text-transform: uppercase;
-    color: rgba(255, 230, 200, .82);
-    margin: 2px 0 12px;
-  }
-  &__picker {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    justify-content: center;
-    width: min(420px, 92%);
-    z-index: 1;
-  }
-  &__shift {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 11px 18px 11px 14px;
-    border-radius: 999px;
-    background: rgba(15, 11, 22, .65);
-    border: 1.5px solid var(--shift-tint, #888);
-    color: rgba(255, 240, 220, .92);
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    font-size: 14px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    cursor: pointer;
-    box-shadow:
-      0 6px 22px rgba(0, 0, 0, .55),
-      inset 0 1px 0 rgba(255, 255, 255, .10);
-    transition: transform .14s ease, box-shadow .14s ease, background .14s ease;
     -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    touch-action: manipulation;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+
     &:active {
-      transform: translateY(2px);
-      background: rgba(40, 28, 50, .85);
+      transform: scale(.96);
+      background: rgba(36, 22, 40, .78);
+      border-color: rgba(255, 255, 255, .26);
     }
   }
-  &__shift-dot {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--shift-tint, #888);
-    box-shadow: 0 0 14px var(--shift-tint, #888), inset 0 1px 0 rgba(255,255,255,.35);
+  &__chip--loadout {
+    left: 14px;
   }
-  &__shift-name { display: inline-block; }
-
-  // Active-loadout chip — appears between the rules card and the CTA. Tapping
-  // it opens the store; visual style mirrors the picker pill but smaller.
-  &__loadout {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    margin-bottom: 14px;
-    border-radius: 999px;
-    background: rgba(15, 11, 22, .60);
-    border: 1.5px dashed var(--shift-tint, #ffd060);
-    color: rgba(255, 240, 220, .92);
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    font-size: 12px;
-    letter-spacing: .12em;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    &:active { transform: translateY(2px); }
-    z-index: 2;
-  }
-  &__loadout-label {
-    color: rgba(255, 240, 200, .55);
-    font-size: 10px;
+  &__chip-eyebrow {
+    color: rgba(255, 220, 240, .55);
+    font-size: 8.5px;
     letter-spacing: .22em;
   }
-  &__loadout-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--shift-tint, #ffd060);
-    box-shadow: 0 0 10px var(--shift-tint, #ffd060);
+  &__chip-name {
+    color: #ffd6e6;
+    font-weight: 800;
   }
-  &__loadout-name { color: var(--shift-tint, #ffd060); font-weight: 800; }
-  &__loadout-edit { color: rgba(255, 240, 200, .55); font-size: 11px; }
-
-  &__store-link {
-    margin-top: 10px;
-    background: transparent;
-    border: none;
-    color: rgba(255, 240, 200, .68);
-    font-family: 'JetBrains Mono', monospace;
+  &__chip-edit {
+    color: rgba(255, 220, 240, .65);
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .22em;
-    cursor: pointer;
-    text-decoration: underline;
-    text-underline-offset: 4px;
-    z-index: 2;
-    -webkit-tap-highlight-color: transparent;
-    &:active { color: #ffd060; }
+    margin-left: 2px;
   }
-}
 
-// Store screen — full-screen overlay, dimmed backdrop, scrollable grid.
-.bp-store {
-  position: absolute;
-  inset: 0;
-  z-index: 28;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  background: rgba(8, 6, 12, 0.92);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  overflow-y: auto;
-
-  &__topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 4px 16px;
+  &__champion {
+    right: 14px;
+    max-width: 200px;
   }
-  &__back {
-    background: transparent;
-    border: 1px solid rgba(255, 230, 200, 0.35);
-    color: rgba(255, 240, 220, 0.92);
-    padding: 8px 14px;
-    border-radius: 999px;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    font-size: 12px;
-    letter-spacing: .12em;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    &:active { transform: translateY(2px); }
-  }
-  &__balance {
+  &__champion-trophy {
     color: #ffd060;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 800;
-    font-size: 18px;
-    letter-spacing: .14em;
-    text-shadow: 0 0 12px rgba(255, 200, 80, .6);
+    font-size: 12px;
+    line-height: 1;
+    filter: drop-shadow(0 0 6px rgba(255, 208, 96, .55));
   }
-  &__title {
-    text-align: center;
-    font-family: 'Space Grotesk', sans-serif;
+  &__champion-name {
+    color: #ffe9a1;
     font-weight: 800;
-    font-size: 24px;
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  &__champion-score {
+    color: rgba(255,255,255,.7);
+    font-weight: 600;
+    font-size: 9px;
     letter-spacing: .12em;
-    color: #fff;
-    margin-bottom: 4px;
   }
-  &__subtitle {
-    text-align: center;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: .18em;
-    color: rgba(255, 240, 220, 0.55);
-    text-transform: uppercase;
-    margin-bottom: 18px;
+  &__champion--empty {
+    .bp-splash__champion-trophy {
+      color: rgba(255,210,140,.8);
+    }
   }
-  &__grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-  &__card {
-    appearance: none;
+
+  // -------- Gesture demo (phantom thumb) --------
+  // Anchored to lower-center; absolute pointer-events: none so the user's
+  // own touch lands on the canvas/window and starts the joystick.
+  &__demo {
+    position: absolute;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 90px);
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 16px 12px 12px;
-    border-radius: 14px;
-    background: rgba(20, 14, 26, 0.72);
-    border: 1.5px solid var(--card-tint, #888);
-    color: rgba(255, 240, 220, 0.95);
-    font-family: 'Space Grotesk', sans-serif;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition: transform .12s ease, box-shadow .12s ease;
-    &:active { transform: translateY(2px); }
-    &.is-active {
-      background: color-mix(in srgb, var(--card-tint) 18%, rgba(20, 14, 26, 0.72));
-      box-shadow: 0 0 20px color-mix(in srgb, var(--card-tint) 50%, transparent);
-    }
-    &.is-locked {
-      opacity: 0.45;
-      border-color: rgba(255, 230, 200, 0.18);
-      cursor: not-allowed;
-    }
+    gap: 18px;
+    pointer-events: none;
   }
-  &__card-dot {
-    width: 40px;
-    height: 40px;
+  &__demo-ring {
+    position: relative;
+    width: 120px;
+    height: 120px;
     border-radius: 50%;
-    background: var(--card-tint, #888);
-    box-shadow: 0 0 18px color-mix(in srgb, var(--card-tint) 60%, transparent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 900;
-    font-size: 20px;
-    color: rgba(0, 0, 0, 0.6);
+    border: 2px dashed rgba(255, 255, 255, .25);
+    box-shadow: 0 0 32px rgba(255, 80, 140, .12) inset, 0 6px 24px rgba(0,0,0,.4);
+    animation: bp-splash-ring-pulse 2.2s ease-in-out infinite;
   }
-  &__card-dot--random {
-    color: rgba(0, 0, 0, 0.6);
+  &__demo-thumb {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    margin: -22px 0 0 -22px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffe2eb 0%, #ff7aa6 55%, #c2305a 100%);
+    box-shadow:
+      0 0 18px rgba(255, 90, 140, .65),
+      0 6px 14px rgba(0,0,0,.55),
+      inset 0 -4px 8px rgba(0,0,0,.35);
+    animation: bp-splash-thumb-drag 2.2s ease-in-out infinite;
   }
-  &__card-name {
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: .14em;
-    color: var(--card-tint, #fff);
-    text-shadow: 0 0 10px color-mix(in srgb, var(--card-tint) 40%, transparent);
-  }
-  &__card-state {
+  &__demo-label {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
-    letter-spacing: .18em;
-    color: rgba(255, 240, 220, 0.7);
+    letter-spacing: .26em;
+    color: rgba(255, 200, 220, .85);
+    text-shadow: 0 2px 8px rgba(0,0,0,.7);
     text-transform: uppercase;
+    white-space: nowrap;
+    animation: bp-splash-label-blink 2.2s ease-in-out infinite;
   }
 }
 
-@keyframes ln-splash-ember-rise {
-  0%   { transform: translate(0, 0)         scale(1); opacity: 0; }
-  10%  {                                                opacity: .85; }
-  50%  { transform: translate(14px, -50vh)  scale(1.05); opacity: .9; }
-  100% { transform: translate(-10px, -110vh) scale(.85); opacity: 0; }
+@keyframes bp-splash-thumb-drag {
+  0%   { transform: translate(-18px, -10px); }
+  25%  { transform: translate( 16px, -14px); }
+  50%  { transform: translate( 22px,  12px); }
+  75%  { transform: translate(-14px,  16px); }
+  100% { transform: translate(-18px, -10px); }
 }
-@keyframes ln-splash-mote-drift {
-  0%   { transform: translate(0, 0); opacity: 0; }
-  20%  {                              opacity: .65; }
-  50%  { transform: translate(40px, 80px); opacity: .55; }
-  80%  {                              opacity: .55; }
-  100% { transform: translate(-30px, 160px); opacity: 0; }
+
+@keyframes bp-splash-ring-pulse {
+  0%, 100% { box-shadow: 0 0 32px rgba(255, 80, 140, .12) inset, 0 6px 24px rgba(0,0,0,.4); transform: scale(1); }
+  50%      { box-shadow: 0 0 44px rgba(255, 80, 140, .26) inset, 0 6px 24px rgba(0,0,0,.4); transform: scale(1.04); }
 }
-@keyframes ln-splash-cave-drift {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-@keyframes ln-splash-glow-breathe {
-  0%   { opacity: .75; transform: scale(1); }
-  100% { opacity: 1;   transform: scale(1.04); }
-}
-@keyframes ln-splash-cta-pulse {
-  0%   { transform: scale(.96); opacity: .9; }
-  100% { transform: scale(1.22); opacity: 0; }
+
+@keyframes bp-splash-label-blink {
+  0%, 100% { opacity: .9; }
+  50%      { opacity: .55; }
 }
