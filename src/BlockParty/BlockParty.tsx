@@ -87,7 +87,7 @@ export function BlockParty() {
   // pin the top entry. Snapshot my own pre-run best when entering a run;
   // after submit, if this run pushed me ahead of anyone, ping the highest
   // scorer I just overtook.
-  const [champion, setChampion] = useState<{ name: string; score: number } | null>(null);
+  const [champion, setChampion] = useState<{ name: string; score: number; avatar_url: string; user_id: string } | null>(null);
   const preRunBestRef = useRef(0);
   const lastRowsRef = useRef<LeaderboardEntry[]>([]);
 
@@ -100,7 +100,12 @@ export function BlockParty() {
         lastRowsRef.current = rows;
         const top = rows[0];
         if (top && Number(top.score) > 0) {
-          setChampion({ name: top.name || 'anon', score: Number(top.score) });
+          setChampion({
+            name: top.name || 'anon',
+            score: Number(top.score),
+            avatar_url: top.avatar_url || '',
+            user_id: String(top.user_id || ''),
+          });
         } else {
           setChampion(null);
         }
@@ -436,10 +441,11 @@ export function BlockParty() {
         </div>
       )}
 
-      {/* In-game champion pill — Block Hop pattern. Always-visible #1 entry
-          tucked under the corner HUD; tap opens the full leaderboard. The
-          champion snapshot is fetched on splash and held for the session
-          (refreshed next time the splash mounts). */}
+      {/* In-game champion pill — the only place the player can see #1
+          once they've started a run (splash never comes back). Crossy
+          Road / Sky Leap gold crown + circular avatar + name. Tap opens
+          the full leaderboard. Champion snapshot is fetched on splash
+          and held for the session. */}
       {phase === 'playing' && champion && (
         <button
           className="bp__champion-pill"
@@ -451,8 +457,12 @@ export function BlockParty() {
           <svg className="bp__crown" viewBox="0 0 24 24" aria-hidden>
             <path d="M3 8 L7 13 L12 6 L17 13 L21 8 L20 18 L4 18 Z" />
           </svg>
+          <span className="bp__champion-pill-avatar">
+            {champion.avatar_url
+              ? <img src={champion.avatar_url} alt="" draggable={false} />
+              : champion.name.charAt(0).toUpperCase()}
+          </span>
           <span className="bp__champion-pill-name">{champion.name}</span>
-          <span className="bp__champion-pill-score">{champion.score.toLocaleString()}</span>
         </button>
       )}
 

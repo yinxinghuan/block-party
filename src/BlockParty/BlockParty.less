@@ -640,67 +640,92 @@
   color: rgba(220, 210, 200, 0.55);
 }
 
-// In-game champion pill — Sky Leap frosted-glass pill that matches the
-// leaderboard modal style. Sits under the corner HUD; tap opens the full
-// board. Glass surface + gold crown + deep-pink score read against the
-// dark night palette like a soft cloud floating on the playfield.
+// In-game champion pill — only place the player can see who's #1 once
+// they've started a run (splash never comes back). Dark glass surface so
+// it reads against the night palette like the rest of the HUD, with a
+// gold crown SVG + circular avatar + champion name in front. No score —
+// the score lives on the splash pill / in the full leaderboard.
 .bp__champion-pill {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 92px);
   right: 14px;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 14px 5px 7px;
-  background: linear-gradient(145deg, rgba(255,255,255,.74), rgba(255,255,255,.52));
-  border: 1px solid rgba(255, 255, 255, .78);
+  gap: 6px;
+  padding: 4px 12px 4px 5px;
+  background: rgba(20, 12, 22, .68);
+  border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 999px;
-  backdrop-filter: saturate(165%) blur(18px);
-  -webkit-backdrop-filter: saturate(165%) blur(18px);
-  box-shadow: 0 8px 20px rgba(58, 76, 128, .25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
   pointer-events: auto;
-  font-family: 'Fredoka', system-ui, sans-serif;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: #3a2c52;
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #f4f4f4;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   touch-action: manipulation;
   z-index: 12;
   max-width: 200px;
-  transition: transform .12s ease;
+  transition: transform .12s ease, background .12s ease;
 
   &:active {
     transform: scale(.96);
+    background: rgba(36, 22, 40, .82);
   }
 }
-// Shared crown glyph — used by .bp__champion-pill AND the splash variant.
-// Gold fill + warm brown stroke matches Sky Leap's pill exactly.
+// Gold crown SVG glyph — Crossy Road / Sky Leap accent. Solid gold fill
+// with a warm-brown stroke so it pops against the dark pill but doesn't
+// feel like a UI icon.
 .bp__crown {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   display: block;
   path {
     fill: #ffcf4d;
-    stroke: rgba(180, 120, 20, .55);
-    stroke-width: 1.2;
+    stroke: rgba(120, 70, 10, .85);
+    stroke-width: 1.4;
     stroke-linejoin: round;
+  }
+  filter: drop-shadow(0 0 4px rgba(255, 207, 77, .35));
+}
+// Circular avatar — 22px to match the pill's height. Real image when
+// head_url is present, otherwise an initial in a teal fallback circle.
+.bp__champion-pill-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(150deg, #ff85bd, #ec3a86);
+  border: 1.5px solid rgba(255, 255, 255, .85);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  overflow: hidden;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
 }
 .bp__champion-pill-name {
-  color: #3a2c52;
-  max-width: 96px;
+  color: #ffe9a1;
+  font-weight: 700;
+  max-width: 110px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.bp__champion-pill-score {
-  color: #ec3a86;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 
 // Night kill-goal chip — replaces the old timer. Sits under the N1/N2/N3
