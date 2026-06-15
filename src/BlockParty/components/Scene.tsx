@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   CAMERA_FOV, CAMERA_POS, ARENA_HALF,
   PLAYER_SPEED,
   getLevelTuning,
 } from '../constants';
 import { useGameLoop, GameRef, PickupKind, SfxKey } from '../hooks/useGameLoop';
-import type { Stick } from '../types';
+import type { Stick, Pillar, PillarVariant } from '../types';
 import { makeMonster, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
 import { makeSurvivor, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
 import { makeWeapon, WEAPONS } from '../builders/weapons';
@@ -358,7 +359,13 @@ function EnemyProjectiles({ state }: { state: React.MutableRefObject<GameRef> })
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, POOL]}>
       <icosahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial color="#9bff60" emissive="#48ff48" emissiveIntensity={3.0} roughness={0.4} toneMapped={false} />
+      {/* Was lime green (#9bff60 / #48ff48) — too close to the mint-green XP
+          gems on the ground; players couldn't tell incoming acid from a
+          loose collectable mid-fight. Switched to a hot chrome yellow.
+          Universal "acid/bile/danger" read, maximum hue distance from the
+          gems, also colorblind-safer than magenta (green↔magenta confuses
+          protan/deutan; green↔yellow is distinguishable). */}
+      <meshStandardMaterial color="#ffeb20" emissive="#fff000" emissiveIntensity={3.0} roughness={0.4} toneMapped={false} />
     </instancedMesh>
   );
 }
@@ -969,7 +976,12 @@ function Crystals({ state }: { state: React.MutableRefObject<GameRef> }) {
 // quality (like DJ Disco) without per-crystal lights — keeps GPU cost
 // predictable. No shadows because mobile would choke.
 function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
-  const POOL = 4;
+  // Pool 4 → 3. XP gems are decorative; their green PointLight contribution
+  // is subtle on a 11-48u fog scene. One less point light pays back
+  // across the framebuffer.
+  const POOL = 3;
+  // Hard cull past this squared distance — was a 20% floor, now zero.
+  const CULL_D2 = 200;
   const refs = useRef<(THREE.PointLight | null)[]>([]);
   const tmpVec = useMemo(() => new THREE.Vector3(), []);
   useFrame(() => {
@@ -992,13 +1004,13 @@ function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
       if (!light) continue;
       const entry = sorted[i];
       if (!entry) { light.intensity = 0; continue; }
+      // Hard cull — distant gems contribute nothing.
+      if (entry.d2 > CULL_D2) { light.intensity = 0; continue; }
       const c = entry.c;
       tmpVec.set(c.position.x, 0.5, c.position.z);
       light.position.copy(tmpVec);
       light.color.set('#7fffa8');     // XP gem green
-      // Fade with distance² so distant crystals contribute less while
-      // still being visually anchored when nearby.
-      const distFalloff = Math.max(0.2, 1 - entry.d2 / 200);
+      const distFalloff = 1 - entry.d2 / CULL_D2;
       light.intensity = 14 * distFalloff;
       light.distance = 8;
     }
@@ -1027,7 +1039,14 @@ function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
 // (warm amber for lamps, hot orange for fire, strobing red/blue for the
 // cruiser lightbar).
 function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> }) {
-  const POOL = 6;
+  // Pool 6 → 4. Each PointLight is per-fragment forward shading; one
+  // fewer light pays back across the whole framebuffer. 4 nearest is
+  // enough — players rarely have 6 lit props on screen at once.
+  const POOL = 4;
+  // Hard cull threshold: past this squared distance the light contributes
+  // nothing and we set intensity = 0 so the GPU skips it entirely.
+  // (Was `Math.max(0.25, 1 - d²/420)` which kept distant lights at 25%.)
+  const CULL_D2 = 540;
   const refs = useRef<(THREE.PointLight | null)[]>([]);
   const tmpVec = useMemo(() => new THREE.Vector3(), []);
   const tmpColor = useMemo(() => new THREE.Color(), []);
@@ -1054,13 +1073,15 @@ function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> })
       if (!light) continue;
       const entry = sorted[i];
       if (!entry) { light.intensity = 0; continue; }
+      // Hard distance cull — anything past CULL_D2 contributes nothing.
+      if (entry.d2 > CULL_D2) { light.intensity = 0; continue; }
       const v = entry.p.variant;
       // Per-variant local Y offset for the actual emissive bit:
       //   streetlamp head ~3.1u, barrel flame ~1.4u, cruiser lightbar ~1.9u
       const yOffset = v === 'wreckCruiser' ? 1.9 : v === 'burnBarrel' ? 1.4 : 3.1;
       tmpVec.set(entry.p.position.x, yOffset * entry.p.scale, entry.p.position.z);
       light.position.copy(tmpVec);
-      const falloff = Math.max(0.25, 1 - entry.d2 / 420);
+      const falloff = 1 - entry.d2 / CULL_D2;  // 1 → 0, no floor
       if (v === 'burnBarrel') {
         const phase = (entry.p.id * 0.37) % 6.28;
         const flicker = 0.85 + Math.sin(t * 11 + phase) * 0.08 + Math.sin(t * 23 + phase * 1.7) * 0.05;
@@ -1107,406 +1128,306 @@ function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> })
   );
 }
 
-// Street props. Three variants — the pillar variant tag stays so the game
-// loop's collision shape (spike/dome/cluster) keeps the same footprint, but
-// the renderer now shows a streetlamp / parked sedan / dumpster instead of
-// stalactites. The result reads as a city block littered with the cover
-// you'd expect at night.
+// ── Pillars (street props) — merged static geometry ───────────────────────
+// Pillars are spawn-once-static (set at startLevel, never moved/scaled),
+// so a per-pillar <group> with multi-mesh children was 300-900 draw calls
+// of pure waste at endless L7+. We now merge every sub-mesh of every
+// pillar into ONE BufferGeometry per material reference, baking the
+// pillar root transform + sub-mesh local transform into vertex positions
+// at level-spawn time. Result: ~20 draw calls instead of ~500.
 //
-// variant -> prop:
-//   spike   = streetlamp (tall thin pole + lamp head + amber glow)
-//   dome    = parked sedan (low boxy body — uses the dome collision radius)
-//   cluster = dumpster (chunky box with a slanted lid)
-function Pillars({ state }: { state: React.MutableRefObject<GameRef> }) {
-  const d = state.current;
-  return (
-    <>
-      {d.pillars.map(p => (
-        <group key={p.id} position={[p.position.x, 0, p.position.z]} rotation={[0, p.rot, 0]} scale={p.scale}>
-          {p.variant === 'spike' && (
-            <>
-              {/* Streetlamp — slim pole + bracket + lamp head with a warm
-                  amber emissive (faint cone of light implied by the glow). */}
-              <mesh position={[0, 1.6, 0]} castShadow>
-                <cylinderGeometry args={[0.06, 0.08, 3.2, 8]} />
-                <meshStandardMaterial color="#2a2a32" roughness={0.85} />
-              </mesh>
-              <mesh position={[0, 3.25, 0.18]} castShadow>
-                <boxGeometry args={[0.30, 0.12, 0.42]} />
-                <meshStandardMaterial color="#1c1c24" roughness={0.85} />
-              </mesh>
-              <mesh position={[0, 3.18, 0.20]}>
-                <boxGeometry args={[0.22, 0.10, 0.34]} />
-                <meshStandardMaterial color="#ffd28a" emissive="#ffb050" emissiveIntensity={2.2} />
-              </mesh>
-              {/* Concrete pad at the base — matches the cave footprint so
-                  the existing collision (≈0.70 base * scale) still feels
-                  right. */}
-              <mesh position={[0, 0.05, 0]} castShadow receiveShadow>
-                <cylinderGeometry args={[0.55, 0.70, 0.10, 12]} />
-                <meshStandardMaterial color="#22232a" roughness={1} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'dome' && (
-            <>
-              {/* Parked sedan — chunky boxy body + lower greenhouse cabin.
-                  Footprint ~1.15 base matches the original dome radius. */}
-              <mesh position={[0, 0.35, 0]} castShadow receiveShadow>
-                <boxGeometry args={[1.40, 0.55, 2.20]} />
-                <meshStandardMaterial color="#2a2a36" roughness={0.7} />
-              </mesh>
-              <mesh position={[0, 0.85, -0.10]} castShadow>
-                <boxGeometry args={[1.20, 0.50, 1.40]} />
-                <meshStandardMaterial color="#1c1c26" roughness={0.6} />
-              </mesh>
-              {/* Windshield + side windows (cyan tint) */}
-              <mesh position={[0, 0.95, 0.50]}>
-                <boxGeometry args={[1.05, 0.34, 0.05]} />
-                <meshStandardMaterial color="#3a4a64" roughness={0.3} metalness={0.4} />
-              </mesh>
-              <mesh position={[0, 0.95, -0.80]}>
-                <boxGeometry args={[1.05, 0.34, 0.05]} />
-                <meshStandardMaterial color="#3a4a64" roughness={0.3} metalness={0.4} />
-              </mesh>
-              {/* Headlights — small amber boxes on the front face */}
-              <mesh position={[-0.50, 0.42, 1.12]}>
-                <boxGeometry args={[0.20, 0.14, 0.08]} />
-                <meshStandardMaterial color="#fff0c0" emissive="#ffd060" emissiveIntensity={1.6} />
-              </mesh>
-              <mesh position={[ 0.50, 0.42, 1.12]}>
-                <boxGeometry args={[0.20, 0.14, 0.08]} />
-                <meshStandardMaterial color="#fff0c0" emissive="#ffd060" emissiveIntensity={1.6} />
-              </mesh>
-              {/* Wheels — flat cylinders on their sides */}
-              {[
-                [-0.66, 0.20,  0.72],
-                [ 0.66, 0.20,  0.72],
-                [-0.66, 0.20, -0.72],
-                [ 0.66, 0.20, -0.72],
-              ].map((pos, i) => (
-                <mesh key={i} position={pos as [number, number, number]} rotation={[0, 0, Math.PI / 2]} castShadow>
-                  <cylinderGeometry args={[0.22, 0.22, 0.18, 12]} />
-                  <meshStandardMaterial color="#0c0c12" roughness={0.95} />
-                </mesh>
-              ))}
-            </>
-          )}
-          {p.variant === 'cluster' && (
-            <>
-              {/* Dumpster — rectangular green box with a slanted lid + small
-                  vertical ribs for a thumbnail-readable industrial bin. */}
-              <mesh position={[0, 0.55, 0]} castShadow receiveShadow>
-                <boxGeometry args={[1.40, 1.10, 0.90]} />
-                <meshStandardMaterial color="#284038" roughness={0.85} />
-              </mesh>
-              {/* Slanted lid — wedge sitting on top */}
-              <mesh position={[0, 1.20, -0.06]} rotation={[-0.18, 0, 0]} castShadow>
-                <boxGeometry args={[1.46, 0.10, 1.04]} />
-                <meshStandardMaterial color="#1a2a24" roughness={0.85} />
-              </mesh>
-              {/* Vertical ribs on the front */}
-              {[-0.5, -0.16, 0.18, 0.52].map((rx, i) => (
-                <mesh key={i} position={[rx, 0.55, 0.46]}>
-                  <boxGeometry args={[0.06, 1.0, 0.06]} />
-                  <meshStandardMaterial color="#1a2a24" roughness={0.85} />
-                </mesh>
-              ))}
-              {/* Two small caster wheels at the front edge */}
-              <mesh position={[-0.55, 0.10,  0.46]} rotation={[0, 0, Math.PI / 2]} castShadow>
-                <cylinderGeometry args={[0.10, 0.10, 0.12, 10]} />
-                <meshStandardMaterial color="#0c0c12" roughness={0.95} />
-              </mesh>
-              <mesh position={[ 0.55, 0.10,  0.46]} rotation={[0, 0, Math.PI / 2]} castShadow>
-                <cylinderGeometry args={[0.10, 0.10, 0.12, 10]} />
-                <meshStandardMaterial color="#0c0c12" roughness={0.95} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'burnBarrel' && (
-            <>
-              {/* Burning oil drum — rust-streaked steel cylinder with a
-                  hollow top + two stacked emissive cones for flame. The
-                  StreetlampLights pool picks barrels up too and casts a
-                  hotter, more orange pool of light at the flame height. */}
-              <mesh position={[0, 0.50, 0]} castShadow receiveShadow>
-                <cylinderGeometry args={[0.40, 0.42, 1.00, 12]} />
-                <meshStandardMaterial color="#3a2818" roughness={0.85} metalness={0.35} />
-              </mesh>
-              {/* Rim + rust band at the top */}
-              <mesh position={[0, 1.00, 0]} castShadow>
-                <cylinderGeometry args={[0.42, 0.42, 0.06, 12]} />
-                <meshStandardMaterial color="#6a3a18" roughness={0.85} />
-              </mesh>
-              {/* Outer flame cone — orange */}
-              <mesh position={[0, 1.40, 0]}>
-                <coneGeometry args={[0.34, 0.70, 8]} />
-                <meshBasicMaterial color="#ff7028" transparent opacity={0.92} toneMapped={false} />
-              </mesh>
-              {/* Inner core — bright yellow */}
-              <mesh position={[0, 1.28, 0]}>
-                <coneGeometry args={[0.20, 0.45, 6]} />
-                <meshBasicMaterial color="#ffd860" transparent opacity={0.95} toneMapped={false} />
-              </mesh>
-              {/* Stub ember above the flame for a flicker accent */}
-              <mesh position={[0, 1.80, 0]}>
-                <sphereGeometry args={[0.05, 6, 6]} />
-                <meshBasicMaterial color="#ffe070" toneMapped={false} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'wreckTruck' && (
-            <>
-              {/* Crashed box truck — a long cargo box laid on the asphalt
-                  with the cab tipped at one end. Biggest footprint in the
-                  game; hard cover for the player to peek around. */}
-              <mesh position={[0, 0.62, 0]} castShadow receiveShadow>
-                <boxGeometry args={[2.60, 1.24, 1.50]} />
-                <meshStandardMaterial color="#3c2418" roughness={0.85} />
-              </mesh>
-              {/* Side stripe — gives it the painted-on-livery read */}
-              <mesh position={[0, 0.72, 0.76]}>
-                <boxGeometry args={[2.62, 0.12, 0.02]} />
-                <meshStandardMaterial color="#a05028" roughness={0.7} />
-              </mesh>
-              {/* Cab — shorter box bolted to the rear */}
-              <mesh position={[-1.55, 0.66, 0]} castShadow receiveShadow>
-                <boxGeometry args={[1.00, 1.30, 1.46]} />
-                <meshStandardMaterial color="#2a1610" roughness={0.85} />
-              </mesh>
-              {/* Cracked windshield — bluish slab on the cab face */}
-              <mesh position={[-2.06, 0.92, 0]}>
-                <boxGeometry args={[0.04, 0.55, 0.95]} />
-                <meshStandardMaterial color="#2a3a54" roughness={0.4} metalness={0.4} />
-              </mesh>
-              {/* Headlights — busted, only one still emissive */}
-              <mesh position={[-2.06, 0.40, 0.55]}>
-                <boxGeometry args={[0.04, 0.18, 0.22]} />
-                <meshStandardMaterial color="#ffe8b0" emissive="#ffa040" emissiveIntensity={1.8} />
-              </mesh>
-              <mesh position={[-2.06, 0.40, -0.55]}>
-                <boxGeometry args={[0.04, 0.18, 0.22]} />
-                <meshStandardMaterial color="#241814" roughness={0.95} />
-              </mesh>
-              {/* Wheels — 4 visible, mostly intact */}
-              {[[-1.10, 0.30,  0.78], [ 0.85, 0.30,  0.78], [-1.10, 0.30, -0.78], [ 0.85, 0.30, -0.78]].map((pos, i) => (
-                <mesh key={i} position={pos as [number, number, number]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-                  <cylinderGeometry args={[0.28, 0.28, 0.22, 12]} />
-                  <meshStandardMaterial color="#0c0c12" roughness={0.95} />
-                </mesh>
-              ))}
-            </>
-          )}
-          {p.variant === 'steamGrate' && (
-            <>
-              {/* Flat sewer grate — sits flush on the asphalt + 5 parallel
-                  slats. The steam plume is purely cosmetic; player walks
-                  straight over it (collision is skipped). */}
-              <mesh position={[0, 0.04, 0]} receiveShadow>
-                <boxGeometry args={[1.20, 0.06, 0.90]} />
-                <meshStandardMaterial color="#1a1a22" roughness={0.9} metalness={0.3} />
-              </mesh>
-              {[-0.32, -0.16, 0.00, 0.16, 0.32].map((zz, i) => (
-                <mesh key={i} position={[0, 0.085, zz]}>
-                  <boxGeometry args={[1.10, 0.02, 0.06]} />
-                  <meshStandardMaterial color="#08080c" />
-                </mesh>
-              ))}
-              {/* Lower steam — thicker, dimmer */}
-              <mesh position={[0, 0.80, 0]}>
-                <cylinderGeometry args={[0.30, 0.16, 1.40, 8, 1, true]} />
-                <meshBasicMaterial color="#a0a0b0" transparent opacity={0.18} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
-              </mesh>
-              {/* Upper steam — wider, fainter */}
-              <mesh position={[0.10, 1.80, 0]}>
-                <cylinderGeometry args={[0.48, 0.26, 1.60, 8, 1, true]} />
-                <meshBasicMaterial color="#b0b0c0" transparent opacity={0.10} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'bodyBag' && (
-            <>
-              {/* Body bag on the asphalt — a low charcoal cylinder with two
-                  rounded caps + a single yellow zip strap mid-length.
-                  Walkable (collision is skipped). */}
-              <mesh position={[0, 0.22, 0]} rotation={[0, 0, Math.PI / 2]} castShadow receiveShadow>
-                <cylinderGeometry args={[0.22, 0.22, 1.40, 10]} />
-                <meshStandardMaterial color="#16161e" roughness={0.95} />
-              </mesh>
-              <mesh position={[-0.70, 0.22, 0]} castShadow>
-                <sphereGeometry args={[0.22, 8, 8]} />
-                <meshStandardMaterial color="#16161e" roughness={0.95} />
-              </mesh>
-              <mesh position={[ 0.70, 0.22, 0]} castShadow>
-                <sphereGeometry args={[0.22, 8, 8]} />
-                <meshStandardMaterial color="#16161e" roughness={0.95} />
-              </mesh>
-              <mesh position={[0, 0.36, 0]}>
-                <boxGeometry args={[1.45, 0.04, 0.46]} />
-                <meshStandardMaterial color="#9c8a10" roughness={0.9} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'barricade' && (
-            <>
-              {/* Police A-frame barricade — two angled legs joined by a top
-                  rail with a white "POLICE LINE" plank running across.
-                  Reflective tape reads as thin emissive accents. */}
-              {/* Left leg */}
-              <mesh position={[-0.50, 0.50, 0]} rotation={[0, 0, 0.32]} castShadow>
-                <boxGeometry args={[0.08, 1.00, 0.08]} />
-                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
-              </mesh>
-              {/* Right leg */}
-              <mesh position={[ 0.50, 0.50, 0]} rotation={[0, 0, -0.32]} castShadow>
-                <boxGeometry args={[0.08, 1.00, 0.08]} />
-                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
-              </mesh>
-              {/* Top rail with white plank face */}
-              <mesh position={[0, 0.90, 0]} castShadow>
-                <boxGeometry args={[1.25, 0.18, 0.10]} />
-                <meshStandardMaterial color="#e8e4dc" roughness={0.7} />
-              </mesh>
-              {/* "POLICE LINE" — represented by 6 thin amber emissive tabs
-                  rather than a baked text label (no fonts in three.js by
-                  default). Reads as reflective tape stripes. */}
-              {[-0.45, -0.27, -0.09, 0.09, 0.27, 0.45].map((xx, i) => (
-                <mesh key={i} position={[xx, 0.90, 0.06]}>
-                  <boxGeometry args={[0.10, 0.14, 0.005]} />
-                  <meshStandardMaterial color="#ffcc40" emissive="#ffaa18" emissiveIntensity={0.9} roughness={0.6} />
-                </mesh>
-              ))}
-              {/* Cross brace between the legs (mid-height X shape) */}
-              <mesh position={[0, 0.32, 0]} rotation={[0, 0, 0.95]}>
-                <boxGeometry args={[1.10, 0.05, 0.04]} />
-                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
-              </mesh>
-              <mesh position={[0, 0.32, 0]} rotation={[0, 0, -0.95]}>
-                <boxGeometry args={[1.10, 0.05, 0.04]} />
-                <meshStandardMaterial color="#1a1a22" roughness={0.85} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'boardedShop' && (
-            <>
-              {/* Boarded-up shopfront — a frame wall + 3 crossed planks
-                  nailed over a window. Sits flush against an imaginary
-                  building so the back face stays solid. */}
-              {/* Wall slab (the "shopfront" face) */}
-              <mesh position={[0, 1.20, -0.18]} castShadow receiveShadow>
-                <boxGeometry args={[1.80, 2.40, 0.20]} />
-                <meshStandardMaterial color="#221d18" roughness={0.9} />
-              </mesh>
-              {/* Window glow — dim emissive panel behind the planks so the
-                  shop reads as "lights still on, no one home" */}
-              <mesh position={[0, 1.30, -0.08]}>
-                <boxGeometry args={[1.40, 1.60, 0.02]} />
-                <meshStandardMaterial color="#3a2820" emissive="#604030" emissiveIntensity={0.6} roughness={0.7} />
-              </mesh>
-              {/* 3 planks at slight angles */}
-              <mesh position={[0, 1.50, 0.00]} rotation={[0, 0, 0.18]} castShadow>
-                <boxGeometry args={[1.80, 0.20, 0.06]} />
-                <meshStandardMaterial color="#6a4a30" roughness={0.85} />
-              </mesh>
-              <mesh position={[0, 1.05, 0.00]} rotation={[0, 0, -0.10]} castShadow>
-                <boxGeometry args={[1.80, 0.20, 0.06]} />
-                <meshStandardMaterial color="#7a5430" roughness={0.85} />
-              </mesh>
-              <mesh position={[-0.10, 0.65, 0.00]} rotation={[0, 0, 0.06]} castShadow>
-                <boxGeometry args={[1.80, 0.20, 0.06]} />
-                <meshStandardMaterial color="#5a4028" roughness={0.85} />
-              </mesh>
-              {/* Spray-painted "CLOSED" mark — orange emissive smear */}
-              <mesh position={[-0.10, 1.95, 0.04]} rotation={[0, 0, 0.10]}>
-                <boxGeometry args={[0.80, 0.10, 0.005]} />
-                <meshStandardMaterial color="#ff6020" emissive="#ff5020" emissiveIntensity={0.7} roughness={0.8} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'tippedDumpster' && (
-            <>
-              {/* Toppled trash bin lying on its side, lid flopped open,
-                  with 3 small spilled-trash bags scattered in front. */}
-              {/* Bin body — rotated 90° to its side */}
-              <mesh position={[0, 0.45, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
-                <boxGeometry args={[1.40, 0.90, 1.10]} />
-                <meshStandardMaterial color="#2a3e35" roughness={0.9} />
-              </mesh>
-              {/* Open lid sticking up */}
-              <mesh position={[0, 0.95, 0.50]} rotation={[-0.6, 0, 0]} castShadow>
-                <boxGeometry args={[1.46, 0.08, 1.04]} />
-                <meshStandardMaterial color="#1a2a24" roughness={0.85} />
-              </mesh>
-              {/* Spilled trash bags (3 dark blobs) */}
-              <mesh position={[ 0.85,  0.18, -0.10]} castShadow receiveShadow>
-                <sphereGeometry args={[0.26, 8, 8]} />
-                <meshStandardMaterial color="#1a1a20" roughness={0.95} />
-              </mesh>
-              <mesh position={[ 1.10,  0.14,  0.40]} castShadow receiveShadow>
-                <sphereGeometry args={[0.22, 8, 8]} />
-                <meshStandardMaterial color="#181822" roughness={0.95} />
-              </mesh>
-              <mesh position={[ 0.65,  0.12,  0.55]} castShadow receiveShadow>
-                <sphereGeometry args={[0.19, 8, 8]} />
-                <meshStandardMaterial color="#1c1c24" roughness={0.95} />
-              </mesh>
-              {/* Loose paper scrap — small flat emissive square for contrast */}
-              <mesh position={[0.40, 0.06, -0.30]} rotation={[-Math.PI / 2, 0, 0.4]}>
-                <planeGeometry args={[0.18, 0.26]} />
-                <meshStandardMaterial color="#d4c8a8" roughness={0.9} side={THREE.DoubleSide} />
-              </mesh>
-            </>
-          )}
-          {p.variant === 'wreckCruiser' && (
-            <>
-              {/* Overturned police cruiser — sedan tipped onto its side, with
-                  a still-strobing red+blue lightbar handled by the
-                  StreetlampLights pool (cruiser is added there too). The
-                  livery is the silhouette: black-and-white body + lightbar
-                  shape. */}
-              {/* Cruiser body lying on its right side */}
-              <mesh position={[0, 0.80, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
-                <boxGeometry args={[1.50, 2.20, 0.65]} />
-                <meshStandardMaterial color="#0d0d10" roughness={0.7} />
-              </mesh>
-              {/* White doors patch — middle of the body face */}
-              <mesh position={[0, 0.80, 0.34]} rotation={[Math.PI / 2, 0, 0]}>
-                <boxGeometry args={[1.05, 1.10, 0.03]} />
-                <meshStandardMaterial color="#dadada" roughness={0.7} />
-              </mesh>
-              {/* Cabin / greenhouse */}
-              <mesh position={[0, 1.36, -0.10]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-                <boxGeometry args={[1.30, 1.35, 0.55]} />
-                <meshStandardMaterial color="#181820" roughness={0.7} />
-              </mesh>
-              {/* Lightbar — two boxes side-by-side at the top of the cabin */}
-              <mesh position={[0, 1.92, -0.36]} rotation={[Math.PI / 2, 0, 0]}>
-                <boxGeometry args={[0.65, 0.18, 0.20]} />
-                <meshStandardMaterial color="#fff0c0" emissive="#3060ff" emissiveIntensity={2.0} roughness={0.3} />
-              </mesh>
-              <mesh position={[0, 1.92, 0.16]} rotation={[Math.PI / 2, 0, 0]}>
-                <boxGeometry args={[0.65, 0.18, 0.20]} />
-                <meshStandardMaterial color="#fff0c0" emissive="#ff3040" emissiveIntensity={2.0} roughness={0.3} />
-              </mesh>
-              {/* Wheels (3 visible, 1 hidden under the body) */}
-              {[[-0.74, 0.18,  0.80], [-0.74, 0.18, -0.80], [ 0.74, 0.18, -0.80]].map((pos, i) => (
-                <mesh key={i} position={pos as [number, number, number]} rotation={[0, 0, Math.PI / 2]} castShadow>
-                  <cylinderGeometry args={[0.24, 0.24, 0.20, 12]} />
-                  <meshStandardMaterial color="#0c0c12" roughness={0.95} />
-                </mesh>
-              ))}
-              {/* Skid mark — a dark thin strip behind the wreck */}
-              <mesh position={[0, 0.02, -1.4]} rotation={[-Math.PI / 2, 0, 0]}>
-                <planeGeometry args={[0.45, 1.6]} />
-                <meshStandardMaterial color="#0a0a0e" roughness={1} />
-              </mesh>
-            </>
-          )}
-        </group>
-      ))}
-    </>
-  );
+// Animations that touched a pillar mesh (cruiser lightbar strobe, barrel
+// flicker) were never on the mesh itself — they live in StreetlampLights'
+// PointLight pool which is separate. Static merge is safe.
+//
+// Shared materials — every sub-mesh references one of these; matching
+// references group into one merged geometry per material at build time.
+// One reference per visual purpose; we don't aggressively dedupe by exact
+// color because the artistic intent was to give each prop family its
+// own palette accent.
+
+// MeshStandardMaterial factory with named slot.
+const stdMat = (color: string, opts: Partial<{ roughness: number; metalness: number; emissive: string; emissiveIntensity: number; side: THREE.Side }> = {}) =>
+  new THREE.MeshStandardMaterial({
+    color,
+    roughness: opts.roughness ?? 0.85,
+    metalness: opts.metalness ?? 0,
+    emissive: opts.emissive ?? '#000000',
+    emissiveIntensity: opts.emissiveIntensity ?? 0,
+    side: opts.side ?? THREE.FrontSide,
+  });
+
+// MeshBasicMaterial factory for the unlit emissive bits (flames/steam).
+const basicMat = (color: string, opts: Partial<{ opacity: number; side: THREE.Side; depthWrite: boolean }> = {}) =>
+  new THREE.MeshBasicMaterial({
+    color,
+    transparent: opts.opacity != null && opts.opacity < 1,
+    opacity: opts.opacity ?? 1,
+    side: opts.side ?? THREE.FrontSide,
+    toneMapped: false,
+    depthWrite: opts.depthWrite ?? true,
+  });
+
+// Shared materials — referenced by name in the blueprints. Same-reference
+// sub-meshes end up in the same merged mesh = one draw call.
+const PILLAR_MATS = {
+  poleDark:        stdMat('#2a2a32', { roughness: 0.85 }),
+  boxBlack:        stdMat('#1c1c24', { roughness: 0.85 }),
+  lampEmit:        stdMat('#ffd28a', { emissive: '#ffb050', emissiveIntensity: 2.2 }),
+  concrete:        stdMat('#22232a', { roughness: 1 }),
+  sedanBody:       stdMat('#2a2a36', { roughness: 0.7 }),
+  sedanCabin:      stdMat('#1c1c26', { roughness: 0.6 }),
+  windowTint:      stdMat('#3a4a64', { roughness: 0.3, metalness: 0.4 }),
+  headlightEmit:   stdMat('#fff0c0', { emissive: '#ffd060', emissiveIntensity: 1.6 }),
+  wheelBlack:      stdMat('#0c0c12', { roughness: 0.95 }),
+  dumpsterGreen:   stdMat('#284038', { roughness: 0.85 }),
+  dumpsterDark:    stdMat('#1a2a24', { roughness: 0.85 }),
+  barrelBody:      stdMat('#3a2818', { roughness: 0.85, metalness: 0.35 }),
+  barrelRim:       stdMat('#6a3a18', { roughness: 0.85 }),
+  flameOuter:      basicMat('#ff7028', { opacity: 0.92 }),
+  flameInner:      basicMat('#ffd860', { opacity: 0.95 }),
+  ember:           basicMat('#ffe070'),
+  truckBody:       stdMat('#3c2418', { roughness: 0.85 }),
+  truckStripe:     stdMat('#a05028', { roughness: 0.7 }),
+  truckCab:        stdMat('#2a1610', { roughness: 0.85 }),
+  truckWindshield: stdMat('#2a3a54', { roughness: 0.4, metalness: 0.4 }),
+  truckHLEmit:     stdMat('#ffe8b0', { emissive: '#ffa040', emissiveIntensity: 1.8 }),
+  truckHLBusted:   stdMat('#241814', { roughness: 0.95 }),
+  grateBase:       stdMat('#1a1a22', { roughness: 0.9, metalness: 0.3 }),
+  grateSlat:       stdMat('#08080c'),
+  steamLower:      basicMat('#a0a0b0', { opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }),
+  steamUpper:      basicMat('#b0b0c0', { opacity: 0.10, side: THREE.DoubleSide, depthWrite: false }),
+  bagBlack:        stdMat('#16161e', { roughness: 0.95 }),
+  bagStrap:        stdMat('#9c8a10', { roughness: 0.9 }),
+  barricadeLeg:    stdMat('#1a1a22', { roughness: 0.85 }),  // separate from grateBase: different rough
+  barricadeRail:   stdMat('#e8e4dc', { roughness: 0.7 }),
+  barricadeTape:   stdMat('#ffcc40', { emissive: '#ffaa18', emissiveIntensity: 0.9, roughness: 0.6 }),
+  shopWall:        stdMat('#221d18', { roughness: 0.9 }),
+  shopGlow:        stdMat('#3a2820', { emissive: '#604030', emissiveIntensity: 0.6, roughness: 0.7 }),
+  plank1:          stdMat('#6a4a30', { roughness: 0.85 }),
+  plank2:          stdMat('#7a5430', { roughness: 0.85 }),
+  plank3:          stdMat('#5a4028', { roughness: 0.85 }),
+  closedPaint:     stdMat('#ff6020', { emissive: '#ff5020', emissiveIntensity: 0.7, roughness: 0.8 }),
+  tippedBin:       stdMat('#2a3e35', { roughness: 0.9 }),
+  trashBag1:       stdMat('#1a1a20', { roughness: 0.95 }),
+  trashBag2:       stdMat('#181822', { roughness: 0.95 }),
+  trashBag3:       stdMat('#1c1c24', { roughness: 0.95 }),
+  trashPaper:      stdMat('#d4c8a8', { roughness: 0.9, side: THREE.DoubleSide }),
+  cruiserBody:     stdMat('#0d0d10', { roughness: 0.7 }),
+  cruiserDoor:     stdMat('#dadada', { roughness: 0.7 }),
+  cruiserCabin:    stdMat('#181820', { roughness: 0.7 }),
+  cruiserBarBlue:  stdMat('#fff0c0', { emissive: '#3060ff', emissiveIntensity: 2.0, roughness: 0.3 }),
+  cruiserBarRed:   stdMat('#fff0c0', { emissive: '#ff3040', emissiveIntensity: 2.0, roughness: 0.3 }),
+  skidMark:        stdMat('#0a0a0e', { roughness: 1 }),
+} as const;
+
+type SubMeshDef = {
+  geom: THREE.BufferGeometry;
+  mat: THREE.Material;
+  pos: [number, number, number];
+  rot?: [number, number, number];
+  scale?: [number, number, number] | number;
+};
+
+// Build the geometry tables once and never dispose them — the source
+// BufferGeometries live for the page's lifetime and get cloned/transformed
+// at merge time. (Materials are shared by reference; geometries are cloned.)
+const BLUEPRINTS: Record<PillarVariant, SubMeshDef[]> = {
+  spike: [
+    { geom: new THREE.CylinderGeometry(0.06, 0.08, 3.2, 8),  mat: PILLAR_MATS.poleDark,   pos: [0, 1.6, 0] },
+    { geom: new THREE.BoxGeometry(0.30, 0.12, 0.42),         mat: PILLAR_MATS.boxBlack,   pos: [0, 3.25, 0.18] },
+    { geom: new THREE.BoxGeometry(0.22, 0.10, 0.34),         mat: PILLAR_MATS.lampEmit,   pos: [0, 3.18, 0.20] },
+    { geom: new THREE.CylinderGeometry(0.55, 0.70, 0.10, 12), mat: PILLAR_MATS.concrete,  pos: [0, 0.05, 0] },
+  ],
+  dome: [
+    { geom: new THREE.BoxGeometry(1.40, 0.55, 2.20), mat: PILLAR_MATS.sedanBody,     pos: [0, 0.35, 0] },
+    { geom: new THREE.BoxGeometry(1.20, 0.50, 1.40), mat: PILLAR_MATS.sedanCabin,    pos: [0, 0.85, -0.10] },
+    { geom: new THREE.BoxGeometry(1.05, 0.34, 0.05), mat: PILLAR_MATS.windowTint,    pos: [0, 0.95,  0.50] },
+    { geom: new THREE.BoxGeometry(1.05, 0.34, 0.05), mat: PILLAR_MATS.windowTint,    pos: [0, 0.95, -0.80] },
+    { geom: new THREE.BoxGeometry(0.20, 0.14, 0.08), mat: PILLAR_MATS.headlightEmit, pos: [-0.50, 0.42, 1.12] },
+    { geom: new THREE.BoxGeometry(0.20, 0.14, 0.08), mat: PILLAR_MATS.headlightEmit, pos: [ 0.50, 0.42, 1.12] },
+    { geom: new THREE.CylinderGeometry(0.22, 0.22, 0.18, 12), mat: PILLAR_MATS.wheelBlack, pos: [-0.66, 0.20,  0.72], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.22, 0.22, 0.18, 12), mat: PILLAR_MATS.wheelBlack, pos: [ 0.66, 0.20,  0.72], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.22, 0.22, 0.18, 12), mat: PILLAR_MATS.wheelBlack, pos: [-0.66, 0.20, -0.72], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.22, 0.22, 0.18, 12), mat: PILLAR_MATS.wheelBlack, pos: [ 0.66, 0.20, -0.72], rot: [0, 0, Math.PI / 2] },
+  ],
+  cluster: [
+    { geom: new THREE.BoxGeometry(1.40, 1.10, 0.90), mat: PILLAR_MATS.dumpsterGreen, pos: [0, 0.55, 0] },
+    { geom: new THREE.BoxGeometry(1.46, 0.10, 1.04), mat: PILLAR_MATS.dumpsterDark,  pos: [0, 1.20, -0.06], rot: [-0.18, 0, 0] },
+    { geom: new THREE.BoxGeometry(0.06, 1.00, 0.06), mat: PILLAR_MATS.dumpsterDark,  pos: [-0.50, 0.55, 0.46] },
+    { geom: new THREE.BoxGeometry(0.06, 1.00, 0.06), mat: PILLAR_MATS.dumpsterDark,  pos: [-0.16, 0.55, 0.46] },
+    { geom: new THREE.BoxGeometry(0.06, 1.00, 0.06), mat: PILLAR_MATS.dumpsterDark,  pos: [ 0.18, 0.55, 0.46] },
+    { geom: new THREE.BoxGeometry(0.06, 1.00, 0.06), mat: PILLAR_MATS.dumpsterDark,  pos: [ 0.52, 0.55, 0.46] },
+    { geom: new THREE.CylinderGeometry(0.10, 0.10, 0.12, 10), mat: PILLAR_MATS.wheelBlack, pos: [-0.55, 0.10, 0.46], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.10, 0.10, 0.12, 10), mat: PILLAR_MATS.wheelBlack, pos: [ 0.55, 0.10, 0.46], rot: [0, 0, Math.PI / 2] },
+  ],
+  burnBarrel: [
+    { geom: new THREE.CylinderGeometry(0.40, 0.42, 1.00, 12), mat: PILLAR_MATS.barrelBody, pos: [0, 0.50, 0] },
+    { geom: new THREE.CylinderGeometry(0.42, 0.42, 0.06, 12), mat: PILLAR_MATS.barrelRim,  pos: [0, 1.00, 0] },
+    { geom: new THREE.ConeGeometry(0.34, 0.70, 8),            mat: PILLAR_MATS.flameOuter, pos: [0, 1.40, 0] },
+    { geom: new THREE.ConeGeometry(0.20, 0.45, 6),            mat: PILLAR_MATS.flameInner, pos: [0, 1.28, 0] },
+    { geom: new THREE.SphereGeometry(0.05, 6, 6),             mat: PILLAR_MATS.ember,      pos: [0, 1.80, 0] },
+  ],
+  wreckTruck: [
+    { geom: new THREE.BoxGeometry(2.60, 1.24, 1.50), mat: PILLAR_MATS.truckBody,       pos: [0, 0.62, 0] },
+    { geom: new THREE.BoxGeometry(2.62, 0.12, 0.02), mat: PILLAR_MATS.truckStripe,     pos: [0, 0.72, 0.76] },
+    { geom: new THREE.BoxGeometry(1.00, 1.30, 1.46), mat: PILLAR_MATS.truckCab,        pos: [-1.55, 0.66, 0] },
+    { geom: new THREE.BoxGeometry(0.04, 0.55, 0.95), mat: PILLAR_MATS.truckWindshield, pos: [-2.06, 0.92, 0] },
+    { geom: new THREE.BoxGeometry(0.04, 0.18, 0.22), mat: PILLAR_MATS.truckHLEmit,     pos: [-2.06, 0.40,  0.55] },
+    { geom: new THREE.BoxGeometry(0.04, 0.18, 0.22), mat: PILLAR_MATS.truckHLBusted,   pos: [-2.06, 0.40, -0.55] },
+    { geom: new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12), mat: PILLAR_MATS.wheelBlack, pos: [-1.10, 0.30,  0.78], rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12), mat: PILLAR_MATS.wheelBlack, pos: [ 0.85, 0.30,  0.78], rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12), mat: PILLAR_MATS.wheelBlack, pos: [-1.10, 0.30, -0.78], rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12), mat: PILLAR_MATS.wheelBlack, pos: [ 0.85, 0.30, -0.78], rot: [Math.PI / 2, 0, 0] },
+  ],
+  steamGrate: [
+    { geom: new THREE.BoxGeometry(1.20, 0.06, 0.90), mat: PILLAR_MATS.grateBase, pos: [0, 0.04, 0] },
+    { geom: new THREE.BoxGeometry(1.10, 0.02, 0.06), mat: PILLAR_MATS.grateSlat, pos: [0, 0.085, -0.32] },
+    { geom: new THREE.BoxGeometry(1.10, 0.02, 0.06), mat: PILLAR_MATS.grateSlat, pos: [0, 0.085, -0.16] },
+    { geom: new THREE.BoxGeometry(1.10, 0.02, 0.06), mat: PILLAR_MATS.grateSlat, pos: [0, 0.085,  0.00] },
+    { geom: new THREE.BoxGeometry(1.10, 0.02, 0.06), mat: PILLAR_MATS.grateSlat, pos: [0, 0.085,  0.16] },
+    { geom: new THREE.BoxGeometry(1.10, 0.02, 0.06), mat: PILLAR_MATS.grateSlat, pos: [0, 0.085,  0.32] },
+    { geom: new THREE.CylinderGeometry(0.30, 0.16, 1.40, 8, 1, true), mat: PILLAR_MATS.steamLower, pos: [0.00, 0.80, 0] },
+    { geom: new THREE.CylinderGeometry(0.48, 0.26, 1.60, 8, 1, true), mat: PILLAR_MATS.steamUpper, pos: [0.10, 1.80, 0] },
+  ],
+  bodyBag: [
+    { geom: new THREE.CylinderGeometry(0.22, 0.22, 1.40, 10), mat: PILLAR_MATS.bagBlack,  pos: [0, 0.22, 0], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.SphereGeometry(0.22, 8, 8),             mat: PILLAR_MATS.bagBlack,  pos: [-0.70, 0.22, 0] },
+    { geom: new THREE.SphereGeometry(0.22, 8, 8),             mat: PILLAR_MATS.bagBlack,  pos: [ 0.70, 0.22, 0] },
+    { geom: new THREE.BoxGeometry(1.45, 0.04, 0.46),          mat: PILLAR_MATS.bagStrap,  pos: [0, 0.36, 0] },
+  ],
+  barricade: [
+    { geom: new THREE.BoxGeometry(0.08, 1.00, 0.08), mat: PILLAR_MATS.barricadeLeg,  pos: [-0.50, 0.50, 0], rot: [0, 0,  0.32] },
+    { geom: new THREE.BoxGeometry(0.08, 1.00, 0.08), mat: PILLAR_MATS.barricadeLeg,  pos: [ 0.50, 0.50, 0], rot: [0, 0, -0.32] },
+    { geom: new THREE.BoxGeometry(1.25, 0.18, 0.10), mat: PILLAR_MATS.barricadeRail, pos: [0, 0.90, 0] },
+    ...[-0.45, -0.27, -0.09, 0.09, 0.27, 0.45].map<SubMeshDef>(xx => ({
+      geom: new THREE.BoxGeometry(0.10, 0.14, 0.005), mat: PILLAR_MATS.barricadeTape, pos: [xx, 0.90, 0.06],
+    })),
+    { geom: new THREE.BoxGeometry(1.10, 0.05, 0.04), mat: PILLAR_MATS.barricadeLeg, pos: [0, 0.32, 0], rot: [0, 0,  0.95] },
+    { geom: new THREE.BoxGeometry(1.10, 0.05, 0.04), mat: PILLAR_MATS.barricadeLeg, pos: [0, 0.32, 0], rot: [0, 0, -0.95] },
+  ],
+  boardedShop: [
+    { geom: new THREE.BoxGeometry(1.80, 2.40, 0.20), mat: PILLAR_MATS.shopWall,    pos: [0, 1.20, -0.18] },
+    { geom: new THREE.BoxGeometry(1.40, 1.60, 0.02), mat: PILLAR_MATS.shopGlow,    pos: [0, 1.30, -0.08] },
+    { geom: new THREE.BoxGeometry(1.80, 0.20, 0.06), mat: PILLAR_MATS.plank1,      pos: [0, 1.50, 0.00], rot: [0, 0, 0.18] },
+    { geom: new THREE.BoxGeometry(1.80, 0.20, 0.06), mat: PILLAR_MATS.plank2,      pos: [0, 1.05, 0.00], rot: [0, 0, -0.10] },
+    { geom: new THREE.BoxGeometry(1.80, 0.20, 0.06), mat: PILLAR_MATS.plank3,      pos: [-0.10, 0.65, 0.00], rot: [0, 0, 0.06] },
+    { geom: new THREE.BoxGeometry(0.80, 0.10, 0.005), mat: PILLAR_MATS.closedPaint, pos: [-0.10, 1.95, 0.04], rot: [0, 0, 0.10] },
+  ],
+  tippedDumpster: [
+    { geom: new THREE.BoxGeometry(1.40, 0.90, 1.10), mat: PILLAR_MATS.tippedBin,    pos: [0, 0.45, 0], rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.BoxGeometry(1.46, 0.08, 1.04), mat: PILLAR_MATS.dumpsterDark, pos: [0, 0.95, 0.50], rot: [-0.6, 0, 0] },
+    { geom: new THREE.SphereGeometry(0.26, 8, 8),    mat: PILLAR_MATS.trashBag1,    pos: [ 0.85, 0.18, -0.10] },
+    { geom: new THREE.SphereGeometry(0.22, 8, 8),    mat: PILLAR_MATS.trashBag2,    pos: [ 1.10, 0.14,  0.40] },
+    { geom: new THREE.SphereGeometry(0.19, 8, 8),    mat: PILLAR_MATS.trashBag3,    pos: [ 0.65, 0.12,  0.55] },
+    { geom: new THREE.PlaneGeometry(0.18, 0.26),     mat: PILLAR_MATS.trashPaper,   pos: [0.40, 0.06, -0.30], rot: [-Math.PI / 2, 0, 0.4] },
+  ],
+  wreckCruiser: [
+    { geom: new THREE.BoxGeometry(1.50, 2.20, 0.65), mat: PILLAR_MATS.cruiserBody,    pos: [0, 0.80, 0],     rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.BoxGeometry(1.05, 1.10, 0.03), mat: PILLAR_MATS.cruiserDoor,    pos: [0, 0.80, 0.34],  rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.BoxGeometry(1.30, 1.35, 0.55), mat: PILLAR_MATS.cruiserCabin,   pos: [0, 1.36, -0.10], rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.BoxGeometry(0.65, 0.18, 0.20), mat: PILLAR_MATS.cruiserBarBlue, pos: [0, 1.92, -0.36], rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.BoxGeometry(0.65, 0.18, 0.20), mat: PILLAR_MATS.cruiserBarRed,  pos: [0, 1.92,  0.16], rot: [Math.PI / 2, 0, 0] },
+    { geom: new THREE.CylinderGeometry(0.24, 0.24, 0.20, 12), mat: PILLAR_MATS.wheelBlack, pos: [-0.74, 0.18,  0.80], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.24, 0.24, 0.20, 12), mat: PILLAR_MATS.wheelBlack, pos: [-0.74, 0.18, -0.80], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.24, 0.24, 0.20, 12), mat: PILLAR_MATS.wheelBlack, pos: [ 0.74, 0.18, -0.80], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.PlaneGeometry(0.45, 1.6),               mat: PILLAR_MATS.skidMark,   pos: [0, 0.02, -1.4],       rot: [-Math.PI / 2, 0, 0] },
+  ],
+};
+
+// Build the merged Group for the current pillar list. Called once per
+// startLevel (whenever d.pillars reference changes). Each material →
+// one merged BufferGeometry → one draw call.
+function buildPillarGroup(pillars: Pillar[]): { group: THREE.Group; geoms: THREE.BufferGeometry[] } {
+  const group = new THREE.Group();
+  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+
+  const rootMat = new THREE.Matrix4();
+  const subMat = new THREE.Matrix4();
+  const tmpMat = new THREE.Matrix4();
+  const tmpPos = new THREE.Vector3();
+  const tmpQuat = new THREE.Quaternion();
+  const tmpScale = new THREE.Vector3();
+  const tmpEuler = new THREE.Euler();
+
+  for (const pillar of pillars) {
+    const bp = BLUEPRINTS[pillar.variant];
+    if (!bp) continue;
+    // Pillar root = (position_xz, rot_y, uniform scale)
+    tmpPos.set(pillar.position.x, 0, pillar.position.z);
+    tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), pillar.rot);
+    tmpScale.set(pillar.scale, pillar.scale, pillar.scale);
+    rootMat.compose(tmpPos, tmpQuat, tmpScale);
+
+    for (const def of bp) {
+      // Sub-mesh local transform.
+      const [px, py, pz] = def.pos;
+      tmpPos.set(px, py, pz);
+      const [rx, ry, rz] = def.rot ?? [0, 0, 0];
+      tmpEuler.set(rx, ry, rz);
+      tmpQuat.setFromEuler(tmpEuler);
+      const s = def.scale;
+      if (Array.isArray(s)) tmpScale.set(s[0], s[1], s[2]);
+      else if (typeof s === 'number') tmpScale.set(s, s, s);
+      else tmpScale.set(1, 1, 1);
+      subMat.compose(tmpPos, tmpQuat, tmpScale);
+
+      tmpMat.multiplyMatrices(rootMat, subMat);
+
+      const clone = def.geom.clone();
+      clone.applyMatrix4(tmpMat);
+
+      if (!byMat.has(def.mat)) byMat.set(def.mat, []);
+      byMat.get(def.mat)!.push(clone);
+    }
+  }
+
+  const allGeoms: THREE.BufferGeometry[] = [];
+  byMat.forEach((geoms, mat) => {
+    const merged = mergeGeometries(geoms);
+    for (const g of geoms) g.dispose();   // drop the per-pillar clones
+    if (!merged) return;
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = false;             // hero light no longer casts, no shadow pass to cost
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    allGeoms.push(merged);
+  });
+
+  return { group, geoms: allGeoms };
 }
+
+// Renderer — watches the pillar array reference; rebuilds the merged Group
+// whenever it changes (i.e. on startLevel). Otherwise zero per-frame work.
+function Pillars({ state }: { state: React.MutableRefObject<GameRef> }) {
+  const rootRef = useRef<THREE.Group>(null);
+  const lastPillarsRef = useRef<Pillar[] | null>(null);
+  const builtRef = useRef<{ group: THREE.Group; geoms: THREE.BufferGeometry[] } | null>(null);
+
+  useFrame(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const d = state.current;
+    if (d.pillars === lastPillarsRef.current) return;
+    lastPillarsRef.current = d.pillars;
+
+    // Tear down the previous build (geometries only; materials are shared).
+    if (builtRef.current) {
+      root.remove(builtRef.current.group);
+      for (const g of builtRef.current.geoms) g.dispose();
+      builtRef.current = null;
+    }
+
+    if (d.pillars.length === 0) return;
+
+    const built = buildPillarGroup(d.pillars);
+    root.add(built.group);
+    builtRef.current = built;
+  });
+
+  return <group ref={rootRef} />;
+}
+
 
 // Central manhole — flat landmark at world origin. The game loop still
 // keeps a 1.35u collision dead-zone there (so the player's spawn isn't
