@@ -269,19 +269,19 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   const pos = randomSpawnPos(d, minDist, 2);
   let hp = MONSTER_HP[tier];
   if (tier === 'boss') {
-    // Endless boss scaling — each 3-level cycle past the first adds +50%
-    // HP to the boss. Cycle 1 (L3) = 32 hp, cycle 2 (L6) = 48, cycle 3
-    // (L9) = 64, cycle 4 (L12) = 80, … capped at 5x baseline (160).
+    // Endless boss scaling — slope 0.5→0.7 / cap 5×→7× (pass 2). Each
+    // 3-level cycle past the first adds +70% boss HP.
+    //   L3 cycle 1 = 32, L6 = 54, L9 = 77, L12 = 102, L15 = 122, L24 = 192, L30+ = 224 (cap).
     const cycle = Math.max(1, Math.floor(tuning.level / 3));
-    hp = Math.min(MONSTER_HP.boss * 5, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 0.5)));
+    hp = Math.min(MONSTER_HP.boss * 7, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 0.7)));
   } else {
     // Per-level non-boss HP scaling. L1-3 stay hand-tuned (no scale).
-    // L4+ adds +12% per level above 3, capped at 4× the base. Counteracts
-    // the player's compounding DPS gain from perks + weapon levels so
-    // late-game encounters stay tense instead of melting.
-    //   L4=1.12×, L8=1.6×, L12=2.08×, L15=2.44×, L25→3.64×, L31+→4×.
+    // Slope bumped 0.12→0.20 and cap 4×→6× (pass 2) so the player's
+    // compounding perks + weapon levels stop running ahead of monster
+    // toughness deep into endless.
+    //   L4=1.20×, L8=2.00×, L12=2.80×, L15=3.40×, L20=4.40×, L28+=6×.
     if (tuning.level > 3) {
-      const scale = Math.min(4.0, 1 + (tuning.level - 3) * 0.12);
+      const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.20);
       hp = Math.round(hp * scale);
     }
   }
@@ -329,7 +329,7 @@ function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
   // elite stays threatening (not trivially poppable) deep into endless.
   let hp = MONSTER_HP.stalker * 2;
   if (tuning.level > 3) {
-    const scale = Math.min(4.0, 1 + (tuning.level - 3) * 0.12);
+    const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.20);
     hp = Math.round(hp * scale);
   }
   d.monsters.push({

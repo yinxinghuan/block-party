@@ -222,11 +222,12 @@ function computeEndlessTuning(level: number): LevelTuning {
     timeLimit: 45,  // informational; clear condition is the exit beacon, not the timer
     lurkerCount:    clamp(14 + k * 3, 14, 50),
     stalkerCount:   clamp(1 + Math.floor(k / 2), 1, 12),
-    // Cap at 90 (was 120) — 120 zombies with per-monster THREE.Group +
-    // multi-mesh rig was the single biggest draw-call source at endless
-    // L8+ and the FPS hit was felt before the difficulty even peaked. 90
-    // still reads as "swarming" but renders ~25% fewer per-frame draws.
-    monsterMax:     clamp(38 + k * 9, 38, 90),
+    // Pass 1 dropped 120→90 for FPS; pass 2 (after pillar merge / gem
+    // instancing / HUD bail-out / hero-shadow-off bought back budget)
+    // pushes 90→105. Late-game floor for bodies-on-screen now lands
+    // closer to the original design intent while still well under the
+    // pre-perf 120. Slope unchanged.
+    monsterMax:     clamp(38 + k * 9, 38, 105),
     monsterSpeed:   clamp(0.90 + k * 0.08, 0.90, 1.70),
     monsterFleeSpeed: clamp(0.90 + k * 0.03, 0.90, 1.30),
     // AI tempo caps relaxed for the late-game pressure pass: the formula
