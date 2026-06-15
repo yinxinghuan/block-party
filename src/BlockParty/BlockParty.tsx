@@ -449,6 +449,24 @@ export function BlockParty() {
         </div>
       )}
 
+      {/* In-game champion pill — Block Hop pattern. Always-visible #1 entry
+          tucked under the corner HUD; tap opens the full leaderboard. The
+          champion snapshot is fetched on splash and held for the session
+          (refreshed next time the splash mounts). */}
+      {phase === 'playing' && champion && (
+        <button
+          className="bp__champion-pill"
+          onPointerDown={(e) => {
+            e.nativeEvent.stopPropagation();
+            setShowLeaderboard(true);
+          }}
+        >
+          <span className="bp__champion-pill-trophy" aria-hidden>★</span>
+          <span className="bp__champion-pill-name">{champion.name}</span>
+          <span className="bp__champion-pill-score">{champion.score.toLocaleString()}</span>
+        </button>
+      )}
+
       <img className="ln__watermark" src={alteruSvg} alt="AlterU" />
 
       {/* Floating "+N" — instant satisfaction near the player */}
