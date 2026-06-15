@@ -104,11 +104,39 @@ function bell(freq: number, peak: number, t0: number, decay = 1.0, dst?: AudioNo
 }
 
 // ---------- SFX ----------
+// Per-key minimum interval (seconds, on AudioContext time). Without this,
+// endless L8+ would spawn 20-30 sfx/sec, each allocating 4-8 Web Audio
+// nodes (osc + gain + buffer + filter), and that allocation rate spills
+// onto the audio thread + main thread. Same-frame events (5-pellet
+// shotgun, simultaneous kills, all-zombies-telegraphing) collapse to a
+// single playback for each event family. Sub-50ms gaps are inaudible
+// anyway — the ear treats them as one impact.
+const SFX_MIN_INTERVAL: Partial<Record<SfxKey, number>> = {
+  shoot:            0.04,
+  kill:             0.05,
+  strike_telegraph: 0.08,
+  strike_hit:       0.05,
+  pickup_gold:      0.03,
+  pickup_red:       0.06,
+  pickup_green:     0.06,
+  pickup_blue:      0.06,
+  monster_flee:     0.08,
+  // wall_pulse / game_over not throttled — fire rarely enough that
+  // they never collide with themselves.
+};
+const sfxLastT = new Map<SfxKey, number>();
+
 export function playSfx(key: SfxKey) {
   const c = ensureCtx();
   if (!c || !master) return;
   if (c.state === 'suspended') c.resume();
   const t = c.currentTime;
+  const minInt = SFX_MIN_INTERVAL[key];
+  if (minInt !== undefined) {
+    const last = sfxLastT.get(key);
+    if (last !== undefined && t - last < minInt) return;
+    sfxLastT.set(key, t);
+  }
   switch (key) {
     case 'pickup_gold':
       // Bright two-note coin chime — sparkly, "ding-ding"
