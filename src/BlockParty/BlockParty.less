@@ -814,6 +814,49 @@
   100% { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
 }
 
+// Elite-incoming toast — same anchor + pop pattern as the exit toast but
+// in crimson, so it reads as warning instead of reward.
+.bp__elite-toast {
+  position: absolute;
+  top: 28%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 26px;
+  border-radius: 14px;
+  background: rgba(20, 4, 6, 0.82);
+  border: 2px solid #ff3050;
+  box-shadow: 0 0 36px rgba(255, 60, 80, 0.65);
+  z-index: 25;
+  pointer-events: none;
+  animation: bp-elite-toast 3.2s ease-out forwards;
+}
+.bp__elite-toast-eyebrow {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: .26em;
+  color: #ffd6d6;
+  text-shadow: 0 0 14px rgba(255, 60, 80, 0.85);
+}
+.bp__elite-toast-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: .18em;
+  color: rgba(255, 200, 200, 0.85);
+  text-transform: uppercase;
+}
+@keyframes bp-elite-toast {
+  0%   { opacity: 0; transform: translate(-50%, -16px) scale(0.92); }
+  10%  { opacity: 1; transform: translate(-50%, 0) scale(1.04); }
+  18%  { transform: translate(-50%, 0) scale(1); }
+  82%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
+}
+
 // Weapon toast — sits in the same vertical slot as the perk toast, fades
 // out after a couple of seconds. Distinct headline (EQUIPPED vs LEVEL UP).
 .bp__weapon-toast {

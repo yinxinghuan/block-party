@@ -53,6 +53,11 @@ export interface Monster {
   // Cached compat aliases — keep `isBoss` for any external code still
   // reading it; new code should switch on `tier`.
   isBoss?: boolean;
+  /** Elite (anti-stall) marker — spawned when a level runs past the
+   *  stall threshold. Doubles HP + adds a red emissive ring + spits
+   *  faster projectiles. Used as a soft cap on camping early levels
+   *  for free XP. */
+  isElite?: boolean;
 }
 
 // Enemy ranged projectile — spitters (the stalker tier) lob these. Linear
@@ -64,6 +69,9 @@ export interface EnemyProjectile {
   dirZ: number;
   bornAt: number;
   ttl: number;
+  /** Optional speed multiplier — defaults to 1. Elite stalkers spit
+   *  faster to make their pressure read as a real threat. */
+  speedMul?: number;
 }
 
 // Violet exit beacon spawned when the player meets the night's kill goal.

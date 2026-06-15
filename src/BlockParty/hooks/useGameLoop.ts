@@ -78,6 +78,16 @@ export interface GameRef {
   cameraShakeT: number;
   cameraShakeMag: number;
 
+  // ─── anti-stall (elite spawner) ────────────────────────────────────
+  // Once the level has been running long enough, periodically spawn an
+  // elite ranged stalker so the player can't camp early levels for
+  // free XP. Set per-level; reset on startLevel.
+  elitesSpawnedThisLevel: number;
+  lastEliteSpawnT: number;        // d.levelT at the most recent elite spawn
+  /** Set by spawnEliteStalker, polled + cleared by BlockParty.tsx for the
+   *  "ELITE INCOMING" warning toast. Holds the spawn timestamp. */
+  lastEliteAlertAt: number;
+
   // ─── perk stats (Phase 5) ──────────────────────────────────────────
   // Multipliers/adders applied on top of the survivor's base weapon spec.
   // All defaults are the identity so an unbuilt run plays at baseline.
@@ -145,6 +155,9 @@ export function createGameState(): GameRef {
     bloodSplats: [],
     cameraShakeT: 0,
     cameraShakeMag: 0,
+    elitesSpawnedThisLevel: 0,
+    lastEliteSpawnT: 0,
+    lastEliteAlertAt: 0,
     xp: 0,
     xpInLevel: 0,
     xpNeededForLevel: 5,
@@ -291,6 +304,51 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   });
 }
 
+// ─── Anti-stall elite spawner ─────────────────────────────────────────
+// When a level overstays its welcome (player camping for free XP), spawn
+// an enhanced stalker every ELITE_INTERVAL seconds with 2× HP + a 50%
+// faster projectile. Caps at MAX_ELITES_PER_LEVEL so the player isn't
+// punished infinitely, but enough pressure to push them toward the exit.
+const LEVEL_STALL_THRESHOLD = 70.0;   // seconds before the first elite spawns
+const ELITE_INTERVAL = 18.0;          // gap between subsequent elites
+const MAX_ELITES_PER_LEVEL = 4;
+function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
+  if (d.monsters.length >= tuning.monsterMax) return;
+  const pos = randomSpawnPos(d, 16, 2);
+  const hp = MONSTER_HP.stalker * 2;
+  d.monsters.push({
+    id: nextId(),
+    position: pos,
+    velocity: new THREE.Vector3(),
+    rotation: Math.random() * Math.PI * 2,
+    state: 'lurking',
+    fleeT: 0,
+    cooldownT: 0,
+    strikeT: 0,
+    strikeAimX: 0,
+    strikeAimZ: 0,
+    tier: 'stalker',
+    hp,
+    maxHp: hp,
+    hitFlashT: 0,
+    knockbackVX: 0,
+    knockbackVZ: 0,
+    knockbackT: 0,
+    dying: false,
+    dyingT: 0,
+    flightVX: 0,
+    flightVZ: 0,
+    flightSpin: 0,
+    deathStyle: 0,
+    deathArc: 0,
+    isBoss: false,
+    isElite: true,
+  });
+  d.elitesSpawnedThisLevel += 1;
+  d.lastEliteSpawnT = d.levelT;
+  d.lastEliteAlertAt = d.time;
+}
+
 // Per-tier launch impulse when killed — bumped 33% so corpses really
 // SAIL across the asphalt instead of slumping forward.
 const LAUNCH_SPEED: Record<MonsterTier, number> = {
@@ -389,6 +447,9 @@ export function startLevel(d: GameRef, level: number) {
   d.exit = null;
   d.killsThisNight = 0;
   d.exitJustOpened = false;
+  d.elitesSpawnedThisLevel = 0;
+  d.lastEliteSpawnT = 0;
+  d.lastEliteAlertAt = 0;
   for (let i = 0; i < tuning.pillarCount; i++) d.pillars.push(spawnPillar(tuning.pillarScaleBias, level));
   d.monsterSpawnTimer = 0;
   d.crystalRespawnTimer = 0;
@@ -740,6 +801,8 @@ export function useGameLoop(p: GameLoopParams) {
           m.strikeT += c;
           if (m.strikeT >= myTelegraph) {
             // FIRE — spawn a projectile that flies along the locked aim.
+            // Elite stalkers spit 1.5× faster and reload 30% quicker so
+            // the anti-stall pressure actually punishes idling.
             d.enemyProjectiles.push({
               id: nextId(),
               position: new THREE.Vector3(m.position.x, 1.1, m.position.z),
@@ -747,10 +810,11 @@ export function useGameLoop(p: GameLoopParams) {
               dirZ: m.strikeAimZ,
               bornAt: d.time,
               ttl: PROJECTILE_TTL,
+              speedMul: m.isElite ? 1.5 : 1.0,
             });
             p.playSfx('strike_hit');
             m.state = 'cooldown';
-            m.cooldownT = tuning.strikeCooldown * 1.4;   // longer between spits
+            m.cooldownT = tuning.strikeCooldown * (m.isElite ? 1.0 : 1.4);   // longer between spits
             m.strikeT = 0;
           }
         }
@@ -1135,9 +1199,13 @@ export function useGameLoop(p: GameLoopParams) {
           m.knockbackVX = Math.sin(dirAngle) * kbSpeed;
           m.knockbackVZ = Math.cos(dirAngle) * kbSpeed;
           m.knockbackT  = (m.tier === 'boss' || m.tier === 'brute') ? 0.15 : 0.30;
-          // NB: no shake on per-bullet hits — auto-fire shoots ~3/s and the
-          // stacked jitter felt like the whole camera was vibrating. The
-          // blood splats + knockback already sell the impact.
+          // Per-bullet shake is gated to high-HP tiers (brute/boss) so the
+          // ~3/s auto-fire rate doesn't stack the camera into permanent
+          // jitter on lurkers. Each hit on a meatier target gets a small
+          // thump that sells the weight without nausea.
+          if (m.tier === 'brute' || m.tier === 'boss') {
+            shakeCamera(d, 0.10, 0.08);
+          }
           if (b.pierceLeft > 0) {
             b.pierceLeft -= 1;
           } else {
@@ -1163,7 +1231,11 @@ export function useGameLoop(p: GameLoopParams) {
               m.tier === 'boss' ? 1.6 : 1.1,
               b.dirX, b.dirZ,
             );
+            // Kill shake — fires on the bullet that finishes a zombie.
+            // Boss kill stays at the existing huge value; everything else
+            // gets a quick punch so the "you ended that one" beat lands.
             if (m.tier === 'boss') shakeCamera(d, 0.95, 0.55);
+            else                   shakeCamera(d, 0.18, 0.10);
             // Launch the corpse — flies along the bullet vector, tumbles
             // for ~0.6s, bowls into anything in its path. deathStyle
             // randomizes the tumble axis + limp pose so a wave of dying
@@ -1211,8 +1283,9 @@ export function useGameLoop(p: GameLoopParams) {
     // damage same as melee bites.
     for (let i = d.enemyProjectiles.length - 1; i >= 0; i--) {
       const proj = d.enemyProjectiles[i];
-      proj.position.x += proj.dirX * PROJECTILE_SPEED * c;
-      proj.position.z += proj.dirZ * PROJECTILE_SPEED * c;
+      const projSpeed = PROJECTILE_SPEED * (proj.speedMul ?? 1);
+      proj.position.x += proj.dirX * projSpeed * c;
+      proj.position.z += proj.dirZ * projSpeed * c;
       const age = d.time - proj.bornAt;
       if (age > proj.ttl
           || Math.abs(proj.position.x) > ARENA_HALF
@@ -1261,6 +1334,19 @@ export function useGameLoop(p: GameLoopParams) {
       for (let i = 0; i < count; i++) {
         spawnMonsterTier(d, tuning, rollSpawnTier(d.level));
       }
+    }
+    // Anti-stall — once the level overstays the threshold, escalate by
+    // dropping an elite stalker every ELITE_INTERVAL seconds (capped) so
+    // camping for free XP gets punished.
+    if (
+      !d.exit
+      && d.levelT > LEVEL_STALL_THRESHOLD
+      && d.elitesSpawnedThisLevel < MAX_ELITES_PER_LEVEL
+      && (d.elitesSpawnedThisLevel === 0
+          ? true
+          : d.levelT - d.lastEliteSpawnT >= ELITE_INTERVAL)
+    ) {
+      spawnEliteStalker(d, tuning);
     }
 
     // ---- EXIT PICKUP ----

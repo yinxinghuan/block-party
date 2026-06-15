@@ -1534,6 +1534,8 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
     group: ZombieGroup;
     ring: THREE.Mesh;
     ringMat: THREE.MeshBasicMaterial;
+    eliteRing: THREE.Mesh | null;
+    eliteRingMat: THREE.MeshBasicMaterial | null;
     tier: ZombieTier;
   };
   const slots = useRef<Map<number, Slot>>(new Map());
@@ -1570,13 +1572,43 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         ring.position.y = 0.04;
         ring.visible = false;
         group.add(ring);
-        slot = { group, ring, ringMat, tier: m.tier as ZombieTier };
+
+        // Elite marker — a second, persistent crimson ring with a faint
+        // pulse. Only added when this monster is the anti-stall elite
+        // stalker. Helps the player instantly distinguish it from a
+        // regular stalker (same body model) and read incoming danger.
+        let eliteRing: THREE.Mesh | null = null;
+        let eliteRingMat: THREE.MeshBasicMaterial | null = null;
+        if (m.isElite) {
+          const eRingGeom = new THREE.RingGeometry(1.05, 1.40, 36);
+          eliteRingMat = new THREE.MeshBasicMaterial({
+            color: 0xff1240,
+            transparent: true,
+            opacity: 0.55,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          });
+          eliteRing = new THREE.Mesh(eRingGeom, eliteRingMat);
+          eliteRing.rotation.x = -Math.PI / 2;
+          eliteRing.position.y = 0.05;
+          group.add(eliteRing);
+        }
+
+        slot = { group, ring, ringMat, eliteRing, eliteRingMat, tier: m.tier as ZombieTier };
         slots.current.set(m.id, slot);
         root.add(group);
       }
       // Body position + facing.
       slot.group.position.copy(m.position);
       slot.group.rotation.y = m.rotation;
+      // Elite-ring pulse — slow scale + alpha breathe so the marker reads
+      // alive across a 70+ second standoff.
+      if (slot.eliteRing && slot.eliteRingMat) {
+        const epulse = 0.70 + Math.sin(t * 3.2 + m.id) * 0.30;
+        slot.eliteRing.scale.setScalar(1 + epulse * 0.10);
+        slot.eliteRingMat.opacity = 0.40 + epulse * 0.30;
+      }
 
       // DYING — body is launched; arc upward then fall. deathStyle picks
       // ONE of 4 distinct tumble + limp-pose combos so a wave of dying
@@ -1700,6 +1732,8 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         root.remove(slot.group);
         slot.ring.geometry.dispose();
         slot.ringMat.dispose();
+        if (slot.eliteRing) slot.eliteRing.geometry.dispose();
+        if (slot.eliteRingMat) slot.eliteRingMat.dispose();
         slots.current.delete(id);
       }
     }

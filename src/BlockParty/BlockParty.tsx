@@ -99,6 +99,10 @@ export function BlockParty() {
   // Exit-goal HUD: one-shot "EXIT OPEN" toast the moment the beacon spawns.
   // (kill progress / exit-open flag live on hud above.)
   const [exitToastKey, setExitToastKey] = useState(0);
+  // Anti-stall "ELITE INCOMING" toast — fires each time the game loop
+  // spawns an elite stalker (after the level overstays the threshold).
+  const [eliteToastKey, setEliteToastKey] = useState(0);
+  const lastEliteAlertRef = useRef(0);
   const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -251,6 +255,7 @@ export function BlockParty() {
     const resolved = survivorPick ?? resolveSurvivor(storeState);
     setSelectedSurvivor(resolved);
     stateRef.current = createGameState();
+    lastEliteAlertRef.current = 0;   // re-arm elite-spawn detection for the new run
     // One write resets the whole HUD instead of 12 separate setStates.
     setHud({ ...INITIAL_HUD, timeLeft: getLevelTuning(1).timeLimit });
     setPerkToast(null);
@@ -298,6 +303,13 @@ export function BlockParty() {
       if (d.exitJustOpened) {
         d.exitJustOpened = false;
         setExitToastKey(k => k + 1);
+      }
+      // Elite spawn alert — fires whenever the loop drops a fresh anti-
+      // stall elite. We snapshot the spawn timestamp so we don't re-fire
+      // the toast on subsequent polls.
+      if (d.lastEliteAlertAt > lastEliteAlertRef.current) {
+        lastEliteAlertRef.current = d.lastEliteAlertAt;
+        setEliteToastKey(k => k + 1);
       }
       if (d.lastWeaponPickupKind) {
         const ts = d.lastWeaponPickupAt;
@@ -614,6 +626,16 @@ export function BlockParty() {
         >
           <span className="bp__exit-toast-eyebrow">★ EXIT OPEN ★</span>
           <span className="bp__exit-toast-sub">find the violet beacon</span>
+        </div>
+      )}
+      {eliteToastKey > 0 && (
+        <div
+          key={`elite-toast-${eliteToastKey}`}
+          className="bp__elite-toast"
+          aria-live="polite"
+        >
+          <span className="bp__elite-toast-eyebrow">⚠ ELITE INCOMING ⚠</span>
+          <span className="bp__elite-toast-sub">move toward the exit</span>
         </div>
       )}
 
