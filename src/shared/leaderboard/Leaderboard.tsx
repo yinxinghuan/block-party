@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { openAigramProfile } from '../runtime/bridge';
 import type { LeaderboardEntry } from './useGameScore';
 import './Leaderboard.less';
@@ -50,8 +50,16 @@ interface Props {
   fetch: () => Promise<LeaderboardEntry[]>;
 }
 
-const MEDALS = ['🥇', '🥈', '🥉'];
-const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
+// Crossy Road / comic-book look — a single gold crown SVG marks rank 1
+// instead of platform-emoji medals. Ranks 2-50 just show their number in
+// ink, which keeps the row read tight and the page feeling printed.
+function Crown() {
+  return (
+    <svg className="lb-crown" viewBox="0 0 24 24" aria-hidden>
+      <path d="M3 8 L7 13 L12 6 L17 13 L21 8 L20 18 L4 18 Z" />
+    </svg>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────
 
@@ -102,18 +110,15 @@ export default function Leaderboard({ gameName, isInAigram, onClose, fetch }: Pr
           {!loading && entries.map((entry, i) => (
             <div
               key={entry.user_id}
-              className={`lb-row ${entry.isMe ? 'lb-row--me' : ''} ${i < 3 ? 'lb-row--top' : ''} ${isInAigram ? 'lb-row--clickable' : ''}`}
-              style={i < 3 ? { '--medal-color': MEDAL_COLORS[i] } as CSSProperties : undefined}
+              className={`lb-row ${entry.isMe ? 'lb-row--me' : ''} ${i === 0 ? 'lb-row--top1' : ''} ${isInAigram ? 'lb-row--clickable' : ''}`}
               onClick={isInAigram ? () => openAigramProfile(entry.user_id) : undefined}
             >
               <div className="lb-row__rank">
-                {i < 3
-                  ? <span className="lb-row__medal">{MEDALS[i]}</span>
-                  : <span className="lb-row__num">{i + 1}</span>
-                }
+                {i === 0 && <Crown />}
+                <span className="lb-row__num">#{i + 1}</span>
               </div>
 
-              <Avatar url={entry.avatar_url} name={entry.name} size={i < 3 ? 44 : 38} />
+              <Avatar url={entry.avatar_url} name={entry.name} size={i === 0 ? 36 : 32} />
 
               <div className="lb-row__info">
                 <span className="lb-row__name">{entry.name}</span>

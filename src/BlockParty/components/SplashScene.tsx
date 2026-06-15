@@ -47,7 +47,9 @@ export function SplashScene({ onOpenStore, onOpenLeaderboard, highScore, picked,
           className="bp-splash__champion"
           onPointerDown={(e) => { stop(e); onOpenLeaderboard(); }}
         >
-          <span className="bp-splash__champion-trophy" aria-hidden>★</span>
+          <svg className="bp__crown" viewBox="0 0 24 24" aria-hidden>
+            <path d="M3 8 L7 13 L12 6 L17 13 L21 8 L20 18 L4 18 Z" />
+          </svg>
           <span className="bp-splash__champion-name">{champion.name}</span>
           <span className="bp-splash__champion-score">{champion.score.toLocaleString()}</span>
         </button>
@@ -56,7 +58,9 @@ export function SplashScene({ onOpenStore, onOpenLeaderboard, highScore, picked,
           className="bp-splash__champion bp-splash__champion--empty"
           onPointerDown={(e) => { stop(e); onOpenLeaderboard(); }}
         >
-          <span className="bp-splash__champion-trophy" aria-hidden>★</span>
+          <svg className="bp__crown" viewBox="0 0 24 24" aria-hidden>
+            <path d="M3 8 L7 13 L12 6 L17 13 L21 8 L20 18 L4 18 Z" />
+          </svg>
           <span>LEADERS</span>
         </button>
       )}
