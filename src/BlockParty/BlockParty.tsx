@@ -187,7 +187,7 @@ export function BlockParty() {
 
     const bid = bannerIdCounter++;
     setBanners(prev => [...prev, { id: bid, kind }]);
-    window.setTimeout(() => setBanners(prev => prev.filter(b => b.id !== bid)), 2200);
+    window.setTimeout(() => setBanners(prev => prev.filter(b => b.id !== bid)), 1400);
   }, []);
 
   const onStrikeHit = useCallback(() => {
