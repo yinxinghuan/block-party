@@ -166,29 +166,42 @@ function emitFx(d: GameRef, type: FxEvent['type'], x: number, z: number) {
 
 // Spawn N blood splats at world (x, z) — each gets a randomized outward
 // velocity + a few-bone-fragment chance. The pool is capped so a long
-// run doesn't stack 1000 splats.
-const BLOOD_SPLAT_MAX = 120;
-function spawnBloodSplats(d: GameRef, x: number, z: number, count: number, intensity = 1) {
+// run doesn't stack 1000 splats. `dirX/dirZ` optionally biases the spray
+// (e.g. along the bullet direction) so blood SHOOTS out instead of just
+// puddling around.
+const BLOOD_SPLAT_MAX = 220;
+function spawnBloodSplats(
+  d: GameRef,
+  x: number, z: number,
+  count: number,
+  intensity = 1,
+  dirX = 0, dirZ = 0,
+) {
+  const hasDir = (dirX !== 0 || dirZ !== 0);
+  const dirAngle = hasDir ? Math.atan2(dirX, dirZ) : 0;
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 2.5 + Math.random() * 3.5 * intensity;
-    const isBone = Math.random() < 0.18;
+    // Bias splay along dirAngle if set; otherwise full 360° burst.
+    const angle = hasDir
+      ? dirAngle + (Math.random() - 0.5) * Math.PI * 0.85    // ~150° cone forward
+      : Math.random() * Math.PI * 2;
+    const baseSpeed = 5 + Math.random() * 7 * intensity;
+    const lateral = 0.55 + Math.random() * 0.65;
+    const isBone = Math.random() < 0.20;
     d.bloodSplats.push({
       id: nextId(),
-      position: new THREE.Vector3(x, 0.85 + Math.random() * 0.5, z),
+      position: new THREE.Vector3(x, 0.85 + Math.random() * 0.6, z),
       velocity: new THREE.Vector3(
-        Math.cos(angle) * speed * (0.6 + Math.random() * 0.6),
-        2.5 + Math.random() * 3.5 * intensity,
-        Math.sin(angle) * speed * (0.6 + Math.random() * 0.6),
+        Math.sin(angle) * baseSpeed * lateral,
+        4 + Math.random() * 4 * intensity,                   // higher arc
+        Math.cos(angle) * baseSpeed * lateral,
       ),
       bornAt: d.time,
-      life: 0.7 + Math.random() * 0.5,
-      scale: 0.05 + Math.random() * (isBone ? 0.07 : 0.10) * intensity,
+      life: 1.0 + Math.random() * 0.8,
+      scale: 0.08 + Math.random() * (isBone ? 0.10 : 0.16) * intensity,
       isBone,
     });
   }
   if (d.bloodSplats.length > BLOOD_SPLAT_MAX) {
-    // Drop the oldest, keep the most recent which are most visible.
     d.bloodSplats.splice(0, d.bloodSplats.length - BLOOD_SPLAT_MAX);
   }
 }
@@ -238,9 +251,38 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
     knockbackVX: 0,
     knockbackVZ: 0,
     knockbackT: 0,
+    dying: false,
+    dyingT: 0,
+    flightVX: 0,
+    flightVZ: 0,
+    flightSpin: 0,
     isBoss: tier === 'boss',
   });
 }
+
+// Per-tier launch impulse when killed — light bodies fly far, heavy ones
+// drop in place. Used both for the corpse's own flight and for the
+// "bowling" damage it deals to any monster it slams into.
+const LAUNCH_SPEED: Record<MonsterTier, number> = {
+  lurker:   18.0,
+  runner:   17.0,
+  brute:     6.0,
+  stalker:  14.0,
+  exploder: 16.0,
+  ghost:     0.0,    // ghosts pop in place — no body to launch
+  boss:      3.0,
+};
+
+// Damage a flying corpse deals when it body-checks another live monster.
+const CORPSE_HIT_DMG: Record<MonsterTier, number> = {
+  lurker:   2,
+  runner:   2,
+  brute:    4,
+  stalker:  3,
+  exploder: 3,
+  ghost:    0,
+  boss:     0,
+};
 
 // Weighted tier roll for the per-night spawn distribution. Boss is never
 // rolled here — it's scripted at the start of night 3. Falls back to
@@ -457,6 +499,82 @@ export function useGameLoop(p: GameLoopParams) {
       const monsterBaseSpeed = MONSTER_BASE_SPEED * tuning.monsterSpeed * speedK;
       const myTelegraph = tuning.strikeTelegraph * telegraphK;
       const myRangeMax  = tuning.strikeRangeMax  * rangeK;
+
+      // DYING — corpse is in flight after being killed. Integrate the
+      // launch velocity, tumble, plow through any live monsters in the
+      // path, then finalize with a big death burst.
+      if (m.dying) {
+        const FLIGHT_LIFE = 0.6;
+        m.dyingT += c;
+        m.position.x += m.flightVX * c;
+        m.position.z += m.flightVZ * c;
+        m.flightVX *= 0.91;
+        m.flightVZ *= 0.91;
+        m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+        m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+        m.rotation += m.flightSpin * c;     // visual tumble cue for the renderer
+
+        // BOWLING — check live monsters in front of the corpse's path.
+        // First impact slows the corpse and damages + knocks back the
+        // victim. We don't break on first hit so a fast corpse can plow
+        // through 2-3 zombies.
+        const corpseR = 0.7;
+        for (let k = d.monsters.length - 1; k >= 0; k--) {
+          const other = d.monsters[k];
+          if (k === i || other.dying) continue;
+          const odx = other.position.x - m.position.x;
+          const odz = other.position.z - m.position.z;
+          if (Math.hypot(odx, odz) > corpseR + 0.7) continue;
+          // Body-check.
+          const corpseDmg = CORPSE_HIT_DMG[m.tier];
+          other.hp -= corpseDmg;
+          other.hitFlashT = 0.10;
+          // Transfer momentum — the live one flies the corpse's way.
+          const transferF = 0.55;
+          const vmag = Math.hypot(m.flightVX, m.flightVZ);
+          if (vmag > 0.5) {
+            other.knockbackVX = (m.flightVX / vmag) * vmag * transferF;
+            other.knockbackVZ = (m.flightVZ / vmag) * vmag * transferF;
+            other.knockbackT  = 0.18;
+          }
+          spawnBloodSplats(d, other.position.x, other.position.z, 4, 0.8, m.flightVX, m.flightVZ);
+          // Corpse loses 60% velocity per hit.
+          m.flightVX *= 0.40;
+          m.flightVZ *= 0.40;
+          // If the victim is also dead, queue THEM for launch too. Chain!
+          if (other.hp <= 0 && !other.dying) {
+            d.kills += 1;
+            d.score += SCORE_KILL[other.tier];
+            p.onScore(Math.floor(d.score));
+            emitFx(d, 'monster_kill', other.position.x, other.position.z);
+            const launchV2 = LAUNCH_SPEED[other.tier];
+            other.dying = true;
+            other.dyingT = 0;
+            other.flightVX = (m.flightVX / Math.max(0.001, vmag)) * launchV2 * 0.85;
+            other.flightVZ = (m.flightVZ / Math.max(0.001, vmag)) * launchV2 * 0.85;
+            other.flightSpin = (Math.random() < 0.5 ? 1 : -1) * (10 + Math.random() * 6);
+            if (d.crystals.length < CRYSTAL_MAX) {
+              d.crystals.push({ id: nextId(), position: other.position.clone(), type: 'xp' });
+            }
+            p.playSfx('kill');
+          }
+        }
+
+        // Finalize — TTL expired OR speed dropped low enough that the
+        // body is basically on the ground. Big death-burst then splice.
+        const speedNow = Math.hypot(m.flightVX, m.flightVZ);
+        if (m.dyingT >= FLIGHT_LIFE || speedNow < 1.2) {
+          const burst =
+            m.tier === 'boss'    ? 48 :
+            m.tier === 'brute'   ? 34 :
+            m.tier === 'stalker' ? 24 :
+            m.tier === 'runner'  ? 16 :
+                                   20;
+          spawnBloodSplats(d, m.position.x, m.position.z, burst, m.tier === 'boss' ? 1.8 : 1.3);
+          d.monsters.splice(i, 1);
+        }
+        continue;
+      }
 
       // KNOCKBACK — when knockbackT > 0, the AI movement code below is
       // suppressed and the zombie skids along its current knockback
@@ -794,6 +912,7 @@ export function useGameLoop(p: GameLoopParams) {
     let targetYaw = 0;
     let bestD2 = AIM_RANGE * AIM_RANGE;
     for (const m of d.monsters) {
+      if (m.dying) continue;     // don't waste shots on bodies still flying
       const dxm = m.position.x - d.pos.x;
       const dzm = m.position.z - d.pos.z;
       const dd = dxm * dxm + dzm * dzm;
@@ -886,6 +1005,7 @@ export function useGameLoop(p: GameLoopParams) {
       for (let j = d.monsters.length - 1; j >= 0; j--) {
         if (!alive) break;
         const m = d.monsters[j];
+        if (m.dying) continue;                   // bullets ignore flying corpses
         if (b.hitIds.has(m.id)) continue;        // pierce: don't double-tap
         const bdx = b.position.x - m.position.x;
         const bdz = b.position.z - m.position.z;
@@ -895,8 +1015,9 @@ export function useGameLoop(p: GameLoopParams) {
           m.hitFlashT = 0.10;
           b.hitIds.add(m.id);
           emitFx(d, 'bullet_hit', b.position.x, b.position.z);
-          // Splatter — small spray for damage hits, big shower on kill below.
-          spawnBloodSplats(d, b.position.x, b.position.z, 4, 0.9);
+          // Bigger directional spray on every hit — blood SHOOTS forward
+          // along the bullet vector, not a small omni puddle.
+          spawnBloodSplats(d, b.position.x, b.position.z, 8, 1.0, b.dirX, b.dirZ);
           // Knockback IMPULSE — set a velocity so the zombie SKIDS back
           // visibly rather than teleporting one step. Per-tier table
           // (constants.ts) so brute + boss barely move and lurker /
@@ -915,26 +1036,31 @@ export function useGameLoop(p: GameLoopParams) {
             alive = false;
           }
           if (m.hp <= 0) {
+            // ── KILL CREDIT — immediate score, XP drop, lifesteal,
+            // SFX. The corpse itself is launched into the air instead of
+            // being spliced; it body-checks live monsters in its path
+            // before exploding at the end.
             d.kills += 1;
             d.score += SCORE_KILL[m.tier];
             p.onScore(Math.floor(d.score));
             emitFx(d, 'monster_kill', m.position.x, m.position.z);
-            // Big shower on death — more chunks for boss + boss-tier shake.
-            const splats =
-              m.tier === 'boss'    ? 32 :
-              m.tier === 'brute'   ? 22 :
-              m.tier === 'stalker' ? 14 :
-              m.tier === 'runner'  ?  8 :
-                                     10;
-            const intensity = m.tier === 'boss' ? 1.6 : 1.0;
-            spawnBloodSplats(d, m.position.x, m.position.z, splats, intensity);
-            // Only the boss kill shakes the camera. Lurker/stalker kills
-            // happen dozens of times in a surge — even a tiny per-kill
-            // mag accumulates into continuous low-amplitude judder when
-            // each kill refreshes cameraShakeT before the previous decay
-            // window finishes. Blood splats + audio carry the regular
-            // kill feedback now.
+            // Initial blood burst at hit point — mid-size directional
+            // spray; the BIG explosion happens at corpse finalize.
+            spawnBloodSplats(
+              d, m.position.x, m.position.z,
+              m.tier === 'boss' ? 26 : m.tier === 'brute' ? 18 : 12,
+              m.tier === 'boss' ? 1.6 : 1.1,
+              b.dirX, b.dirZ,
+            );
             if (m.tier === 'boss') shakeCamera(d, 0.95, 0.55);
+            // Launch the corpse — flies along the bullet vector, tumbles
+            // for ~0.6s, bowls into anything in its path.
+            const launchV = LAUNCH_SPEED[m.tier];
+            m.dying = true;
+            m.dyingT = 0;
+            m.flightVX = b.dirX * launchV;
+            m.flightVZ = b.dirZ * launchV;
+            m.flightSpin = (Math.random() < 0.5 ? 1 : -1) * (10 + Math.random() * 6);
             // Drop an XP gem where the zombie fell (capped by CRYSTAL_MAX).
             if (d.crystals.length < CRYSTAL_MAX) {
               d.crystals.push({
@@ -943,7 +1069,6 @@ export function useGameLoop(p: GameLoopParams) {
                 type: 'xp',
               });
             }
-            d.monsters.splice(j, 1);
             // Lifesteal — chance per kill to restore one heart.
             if (d.perkKillHealChance > 0
                 && d.hp < d.maxHp

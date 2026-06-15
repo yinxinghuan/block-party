@@ -34,6 +34,16 @@ export interface Monster {
   knockbackVX: number;
   knockbackVZ: number;
   knockbackT: number;
+  // Death-ragdoll launch. When hp hits 0, the monster is NOT immediately
+  // spliced — it's marked dying + given a high-impulse velocity along
+  // the killing bullet's direction, tumbles for ~0.6s, plows into any
+  // live monsters in its path (damaging them), then finalizes with a
+  // big death burst. Auto-fire + bite hit-tests both ignore dying.
+  dying: boolean;
+  dyingT: number;
+  flightVX: number;
+  flightVZ: number;
+  flightSpin: number;       // tumble rate while flying (rad/s)
   // Cached compat aliases — keep `isBoss` for any external code still
   // reading it; new code should switch on `tier`.
   isBoss?: boolean;

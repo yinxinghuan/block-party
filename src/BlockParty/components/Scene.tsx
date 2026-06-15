@@ -1007,6 +1007,27 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       slot.group.position.copy(m.position);
       slot.group.rotation.y = m.rotation;
 
+      // DYING — body is launched; arc upward then fall, tumble forward,
+      // arms + legs frozen straight out so the limp ragdoll reads.
+      if (m.dying) {
+        const flightLife = 0.6;
+        const t01 = Math.min(1, m.dyingT / flightLife);
+        // Parabolic arc — peak around t01=0.5.
+        slot.group.position.y = 0.5 + Math.sin(t01 * Math.PI) * 1.4;
+        // Forward tumble along world X — independent of facing yaw.
+        slot.group.rotation.x = m.dyingT * 10;
+        slot.group.rotation.z = m.flightSpin * 0.05 * m.dyingT;
+        const rigD = slot.group.userData.rig;
+        if (rigD) {
+          rigD.legL.rotation.x = 0.6;     // legs splayed
+          rigD.legR.rotation.x = -0.6;
+          rigD.armL.rotation.x = -Math.PI / 2 + 0.3;   // arms thrown out
+          rigD.armR.rotation.x = -Math.PI / 2 + 0.3;
+        }
+        // Skip the live-AI animation block this frame.
+        continue;
+      }
+
       // Shamble — legs swing on a slow sine; striking freezes them.
       const striking = m.state === 'striking';
       const phase = striking ? Math.min(1, m.strikeT / STRIKE_TELEGRAPH) : 0;
