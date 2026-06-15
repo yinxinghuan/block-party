@@ -737,22 +737,15 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
     flashlight.add(heroLight);
     heroLightRef.current = heroLight;
 
-    // Contact shadow blob — child of root so it follows the player's
-    // ground XZ but stays flat on the asphalt while the survivor itself
-    // bobs up and down with idle hop. Solid disc + translucent black =
-    // fakes a soft ambient shadow without re-enabling the expensive
-    // PointLight shadow map.
-    const shadow = new THREE.Mesh(SHADOW_GEOM, SHADOW_MAT);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.02;
-    shadow.scale.setScalar(1.2);
-    root.add(shadow);
+    // Player shadow lives in the shared EntityShadows InstancedMesh
+    // (slot 0) so it stays aligned with world moonlight direction
+    // instead of rotating with the player rig. One draw call covers
+    // player + all monsters together.
 
     root.add(survivor);
     survivorRef.current = survivor;
     return () => {
       root.remove(survivor);
-      root.remove(shadow);
       survivorRef.current = null;
       heroLightRef.current = null;
     };
@@ -941,16 +934,27 @@ const GEM_COLOR = '#7fffa8';
 const GEM_OCT_GEOM = new THREE.OctahedronGeometry(0.35, 0);
 const GEM_HALO_GEOM = new THREE.CircleGeometry(0.65, 14);
 
-// Shared contact-shadow blob — flat circle painted dark + translucent
-// under any entity that's not visibly sitting on the ground (monsters,
-// player). Cheap arcade trick replacing the real PointLight shadow we
-// disabled in perf #1: one InstancedMesh covers every monster's shadow
-// in a single draw call, and the player gets one mesh under its root.
-const SHADOW_GEOM = new THREE.CircleGeometry(0.55, 16);
+// Shared contact-shadow disc — flat circle painted dark + translucent
+// under every entity (monsters + player). One InstancedMesh covers them
+// all in a single draw call. Per-instance matrix stretches the unit
+// disc into an ELONGATED ellipse aligned with the moonlight direction,
+// so shadows look like real cast shadows under a sun-like light, not
+// the radially-symmetric "blob under entity" cheat.
+//
+// Moonlight in this scene = directionalLight at [6, 22, -4]. Horizontal
+// projection → shadows extend toward (-6, 0, 4). Normalized:
+const SHADOW_DIR_X = -0.832;   // long-axis world direction (x component)
+const SHADOW_DIR_Z =  0.555;   // long-axis world direction (z component)
+const SHADOW_PERP_X = -SHADOW_DIR_Z;   // perpendicular wide axis (rotate +90° in XZ)
+const SHADOW_PERP_Z =  SHADOW_DIR_X;
+const SHADOW_LONG = 1.6;   // ellipse length (radius) along the moonlight projection
+const SHADOW_WIDE = 0.45;  // ellipse half-width perpendicular to direction
+const SHADOW_OFFSET = 0.55; // 0 = centered under entity, 1 = entirely behind
+const SHADOW_GEOM = new THREE.CircleGeometry(1, 14);
 const SHADOW_MAT = new THREE.MeshBasicMaterial({
   color: '#000000',
   transparent: true,
-  opacity: 0.45,
+  opacity: 0.42,
   depthWrite: false,
 });
 const GEM_OCT_MAT = new THREE.MeshStandardMaterial({
@@ -1551,55 +1555,78 @@ function WallEdges() {
 // flash on the live-hit frame.
 // Zombies — instantiate the imperative voxel builder once per monster, cache
 // the group + its rig refs, and animate shamble + bite + hit-flash each frame.
-// Contact shadow blobs for all live monsters — one InstancedMesh drives
-// the whole roster, capacity covers the endless monsterMax cap (90)
-// plus the boss. Per-instance scale by tier so the boss casts a bigger
-// puddle than a lurker. Dying monsters launch into the air; we hide
-// their shadow once dying flips so it doesn't drag along the ground
-// under a ragdoll mid-flight.
-const MONSTER_SHADOW_POOL = 96;
+// Elongated contact shadows for all entities (player + every live
+// monster) in one InstancedMesh. Slot 0 = player, slots 1..N = monsters.
+// Per-tier size scales the ellipse; per-instance matrix is built by
+// makeBasis from world-space axes — wide axis perpendicular to moonlight,
+// long axis along moonlight projection — so the disc lays flat on the
+// asphalt as a stretched ellipse pointing the right way.
+const ENTITY_SHADOW_POOL = 97;  // 1 player + 96 monster slots
+const PLAYER_SHADOW_SCALE = 1.1;
 const MONSTER_SHADOW_SCALE: Record<ZombieTier, number> = {
-  lurker:   1.05,
-  runner:   0.95,
-  brute:    1.55,
-  stalker:  1.10,
-  exploder: 1.05,
-  ghost:    1.30,
-  boss:     2.40,
+  lurker:   1.0,
+  runner:   0.9,
+  brute:    1.5,
+  stalker:  1.05,
+  exploder: 1.0,
+  ghost:    1.25,
+  boss:     2.4,
 };
-function MonsterShadows({ state }: { state: React.MutableRefObject<GameRef> }) {
+function EntityShadows({ state }: { state: React.MutableRefObject<GameRef> }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const hidden = useMemo(() => {
-    const m = new THREE.Object3D();
-    m.position.set(0, -1000, 0);
-    m.scale.setScalar(0);
-    m.updateMatrix();
-    return m.matrix;
+  const tmpMat = useMemo(() => new THREE.Matrix4(), []);
+  const xAxis = useMemo(() => new THREE.Vector3(), []);
+  const yAxis = useMemo(() => new THREE.Vector3(), []);
+  const zAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const tmpPos = useMemo(() => new THREE.Vector3(), []);
+  const hiddenMat = useMemo(() => {
+    const m = new THREE.Matrix4();
+    m.makeTranslation(0, -1000, 0);
+    m.scale(new THREE.Vector3(0, 0, 0));
+    return m;
   }, []);
+  // Write an elongated-ellipse matrix into instance i.
+  function writeShadowMatrix(i: number, px: number, pz: number, s: number) {
+    const m = meshRef.current;
+    if (!m) return;
+    const wide = s * SHADOW_WIDE;
+    const long = s * SHADOW_LONG;
+    // makeBasis on a unit-radius circle in XY plane → vertex (cos θ, sin θ, 0)
+    // maps to cos θ · xAxis + sin θ · yAxis. So xAxis = perpendicular wide
+    // direction (lying flat), yAxis = elongation direction (lying flat),
+    // zAxis = world up (disc normal).
+    xAxis.set(SHADOW_PERP_X * wide, 0, SHADOW_PERP_Z * wide);
+    yAxis.set(SHADOW_DIR_X  * long, 0, SHADOW_DIR_Z  * long);
+    tmpMat.makeBasis(xAxis, yAxis, zAxis);
+    // Offset shadow center along the moonlight direction so the ellipse
+    // extends "behind" the entity instead of sitting symmetrically around it.
+    const off = long * SHADOW_OFFSET;
+    tmpPos.set(px + SHADOW_DIR_X * off, 0.02, pz + SHADOW_DIR_Z * off);
+    tmpMat.setPosition(tmpPos);
+    m.setMatrixAt(i, tmpMat);
+  }
   useFrame(() => {
     const m = meshRef.current;
     if (!m) return;
     const d = state.current;
-    const n = Math.min(MONSTER_SHADOW_POOL, d.monsters.length);
+    // Slot 0 — player.
+    writeShadowMatrix(0, d.pos.x, d.pos.z, PLAYER_SHADOW_SCALE);
+    // Slots 1..N — monsters.
+    const n = Math.min(ENTITY_SHADOW_POOL - 1, d.monsters.length);
     let i = 0;
     for (; i < n; i++) {
       const mon = d.monsters[i];
-      // Dying corpses are mid-flight — kill the shadow so it doesn't
+      // Dying corpses are mid-flight; hide their shadow so it doesn't
       // ride the ragdoll across the asphalt.
-      if (mon.dying) { m.setMatrixAt(i, hidden); continue; }
+      if (mon.dying) { m.setMatrixAt(i + 1, hiddenMat); continue; }
       const s = MONSTER_SHADOW_SCALE[mon.tier] ?? 1.0;
-      dummy.position.set(mon.position.x, 0.02, mon.position.z);
-      dummy.rotation.set(-Math.PI / 2, 0, 0);
-      dummy.scale.set(s, s, s);
-      dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
+      writeShadowMatrix(i + 1, mon.position.x, mon.position.z, s);
     }
-    for (; i < MONSTER_SHADOW_POOL; i++) m.setMatrixAt(i, hidden);
+    for (; i < ENTITY_SHADOW_POOL - 1; i++) m.setMatrixAt(i + 1, hiddenMat);
     m.instanceMatrix.needsUpdate = true;
-    m.count = MONSTER_SHADOW_POOL;
+    m.count = ENTITY_SHADOW_POOL;
   });
-  return <instancedMesh ref={meshRef} args={[SHADOW_GEOM, SHADOW_MAT, MONSTER_SHADOW_POOL]} />;
+  return <instancedMesh ref={meshRef} args={[SHADOW_GEOM, SHADOW_MAT, ENTITY_SHADOW_POOL]} />;
 }
 
 function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
@@ -2030,7 +2057,7 @@ export function Scene(props: SceneProps) {
       <Crystals state={state} />
       <CrystalLights state={state} />
       <Player state={state} survivorId={props.survivor} />
-      <MonsterShadows state={state} />
+      <EntityShadows state={state} />
       <Monsters state={state} />
       <Bullets state={state} />
       <MuzzleFlash state={state} />
