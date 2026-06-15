@@ -61,6 +61,8 @@ export function BlockParty() {
   const [xpNeededForLevel, setXpNeededForLevel] = useState(5);
   const [xpLevel, setXpLevel] = useState(0);
   const [currentWeaponId, setCurrentWeaponId] = useState<WeaponId>('pistol');
+  const [currentWeaponLevel, setCurrentWeaponLevel] = useState(1);
+  const [weaponToast, setWeaponToast] = useState<{ id: WeaponId; level: number; kind: 'swap' | 'levelup'; key: number } | null>(null);
   const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -161,6 +163,8 @@ export function BlockParty() {
     setXpNeededForLevel(5);
     setXpLevel(0);
     setCurrentWeaponId('pistol');
+    setCurrentWeaponLevel(1);
+    setWeaponToast(null);
     setDepth(0);
     setLevel(1);
     setTimeLeft(getLevelTuning(1).timeLimit);
@@ -193,6 +197,16 @@ export function BlockParty() {
       setXpNeededForLevel(d.xpNeededForLevel);
       setXpLevel(d.xpLevel);
       setCurrentWeaponId(d.currentWeaponId);
+      setCurrentWeaponLevel(d.currentWeaponLevel);
+      if (d.lastWeaponPickupKind) {
+        const ts = d.lastWeaponPickupAt;
+        setWeaponToast(prev => (prev && prev.key === ts ? prev : {
+          id: d.currentWeaponId,
+          level: d.currentWeaponLevel,
+          kind: d.lastWeaponPickupKind!,
+          key: ts,
+        }));
+      }
 
       // Perk modal — open with 3 fresh cards when the loop signals a
       // Perk toast — pop a fresh toast whenever the loop records a new
@@ -330,13 +344,20 @@ export function BlockParty() {
             ))}
           </div>
 
-          {/* Active weapon chip — name in current weapon's tint. */}
+          {/* Active weapon chip — name in current weapon's tint + level
+              stars. Pistol stays a baseline; everything else shows
+              ★…★★★★★ as it levels via re-pickups. */}
           <div
             className="bp__weapon"
             style={{ ['--weapon-tint' as string]: WEAPONS[currentWeaponId].tint }}
           >
             <span className="bp__weapon-dot" />
             <span className="bp__weapon-name">{WEAPONS[currentWeaponId].label}</span>
+            {currentWeaponId !== 'pistol' && (
+              <span className="bp__weapon-stars" aria-label={`level ${currentWeaponLevel}`}>
+                {'★'.repeat(currentWeaponLevel)}{'·'.repeat(5 - currentWeaponLevel)}
+              </span>
+            )}
           </div>
 
           {/* XP bar — fills as gems get hoovered up. Level number sits at
@@ -497,6 +518,25 @@ export function BlockParty() {
       {/* Perk modal — pauses the loop (d.perkPending). Three cards rolled
           fresh on each level-up; the player picks one and the loop
           resumes. */}
+      {weaponToast && (() => {
+        const w = WEAPONS[weaponToast.id];
+        const stars = '★'.repeat(weaponToast.level);
+        const headline = weaponToast.kind === 'levelup' ? 'LEVEL UP' : 'EQUIPPED';
+        const sub = weaponToast.kind === 'levelup'
+          ? `${w.label} ${stars}`
+          : `${w.label} ${stars}`;
+        return (
+          <div
+            key={`wt-${weaponToast.key}`}
+            className="bp__weapon-toast"
+            style={{ ['--weapon-tint' as string]: w.tint }}
+          >
+            <span className="bp__weapon-toast-headline">{headline}</span>
+            <span className="bp__weapon-toast-sub">{sub}</span>
+          </div>
+        );
+      })()}
+
       {perkToast && (() => {
         const perk = PERKS.find(p => p.id === perkToast.id);
         if (!perk) return null;

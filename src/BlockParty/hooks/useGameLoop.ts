@@ -17,7 +17,7 @@ import {
 import type { CrystalType, LevelTuning } from '../constants';
 import type { BloodSplat, Bullet, Crystal, EnemyProjectile, FxEvent, Monster, MonsterTier, PerkDrop, Pillar, PillarVariant, Stick } from '../types';
 import { getPerk, rollOnePerk } from '../perks';
-import { WEAPONS, DROPPABLE_WEAPONS } from '../builders/weapons';
+import { DROPPABLE_WEAPONS, weaponEffectiveSpec, WEAPON_LEVEL_MAX } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
 import type { SurvivorId } from '../builders/characters';
 
@@ -53,6 +53,13 @@ export interface GameRef {
   /** Active weapon — starts as 'pistol', changes when the player walks
    *  over a WeaponDrop. Player component watches this to swap the prop. */
   currentWeaponId: WeaponId;
+  /** 1..WEAPON_LEVEL_MAX. Same-weapon re-pickup increments by 1 (cap at
+   *  max); a different weapon resets to 1. */
+  currentWeaponLevel: number;
+  // Latest pickup metadata for the HUD toast. `kind` distinguishes a swap
+  // from a level-up so the chip can render the right message.
+  lastWeaponPickupKind: 'swap' | 'levelup' | null;
+  lastWeaponPickupAt: number;
   weaponDrops: { id: number; position: THREE.Vector3; weaponId: WeaponId; bornAt: number }[];
   weaponDropTimer: number;
   bloodSplats: BloodSplat[];
@@ -118,6 +125,9 @@ export function createGameState(): GameRef {
     aimYaw: null,
     pendingShots: [],
     currentWeaponId: 'pistol',
+    currentWeaponLevel: 1,
+    lastWeaponPickupKind: null,
+    lastWeaponPickupAt: 0,
     weaponDrops: [],
     weaponDropTimer: WEAPON_DROP_INTERVAL * 0.3, // first drop ~7s in
     bloodSplats: [],
@@ -930,7 +940,7 @@ export function useGameLoop(p: GameLoopParams) {
     d.aimYaw = target ? targetYaw : null;
 
     if (target && d.fireCooldown <= 0) {
-      const w = WEAPONS[d.currentWeaponId];
+      const w = weaponEffectiveSpec(d.currentWeaponId, d.currentWeaponLevel);
       const tdx = target.position.x - d.pos.x;
       const tdz = target.position.z - d.pos.z;
       const baseAngle = Math.atan2(tdx, tdz);     // = d.rot once we lerp body toward target
@@ -983,7 +993,8 @@ export function useGameLoop(p: GameLoopParams) {
         dirZ: ps.dirZ,
         bornAt: d.time,
         dmg: ps.dmg,
-        speedMul: WEAPONS[d.currentWeaponId].speedMul,
+        speedMul: weaponEffectiveSpec(d.currentWeaponId, d.currentWeaponLevel).speedMul,
+        weaponId: d.currentWeaponId,
         pierceLeft: d.perkPierce,
         hitIds: new Set<number>(),
       });
@@ -1162,12 +1173,17 @@ export function useGameLoop(p: GameLoopParams) {
     }
 
     // ---- WEAPON DROPS ----
-    // Spawn a fresh weapon pickup every WEAPON_DROP_INTERVAL seconds.
-    // Drops linger for WEAPON_DROP_LIFE seconds, then despawn.
+    // Vampire-Survivors-style upgrade: re-picking the same weapon levels
+    // it up; a different one swaps + resets to level 1. Pool includes
+    // the current weapon UNLESS it's already maxed (no point dropping
+    // a slot the player can't use).
     d.weaponDropTimer += c;
     if (d.weaponDropTimer >= WEAPON_DROP_INTERVAL) {
       d.weaponDropTimer = 0;
-      const pool = DROPPABLE_WEAPONS.filter(w => w !== d.currentWeaponId);
+      const isMaxed = d.currentWeaponLevel >= WEAPON_LEVEL_MAX;
+      const pool = isMaxed
+        ? DROPPABLE_WEAPONS.filter(w => w !== d.currentWeaponId)
+        : DROPPABLE_WEAPONS;
       const wid = pool[Math.floor(Math.random() * pool.length)];
       const pos = randomSpawnPos(d, 6, 4);
       d.weaponDrops.push({ id: nextId(), position: pos, weaponId: wid, bornAt: d.time });
@@ -1181,9 +1197,21 @@ export function useGameLoop(p: GameLoopParams) {
       const dx = drop.position.x - d.pos.x;
       const dz = drop.position.z - d.pos.z;
       if (Math.hypot(dx, dz) < WEAPON_PICKUP_RADIUS) {
-        d.currentWeaponId = drop.weaponId;
+        if (drop.weaponId === d.currentWeaponId) {
+          // SAME WEAPON → level up (cap at WEAPON_LEVEL_MAX).
+          if (d.currentWeaponLevel < WEAPON_LEVEL_MAX) {
+            d.currentWeaponLevel += 1;
+          }
+          d.lastWeaponPickupKind = 'levelup';
+        } else {
+          // DIFFERENT WEAPON → swap + reset level.
+          d.currentWeaponId = drop.weaponId;
+          d.currentWeaponLevel = 1;
+          d.lastWeaponPickupKind = 'swap';
+        }
+        d.lastWeaponPickupAt = d.time;
         d.weaponDrops.splice(i, 1);
-        p.playSfx('pickup_red');     // satisfying upgrade chime
+        p.playSfx('pickup_red');
         p.haptic?.('light');
       }
     }

@@ -48,6 +48,27 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
  *  starter so it doesn't drop. */
 export const DROPPABLE_WEAPONS: WeaponId[] = ['shotgun', 'smg', 'syringe', 'magnum'];
 
+/** Max level a weapon can reach via re-pickups. */
+export const WEAPON_LEVEL_MAX = 5;
+
+/** Compute the effective WeaponSpec at a given level. Same-weapon
+ *  pickups call this so each level applies the same curve:
+ *    cooldown × 0.90^(lvl-1)         → -10% CD per level
+ *    dmgPerShot × 1.12^(lvl-1)       → +12% dmg per level
+ *    count + 1 at level 3 and again at level 5
+ *  Pistol stays a baseline spec — it never drops, never levels. */
+export function weaponEffectiveSpec(id: WeaponId, level: number): WeaponSpec {
+  const base = WEAPONS[id];
+  const lvl = Math.max(1, Math.min(WEAPON_LEVEL_MAX, level));
+  const n = lvl - 1;
+  return {
+    ...base,
+    cooldown: base.cooldown * Math.pow(0.90, n),
+    dmgPerShot: base.dmgPerShot * Math.pow(1.12, n),
+    count: base.count + (lvl >= 3 ? 1 : 0) + (lvl >= 5 ? 1 : 0),
+  };
+}
+
 // ─── PROPS ──────────────────────────────────────────────────────────────
 
 export function makePistol(): THREE.Group {

@@ -89,6 +89,9 @@ export interface Bullet {
    *  flies at the weapon's spec speed even after the player swaps
    *  weapons. */
   speedMul: number;
+  /** Weapon id the bullet came from — drives the per-weapon visual
+   *  (tint, size, glow) in the Bullets renderer. */
+  weaponId: string;
   /** Hits remaining after the current one before despawn. 0 = single
    *  target (default), >0 = bullet keeps going through that many extra
    *  enemies. Driven by the +pierce perk. */

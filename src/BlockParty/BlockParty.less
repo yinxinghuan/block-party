@@ -601,6 +601,51 @@
   box-shadow: 0 0 8px var(--weapon-tint, #fff);
 }
 .bp__weapon-name { display: inline-block; }
+.bp__weapon-stars {
+  display: inline-block;
+  margin-left: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--weapon-tint, #fff);
+  text-shadow: 0 0 8px var(--weapon-tint, #fff);
+}
+
+// Weapon toast — sits in the same vertical slot as the perk toast, fades
+// out after a couple of seconds. Distinct headline (EQUIPPED vs LEVEL UP).
+.bp__weapon-toast {
+  position: absolute;
+  top: 110px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 18px 8px;
+  border-radius: 14px;
+  background: rgba(8, 6, 12, 0.85);
+  border: 1.5px solid var(--weapon-tint, #fff);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--weapon-tint, #fff) 45%, transparent);
+  font-family: 'Space Grotesk', sans-serif;
+  z-index: 25;
+  pointer-events: none;
+  animation: bp-perk-toast 2.4s ease-out forwards;
+}
+.bp__weapon-toast-headline {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .26em;
+  color: rgba(255, 240, 220, 0.75);
+  margin-bottom: 2px;
+}
+.bp__weapon-toast-sub {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: .14em;
+  color: var(--weapon-tint, #fff);
+}
 
 // XP bar — sits under the hearts row. Compact pill with the level number
 // on the left and a thin progress track on the right.

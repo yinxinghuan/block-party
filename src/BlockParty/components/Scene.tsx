@@ -250,6 +250,9 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
     group: THREE.Group;
     prop: THREE.Group;
     haloMat: THREE.MeshBasicMaterial;
+    upgradeRing: THREE.Mesh | null;
+    upgradeRingMat: THREE.MeshBasicMaterial | null;
+    weaponId: WeaponId;
   };
   const slots = useRef<Map<number, Slot>>(new Map());
   const rootRef = useRef<THREE.Group>(null);
@@ -283,7 +286,13 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
         halo.rotation.x = -Math.PI / 2;
         halo.position.y = 0.06;
         group.add(halo);
-        slot = { group, prop, haloMat: halo.material as THREE.MeshBasicMaterial };
+        slot = {
+          group, prop,
+          haloMat: halo.material as THREE.MeshBasicMaterial,
+          upgradeRing: null,
+          upgradeRingMat: null,
+          weaponId: drop.weaponId,
+        };
         slots.current.set(drop.id, slot);
         root.add(group);
       }
@@ -292,11 +301,50 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
       slot.prop.rotation.y = t * 1.4;
       const pulse = 0.7 + Math.sin(t * 4 + drop.id) * 0.3;
       slot.haloMat.opacity = 0.55 + pulse * 0.35;
+
+      // UPGRADE INDICATOR — second ring (gold) when this drop matches
+      // the player's current weapon AND the weapon isn't already maxed.
+      const isUpgrade = drop.weaponId === d.currentWeaponId
+        && d.currentWeaponLevel < 5
+        && d.currentWeaponId !== 'pistol';
+      if (isUpgrade && !slot.upgradeRing) {
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(1.05, 1.35, 36),
+          new THREE.MeshBasicMaterial({
+            color: 0xffd060,
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.04;
+        slot.group.add(ring);
+        slot.upgradeRing = ring;
+        slot.upgradeRingMat = ring.material as THREE.MeshBasicMaterial;
+      } else if (!isUpgrade && slot.upgradeRing) {
+        slot.group.remove(slot.upgradeRing);
+        slot.upgradeRingMat?.dispose();
+        slot.upgradeRing.geometry.dispose();
+        slot.upgradeRing = null;
+        slot.upgradeRingMat = null;
+      }
+      if (slot.upgradeRing && slot.upgradeRingMat) {
+        const upPulse = 0.7 + Math.sin(t * 6 + drop.id) * 0.3;
+        slot.upgradeRing.scale.setScalar(1 + upPulse * 0.15);
+        slot.upgradeRingMat.opacity = 0.55 + upPulse * 0.40;
+      }
     }
     for (const [id, slot] of slots.current) {
       if (!live.has(id)) {
         root.remove(slot.group);
         slot.haloMat.dispose();
+        if (slot.upgradeRing) {
+          slot.upgradeRing.geometry.dispose();
+          slot.upgradeRingMat?.dispose();
+        }
         slots.current.delete(id);
       }
     }
@@ -1144,10 +1192,23 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
 //   • Larger central crystal (1.6× a regular crystal)
 //   • Tall vertical beacon column visible above all pillars
 //   • Big wide ground halo
-// Auto-fired hero bullets. The game loop owns positions; this component just
-// reflects them. We re-render the JSX list only when bullet COUNT changes
-// (cheap because typical N is ~5–15); per-frame motion is imperative on the
-// mesh refs.
+// Per-weapon bullet visual recipe. Each round looks distinct so the
+// screen reads as a different weapon firing even before the HUD chip
+// catches up.
+interface BulletLook {
+  color: string;       // base body
+  emissive: string;
+  ei: number;          // emissive intensity
+  size: [number, number, number]; // box w h d
+}
+const BULLET_LOOK: Record<string, BulletLook> = {
+  pistol:  { color: '#fff1b5', emissive: '#ffae3a', ei: 5.5, size: [0.10, 0.10, 0.50] },   // yellow-orange amber
+  shotgun: { color: '#ff8a5a', emissive: '#ff4030', ei: 6.0, size: [0.13, 0.13, 0.36] },   // red-orange pellet, shorter+fatter
+  smg:     { color: '#cfecff', emissive: '#5fb8ff', ei: 6.5, size: [0.07, 0.07, 0.55] },   // blue tracer, longer+thin
+  syringe: { color: '#d2ffd6', emissive: '#48ff80', ei: 6.0, size: [0.06, 0.06, 0.62] },   // green dart, very long thin
+  magnum:  { color: '#f0c8ff', emissive: '#a040ff', ei: 7.0, size: [0.18, 0.16, 0.62] },   // purple chunky slug
+};
+
 function Bullets({ state }: { state: React.MutableRefObject<GameRef> }) {
   const [, force] = useState(0);
   const lastCount = useRef(0);
@@ -1168,45 +1229,69 @@ function Bullets({ state }: { state: React.MutableRefObject<GameRef> }) {
   const d = state.current;
   return (
     <>
-      {d.bullets.map(b => (
-        <mesh
-          key={b.id}
-          ref={(el) => {
-            if (el) refs.current.set(b.id, el);
-            else refs.current.delete(b.id);
-          }}
-        >
-          <boxGeometry args={[0.10, 0.10, 0.50]} />
-          <meshStandardMaterial
-            color="#fff1b5"
-            emissive="#ffae3a"
-            emissiveIntensity={5.5}
-            toneMapped={false}
-          />
-        </mesh>
-      ))}
+      {d.bullets.map(b => {
+        const look = BULLET_LOOK[b.weaponId] || BULLET_LOOK.pistol;
+        return (
+          <mesh
+            key={b.id}
+            ref={(el) => {
+              if (el) refs.current.set(b.id, el);
+              else refs.current.delete(b.id);
+            }}
+          >
+            <boxGeometry args={look.size} />
+            <meshStandardMaterial
+              color={look.color}
+              emissive={look.emissive}
+              emissiveIntensity={look.ei}
+              toneMapped={false}
+            />
+          </mesh>
+        );
+      })}
     </>
   );
 }
 
-// Muzzle flash — a quick bright disc that appears in front of the player on
-// every shot, fades out over MUZZLE_FLASH_DUR seconds. State drives opacity.
+// Muzzle flash — colors itself to match the current weapon. The
+// fixed-amber flash from before fought with the per-weapon bullet
+// tints; coloring it by weapon makes each shot read as that weapon.
+interface MuzzleLook { tint: number; size: number; lightInt: number; }
+const MUZZLE_LOOK: Record<string, MuzzleLook> = {
+  pistol:  { tint: 0xffce4a, size: 0.35, lightInt: 30 },
+  shotgun: { tint: 0xff5040, size: 0.55, lightInt: 50 },   // bigger flash, redder
+  smg:     { tint: 0x5fb8ff, size: 0.28, lightInt: 22 },   // small, fast blue
+  syringe: { tint: 0x48ff80, size: 0.30, lightInt: 26 },
+  magnum:  { tint: 0xa040ff, size: 0.62, lightInt: 60 },   // big purple punch
+};
+
 function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  const tmpColor = useMemo(() => new THREE.Color(), []);
   useFrame(() => {
     const d = state.current;
     const t = d.muzzleFlashT;
     const alpha = t > 0 ? Math.min(1, t / 0.07) : 0;
     const px = d.pos.x + Math.sin(d.rot) * 0.95;
     const pz = d.pos.z + Math.cos(d.rot) * 0.95;
+    const look = MUZZLE_LOOK[d.currentWeaponId] || MUZZLE_LOOK.pistol;
     if (meshRef.current) {
       meshRef.current.position.set(px, 1.0, pz);
-      meshRef.current.scale.setScalar(0.55 + (1 - alpha) * 0.35);
+      meshRef.current.scale.setScalar((look.size + (1 - alpha) * 0.20) * 1.7);
     }
-    if (matRef.current) matRef.current.opacity = alpha;
-    if (lightRef.current) lightRef.current.intensity = 30 * alpha;
+    if (matRef.current) {
+      matRef.current.opacity = alpha;
+      tmpColor.setHex(look.tint);
+      matRef.current.emissive.copy(tmpColor);
+      matRef.current.color.copy(tmpColor);
+    }
+    if (lightRef.current) {
+      lightRef.current.intensity = look.lightInt * alpha;
+      tmpColor.setHex(look.tint);
+      lightRef.current.color.copy(tmpColor);
+    }
   });
   return (
     <>
