@@ -294,7 +294,10 @@ export function BlockParty() {
           transitioning = false;
         }, 1900);
       }
-    }, 150);
+    }, 250);  // was 150ms — that's 6.7 polls/s × 12 setState calls; 4/s
+              // is plenty for HUD readouts (hearts / score / level / xp /
+              // weapon stars / kill count) which change at human-scale
+              // not frame-scale.
     return () => window.clearInterval(id);
   }, [phase, showLevelTitle]);
 

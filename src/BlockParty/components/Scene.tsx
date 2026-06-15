@@ -722,12 +722,11 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
     // overhaul. Still casts shadow + breathes around its base value.
     const heroLight = new THREE.PointLight(0xff9a3a, 100, 22, 2);
     heroLight.position.set(0, 0, 0.25);          // at the lens, flashlight-local
-    heroLight.castShadow = true;
-    heroLight.shadow.mapSize.set(1024, 1024);
-    heroLight.shadow.bias = -0.0008;
-    heroLight.shadow.normalBias = 0.04;
-    heroLight.shadow.camera.near = 0.3;
-    heroLight.shadow.camera.far = 20;
+    // castShadow disabled — a 1024×1024 omnidirectional shadow map every
+    // frame is the single most expensive thing in the scene. The asphalt
+    // shadows it cast were subtle at top-down already; killing it buys a
+    // measurable FPS win on mobile with zero visual loss most can spot.
+    heroLight.castShadow = false;
     flashlight.add(heroLight);
     heroLightRef.current = heroLight;
 
