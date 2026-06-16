@@ -73,6 +73,7 @@ export interface Monster {
    *  appropriate signature move. */
   skill?: {
     kind: 'charge' | 'beam' | 'shield'
+        | 'pounce'    // punk — short parabolic leap + AOE on landing
         | 'summon'    // cop — calls 2 lurkers to spawn nearby
         | 'burstfire' // cowboy — 3 rapid revolver shots
         | 'blink'     // goth — vanishes + reappears near player back

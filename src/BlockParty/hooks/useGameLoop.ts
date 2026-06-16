@@ -365,7 +365,7 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
       //   firefighter          → rage    (speed boost + KB immune)
       const skillKind: NonNullable<Monster['skill']>['kind'] =
         bossKind === 'minotaur'    ? 'charge'
-        : bossKind === 'punk'      ? 'charge'
+        : bossKind === 'punk'      ? 'pounce'
         : bossKind === 'mech'      ? 'beam'
         : bossKind === 'viking'    ? 'shield'
         : bossKind === 'swat'      ? 'shield'
@@ -513,7 +513,7 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
     :                        'lurker';  // viking + swat + cop
   const skillKind: NonNullable<Monster['skill']>['kind'] =
     kind === 'minotaur'    ? 'charge'
-    : kind === 'punk'      ? 'charge'
+    : kind === 'punk'      ? 'pounce'
     : kind === 'mech'      ? 'beam'
     : kind === 'cop'       ? 'summon'
     : kind === 'cowboy'    ? 'burstfire'
@@ -1064,16 +1064,16 @@ export function useGameLoop(p: GameLoopParams) {
       if (m.skill) {
         const sk = m.skill;
         if (sk.kind === 'charge') {
-          // CHARGE — two carriers with different tuning:
-          //   minotaur: telegraph 0.7s / 12 u/s × 1.2s / 1.4s stun  (heavy)
-          //   punk:     telegraph 0.4s / 18 u/s × 0.55s / 0.7s stun (rabid)
-          const isPunk = m.bossKind === 'punk';
-          const TELEGRAPH_T = isPunk ? 0.40 : 0.70;
-          const DASH_SPEED  = isPunk ? 18 : 12;
-          const DASH_DUR    = isPunk ? 0.55 : 1.20;
-          const STUN_T      = isPunk ? 0.70 : 1.40;
-          const NEXT_CD_MIN = isPunk ? 2.5 : 4.0;
-          const NEXT_CD_RND = isPunk ? 1.5 : 2.0;
+          // MINOTAUR CHARGE — heavy line dash: 0.7s telegraph (ground-
+          // line aimed at player) → 12 u/s × 1.2s dash along locked
+          // aim → 1.4s stun. (Punk used to share this case as a
+          // faster variant; it now runs the `pounce` skill below.)
+          const TELEGRAPH_T = 0.70;
+          const DASH_SPEED  = 12;
+          const DASH_DUR    = 1.20;
+          const STUN_T      = 1.40;
+          const NEXT_CD_MIN = 4.0;
+          const NEXT_CD_RND = 2.0;
           if (sk.phase === 'idle') {
             sk.cooldownT -= c;
             if (sk.cooldownT <= 0 && dist > 3.5 && dist < 18) {
@@ -1564,6 +1564,90 @@ export function useGameLoop(p: GameLoopParams) {
             if (sk.phaseT >= 1.0) {
               sk.phase = 'idle';
               sk.cooldownT = 6 + Math.random() * 4;
+            }
+            continue;
+          }
+        } else if (sk.kind === 'pounce') {
+          // PUNK POUNCE — 0.3s crouch telegraph → 0.45s parabolic
+          // leap landing at the player's position-at-launch (no
+          // homing — they can sidestep mid-air) → 1.8u AOE damage
+          // burst on landing → 0.5s recover. Cooldown 2.5-4s
+          // (high-frequency rabid feel).
+          const TG_T   = 0.30;
+          const LEAP_T = 0.45;
+          const REC_T  = 0.50;
+          const AOE_R  = 1.8;
+          const PEAK_H = 2.8;
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 1.5 && dist < 12) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+              emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+              p.playSfx('strike_telegraph');
+            }
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            // Crouch — kill horizontal velocity, face player.
+            m.velocity.x *= 0.5; m.velocity.z *= 0.5;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= TG_T) {
+              // Lock TARGET (absolute world pos) into sk.aimX/aimZ.
+              // Stash LAUNCH pos into m.flightVX/flightVZ — these
+              // are only used during dying, free to repurpose here.
+              sk.aimX = d.pos.x;
+              sk.aimZ = d.pos.z;
+              m.flightVX = m.position.x;
+              m.flightVZ = m.position.z;
+              sk.phase = 'active';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else if (sk.phase === 'active') {
+            sk.phaseT += c;
+            const frac = Math.min(1, sk.phaseT / LEAP_T);
+            // Linear horizontal lerp launch → target.
+            m.position.x = m.flightVX + (sk.aimX - m.flightVX) * frac;
+            m.position.z = m.flightVZ + (sk.aimZ - m.flightVZ) * frac;
+            m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+            m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+            // Parabolic Y arc — visual lift; renderer copies m.position.
+            m.position.y = Math.sin(frac * Math.PI) * PEAK_H;
+            if (frac >= 1) {
+              // LANDING — reset y, AOE damage check.
+              m.position.y = 0;
+              const ldx = d.pos.x - m.position.x;
+              const ldz = d.pos.z - m.position.z;
+              if (Math.hypot(ldx, ldz) < AOE_R && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+                applyPlayerHit(d);
+                d.iframesT = 1.2;
+                shakeCamera(d, 0.95, 0.36);
+                emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+                p.playSfx('strike_hit');
+                p.haptic?.('heavy');
+                p.onStrikeHit?.();
+              } else {
+                // Landing thump even on miss.
+                shakeCamera(d, 0.45, 0.20);
+                emitFx(d, 'strike_hit', m.position.x, m.position.z);
+                p.playSfx('strike_hit');
+              }
+              // Splatter ring at impact.
+              spawnBloodSplats(d, m.position.x, m.position.z, 10, 0.9);
+              m.flightVX = 0;
+              m.flightVZ = 0;
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else {  // recover
+            sk.phaseT += c;
+            m.velocity.x *= 0.7; m.velocity.z *= 0.7;
+            // Safety — ensure body is on the ground during recover.
+            m.position.y = 0;
+            if (sk.phaseT >= REC_T) {
+              sk.phase = 'idle';
+              sk.cooldownT = 2.5 + Math.random() * 1.5;
             }
             continue;
           }

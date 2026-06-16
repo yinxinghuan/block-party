@@ -1645,7 +1645,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         //   shieldRing  = local-space RingGeometry under the boss
         //                  (shield / summon / blink / rage)
         const beamKinds = new Set(['charge', 'beam', 'burstfire']);
-        const ringKinds = new Set(['shield', 'summon', 'blink', 'rage']);
+        const ringKinds = new Set(['shield', 'summon', 'blink', 'rage', 'pounce']);
         if (m.skill && beamKinds.has(m.skill.kind)) {
           // 1u-wide unit box; per-frame we scale Z (length) + alpha.
           // Group-relative is awkward because we want the beam in WORLD
@@ -1678,6 +1678,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
             m.skill.kind === 'shield' ? 0x4fc0ff
             : m.skill.kind === 'summon' ? 0x80c0ff   // whistle blue
             : m.skill.kind === 'blink'  ? 0xa050ff   // arcane purple
+            : m.skill.kind === 'pounce' ? 0x3fb6ac   // punk teal (matches mohawk)
             :                             0xff5030;  // rage orange-red
           shieldRingMat = new THREE.MeshBasicMaterial({
             color: ringCol,
@@ -1851,6 +1852,26 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
             slot.shieldRing.visible = true;
             slot.shieldRingMat.opacity = Math.max(0, 0.95 - sk.phaseT * 2.5);
             slot.shieldRing.scale.setScalar(1.6 - sk.phaseT * 1.0);
+          } else {
+            slot.shieldRing.visible = false;
+          }
+        } else if (sk.kind === 'pounce') {
+          // Pounce ring — telegraph = ring CONTRACTS under the punk
+          // (signals "about to spring"); active = invisible (body
+          // is mid-air); recover = expanding burst ring at the
+          // landing point (signals "AOE hit zone").
+          if (sk.phase === 'telegraph') {
+            slot.shieldRing.visible = true;
+            const t01 = sk.phaseT / 0.3;
+            slot.shieldRingMat.opacity = 0.35 + t01 * 0.50;
+            slot.shieldRing.scale.setScalar(1.6 - t01 * 0.8);   // 1.6 → 0.8
+          } else if (sk.phase === 'active') {
+            slot.shieldRing.visible = false;
+          } else if (sk.phase === 'recover') {
+            slot.shieldRing.visible = true;
+            const t01 = Math.min(1, sk.phaseT / 0.5);
+            slot.shieldRingMat.opacity = Math.max(0, 0.95 - t01 * 1.0);
+            slot.shieldRing.scale.setScalar(0.8 + t01 * 1.6);   // 0.8 → 2.4
           } else {
             slot.shieldRing.visible = false;
           }
