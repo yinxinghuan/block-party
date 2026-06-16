@@ -96,6 +96,11 @@ export function BlockParty() {
   // pickup. The actual perk is auto-applied by the game loop.
   const [perkToast, setPerkToast] = useState<{ id: string; key: number } | null>(null);
   const [weaponToast, setWeaponToast] = useState<{ id: WeaponId; level: number; kind: 'swap' | 'levelup'; key: number } | null>(null);
+  // Weapon-as-armor downgrade toast — fires every time a hit eats a
+  // weapon level instead of HP. Separate state so the green
+  // upgrade-style weaponToast doesn't collide with the red downgrade.
+  const [weaponDowngrade, setWeaponDowngrade] = useState<{ id: WeaponId; level: number; key: number } | null>(null);
+  const lastWeaponDowngradeRef = useRef(0);
   // Exit-goal HUD: one-shot "EXIT OPEN" toast the moment the beacon spawns.
   // (kill progress / exit-open flag live on hud above.)
   const [exitToastKey, setExitToastKey] = useState(0);
@@ -260,6 +265,8 @@ export function BlockParty() {
     setHud({ ...INITIAL_HUD, timeLeft: getLevelTuning(1).timeLimit });
     setPerkToast(null);
     setWeaponToast(null);
+    setWeaponDowngrade(null);
+    lastWeaponDowngradeRef.current = 0;
     setDepth(0);
     setPellets([]);
     setClearOverlay(null);
@@ -319,6 +326,17 @@ export function BlockParty() {
           kind: d.lastWeaponPickupKind!,
           key: ts,
         }));
+      }
+      // Weapon-as-armor downgrade — fires every time a hit strips a
+      // weapon level instead of HP. lastWeaponDowngradeAt is monotonic
+      // so we use a ref to dedupe across polls.
+      if (d.lastWeaponDowngradeAt > lastWeaponDowngradeRef.current) {
+        lastWeaponDowngradeRef.current = d.lastWeaponDowngradeAt;
+        setWeaponDowngrade({
+          id: d.lastWeaponDowngradeId ?? 'pistol',
+          level: d.lastWeaponDowngradeLevel,
+          key: d.lastWeaponDowngradeAt,
+        });
       }
 
       // Perk modal — open with 3 fresh cards when the loop signals a
@@ -654,6 +672,24 @@ export function BlockParty() {
           >
             <span className="bp__weapon-toast-headline">{headline}</span>
             <span className="bp__weapon-toast-sub">{sub}</span>
+          </div>
+        );
+      })()}
+
+      {weaponDowngrade && (() => {
+        const w = WEAPONS[weaponDowngrade.id];
+        const stars = weaponDowngrade.id === 'pistol'
+          ? '·····'
+          : '★'.repeat(weaponDowngrade.level) + '·'.repeat(5 - weaponDowngrade.level);
+        const headline = weaponDowngrade.id === 'pistol' ? 'WEAPON LOST' : 'WEAPON WEAKENED';
+        return (
+          <div
+            key={`wd-${weaponDowngrade.key}`}
+            className="bp__weapon-downgrade"
+            aria-live="polite"
+          >
+            <span className="bp__weapon-downgrade-headline">{headline}</span>
+            <span className="bp__weapon-downgrade-sub">{w.label} {stars}</span>
           </div>
         );
       })()}

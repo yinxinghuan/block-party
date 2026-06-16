@@ -69,6 +69,14 @@ export interface GameRef {
   // from a level-up so the chip can render the right message.
   lastWeaponPickupKind: 'swap' | 'levelup' | null;
   lastWeaponPickupAt: number;
+  /** Set every time a hit strips a weapon level (weapon-as-armor model).
+   *  Polled by BlockParty.tsx to fire a red "WEAPON WEAKENED" toast. */
+  lastWeaponDowngradeAt: number;
+  /** Snapshot of the weapon state right after the downgrade — used by
+   *  the toast to show e.g. "MAGNUM ★★★··" so the player sees exactly
+   *  what they have left, not what they lost. */
+  lastWeaponDowngradeId: WeaponId | null;
+  lastWeaponDowngradeLevel: number;
   weaponDrops: { id: number; position: THREE.Vector3; weaponId: WeaponId; bornAt: number }[];
   weaponDropTimer: number;
   bloodSplats: BloodSplat[];
@@ -150,6 +158,9 @@ export function createGameState(): GameRef {
     currentWeaponLevel: 1,
     lastWeaponPickupKind: null,
     lastWeaponPickupAt: 0,
+    lastWeaponDowngradeAt: 0,
+    lastWeaponDowngradeId: null,
+    lastWeaponDowngradeLevel: 1,
     weaponDrops: [],
     weaponDropTimer: WEAPON_DROP_INTERVAL * 0.3, // first drop ~7s in
     bloodSplats: [],
@@ -248,6 +259,43 @@ function spawnBloodSplats(
 // shift that nothing else really delivers.
 function strikePlayerDamage(level: number): number {
   return level >= 8 ? 2 : 1;
+}
+
+// ─── Weapon-as-armor — late-game equalizer ─────────────────────────────
+// Every successful monster strike eats one level off the player's current
+// weapon BEFORE it touches hp. Only after the weapon has been fully
+// stripped back to baseline pistol do further hits start draining
+// hp on the normal strikePlayerDamage curve.
+//
+// L13 with a lvl-5 magnum + 3 hp → can absorb 5 hits as armor (lvl 5 → 4
+// → 3 → 2 → 1 → pistol) + 1 hit on hp before being one mistake from
+// dead. But each absorbed hit costs the player DPS, so the swarm gets
+// progressively harder to clear — doom-spiral late-game pressure.
+//
+// Returns true if the hit was absorbed by the weapon (caller can skip
+// playing the heavy hp-damage feedback), false if it dropped hp.
+function applyPlayerHit(d: GameRef): boolean {
+  // Weapon has levels to lose — strip one and call it absorbed.
+  if (d.currentWeaponId !== 'pistol' && d.currentWeaponLevel > 1) {
+    d.currentWeaponLevel -= 1;
+    d.lastWeaponDowngradeAt = d.time;
+    d.lastWeaponDowngradeId = d.currentWeaponId;
+    d.lastWeaponDowngradeLevel = d.currentWeaponLevel;
+    return true;
+  }
+  // Weapon is at lvl 1 of a non-pistol — the final armor layer is the
+  // weapon itself; revert to pistol baseline and absorb the hit.
+  if (d.currentWeaponId !== 'pistol') {
+    d.currentWeaponId = 'pistol';
+    d.currentWeaponLevel = 1;
+    d.lastWeaponDowngradeAt = d.time;
+    d.lastWeaponDowngradeId = 'pistol';
+    d.lastWeaponDowngradeLevel = 1;
+    return true;
+  }
+  // No armor left — the strike costs hp on the normal curve.
+  d.hp -= strikePlayerDamage(d.level);
+  return false;
 }
 
 function shakeCamera(d: GameRef, mag: number, dur: number) {
@@ -885,7 +933,7 @@ export function useGameLoop(p: GameLoopParams) {
             const aoeDx = d.pos.x - m.position.x;
             const aoeDz = d.pos.z - m.position.z;
             if (Math.hypot(aoeDx, aoeDz) < EXPLODE_RADIUS && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
-              d.hp -= strikePlayerDamage(d.level);
+              applyPlayerHit(d);
               d.iframesT = 1.2;
               shakeCamera(d, 0.95, 0.36);
               emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
@@ -972,7 +1020,7 @@ export function useGameLoop(p: GameLoopParams) {
             p.playSfx('strike_hit');
             p.haptic?.('heavy');
             p.onStrikeHit?.();
-            d.hp -= strikePlayerDamage(d.level);
+            applyPlayerHit(d);
             d.iframesT = 1.2;
             shakeCamera(d, 0.85, 0.32);
             if (d.hp <= 0) {
@@ -1047,7 +1095,7 @@ export function useGameLoop(p: GameLoopParams) {
           p.playSfx('strike_hit');
           p.haptic?.('heavy');
           p.onStrikeHit?.();
-          d.hp -= strikePlayerDamage(d.level);
+          applyPlayerHit(d);
           d.iframesT = 1.2;
           // Heavy player-damage shake.
           shakeCamera(d, 0.85, 0.32);
@@ -1322,7 +1370,7 @@ export function useGameLoop(p: GameLoopParams) {
       const pdx = proj.position.x - d.pos.x;
       const pdz = proj.position.z - d.pos.z;
       if (Math.hypot(pdx, pdz) < PROJECTILE_HIT_RADIUS + PLAYER_RADIUS && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
-        d.hp -= strikePlayerDamage(d.level);
+        applyPlayerHit(d);
         d.iframesT = 1.2;
         emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
         p.playSfx('strike_hit');
