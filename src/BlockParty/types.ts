@@ -58,6 +58,10 @@ export interface Monster {
    *  faster projectiles. Used as a soft cap on camping early levels
    *  for free XP. */
   isElite?: boolean;
+  /** Visual + collision size multiplier. Currently used by the boss
+   *  spawner to scale the body with the cycle (bigger boss = stronger
+   *  boss as a readable cue). Defaults to 1.0 in the renderer. */
+  scaleMul?: number;
 }
 
 // Enemy ranged projectile — spitters (the stalker tier) lob these. Linear

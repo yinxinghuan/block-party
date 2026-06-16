@@ -12,7 +12,7 @@ import {
   AIM_RANGE, FIRE_ARC_HALF, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS,
   SURGE_PERIOD, SURGE_COUNT_BASE, SURGE_COUNT_PER_NIGHT,
   MONSTER_SPEED_K, MONSTER_KNOCKBACK_V, getTierWeights,
-  EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, getKillGoal,
+  EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, getKillGoal, getBossCount,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
@@ -325,20 +325,25 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   const minDist = tier === 'boss' ? 18 : 14;
   const pos = randomSpawnPos(d, minDist, 2);
   let hp = MONSTER_HP[tier];
+  let scaleMul: number | undefined;
   if (tier === 'boss') {
-    // Pass 3 boss scaling — slope 0.7→0.9 / cap 7×→9×. Each cycle adds
-    // +90% boss HP so high-cycle bosses are real DPS checks.
-    //   L3=32, L6=61, L9=90, L12=118, L15=147, L24=234, L33+=288 (cap).
+    // Pass 4 boss scaling — slope 0.9→1.2 / cap 9×→14×. Each cycle adds
+    // +120% boss HP so individual bosses keep scaling alongside
+    // multi-boss spawn count.
+    //   L3=32, L6=70, L9=109, L12=147, L15=186, L21=262, L33+=448 (cap).
     const cycle = Math.max(1, Math.floor(tuning.level / 3));
-    hp = Math.min(MONSTER_HP.boss * 9, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 0.9)));
+    hp = Math.min(MONSTER_HP.boss * 14, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 1.2)));
+    // Body size scales with cycle as a readable strength tell — bigger
+    // boss = stronger boss. +10% per cycle, capped at 1.6× so the
+    // model doesn't outgrow the camera frame.
+    scaleMul = Math.min(1.6, 1 + (cycle - 1) * 0.10);
   } else {
     // Per-level non-boss HP scaling. L1-3 stay hand-tuned (no scale).
-    // Pass 3 slope 0.20→0.28 / cap 6×→8×. Player-DPS scaling from
-    // perks + weapon levels really compounds at L15+, so the HP curve
-    // has to keep up further.
-    //   L4=1.28×, L8=2.40×, L12=3.52×, L15=4.36×, L20=5.76×, L28+=8.0×.
+    // Pass 4 slope 0.28→0.35 / cap 8×→10× — keeps the curve climbing
+    // alongside the player's compounding perks + weapon levels.
+    //   L4=1.35×, L8=2.75×, L12=4.15×, L15=5.20×, L20=6.95×, L28+=10×.
     if (tuning.level > 3) {
-      const scale = Math.min(8.0, 1 + (tuning.level - 3) * 0.28);
+      const scale = Math.min(10.0, 1 + (tuning.level - 3) * 0.35);
       hp = Math.round(hp * scale);
     }
   }
@@ -368,6 +373,7 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
     deathStyle: 0,
     deathArc: 0,
     isBoss: tier === 'boss',
+    scaleMul,
   });
 }
 
@@ -382,12 +388,11 @@ const MAX_ELITES_PER_LEVEL = 4;
 function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
   if (d.monsters.length >= tuning.monsterMax) return;
   const pos = randomSpawnPos(d, 16, 2);
-  // Base 2× HP + the same per-level scaling everyone else gets, so the
-  // elite stays threatening deep into endless. Slope matches the non-
-  // boss main scaling formula (0.28 / cap 8× from pass 3).
+  // Base 2× HP + the same per-level scaling as the main formula
+  // (pass 4 slope 0.35 / cap 10×).
   let hp = MONSTER_HP.stalker * 2;
   if (tuning.level > 3) {
-    const scale = Math.min(8.0, 1 + (tuning.level - 3) * 0.28);
+    const scale = Math.min(10.0, 1 + (tuning.level - 3) * 0.35);
     hp = Math.round(hp * scale);
   }
   d.monsters.push({
@@ -486,12 +491,16 @@ function summonExit(d: GameRef, atPos?: THREE.Vector3) {
   d.exitJustOpened = true;
 }
 
-// Called after every kill credit. Boss death always opens the exit at
-// the boss's position. Otherwise, the night-1/2 kill goal opens it at a
-// random far-distance spot.
+// Called after every kill credit. On boss nights, the exit only spawns
+// when ALL bosses are dead (multi-boss nights ship 2-6 bosses depending
+// on cycle). On non-boss nights the kill goal opens the exit.
 function checkExitTrigger(d: GameRef, killedTier: MonsterTier, killPos: THREE.Vector3) {
   if (d.exit) return;
   if (killedTier === 'boss') {
+    // Are any bosses still standing? (dying corpses are mid-flight but
+    // already counted as kills, so skip them.)
+    const bossesAlive = d.monsters.filter(m => m.tier === 'boss' && !m.dying).length;
+    if (bossesAlive > 0) return;          // more bosses to clear before exit
     summonExit(d, killPos);
     return;
   }
@@ -538,7 +547,13 @@ export function startLevel(d: GameRef, level: number) {
   for (let i = 0; i < initialCount; i++) {
     spawnMonsterTier(d, tuning, rollSpawnTier(level));
   }
-  if (tuning.isBoss) spawnMonsterTier(d, tuning, 'boss');
+  if (tuning.isBoss) {
+    // Multi-boss spawn — getBossCount returns 1 at L3/L6, 2 at L9/L12,
+    // 3 at L15/L18, etc. All bosses must be killed before the exit
+    // beacon spawns (see checkExitTrigger).
+    const bossCount = getBossCount(level);
+    for (let i = 0; i < bossCount; i++) spawnMonsterTier(d, tuning, 'boss');
+  }
 }
 
 function spawnCrystal(d: GameRef, _type?: CrystalType) {

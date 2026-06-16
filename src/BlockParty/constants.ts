@@ -48,8 +48,24 @@ export const GRACE_PERIOD = 3.0;
 // the boss night, when the boss is defeated).
 export const EXIT_PICKUP_RADIUS = 1.8;
 export const EXIT_MIN_DIST = 18.0;     // spawn at least this far from player
+/** Boss count per boss night, scaled with the cycle. Cycle 1 (L3) and
+ *  cycle 2 (L6) ship a single boss like the original game; from cycle 3
+ *  on the formula adds another boss every 2 cycles so late endless is
+ *  a real "1 vs N bosses" fight. Returns 0 for non-boss nights.
+ *    L3 / L6: 1 boss
+ *    L9 / L12: 2 bosses
+ *    L15 / L18: 3 bosses
+ *    L21 / L24: 4 bosses
+ *    L27 / L30: 5 bosses, L33+: 6 bosses …
+ *  All bosses must die before the exit beacon spawns. */
+export function getBossCount(level: number): number {
+  if (level % 3 !== 0) return 0;
+  const cycle = Math.floor(level / 3);
+  return Math.max(1, Math.ceil(cycle / 2));
+}
+
 /** Kills needed before the exit beacon appears. Boss nights (every 3rd
- *  level) return -1 — the boss death triggers the exit instead. Endless:
+ *  level) return -1 — boss deaths trigger the exit instead. Endless:
  *  the curve preserves the original N1/N2 hand-tuned values exactly, then
  *  ramps for L4+ in a 2-non-boss + 1-boss cycle. */
 export function getKillGoal(level: number): number {
@@ -216,21 +232,28 @@ function computeEndlessTuning(level: number): LevelTuning {
   const isBoss = level % 3 === 0;
   const k = level - 1;  // 0-based ramp parameter
 
+  // Multi-boss density modifier — when a boss night spawns N >= 2 bosses,
+  // ambient mob pressure tapers DOWN so the bosses are the spotlight
+  // (not lost in a sea of lurkers). 1 boss → no change. 2 bosses → 80%
+  // mobs. 3 → 64%. 4 → 51%. 5+ → 40% (floor). Both fewer monsters AND
+  // longer spawn intervals so the screen doesn't refill instantly.
+  const bossCount = isBoss ? Math.max(1, Math.ceil(Math.floor(level / 3) / 2)) : 0;
+  const mobScale = bossCount >= 2 ? Math.max(0.40, Math.pow(0.80, bossCount - 1)) : 1;
+  const baseMonsterMax = k <= 17
+    ? clamp(38 + k * 9, 38, 105)
+    : clamp(105 - (k - 17) * 2, 85, 105);
+
   return {
     level,
     name,
     timeLimit: 45,  // informational; clear condition is the exit beacon, not the timer
-    lurkerCount:    clamp(14 + k * 3, 14, 50),
-    stalkerCount:   clamp(1 + Math.floor(k / 2), 1, 12),
-    // monsterMax with a TWO-STAGE cap. Climbs to 105 then *eases off*
-    // past L20 to keep the framebuffer manageable on mobile in very
-    // late endless: difficulty there is carried by HP scaling + per-hit
-    // damage + AI tempo, not by stacking more bodies on top of the
-    // perf budget.
-    //   L1=38, L8=101, L9-L20=105, L21=98, L25=88, L31+=85 (floor).
-    monsterMax:     k <= 17
-      ? clamp(38 + k * 9, 38, 105)
-      : clamp(105 - (k - 17) * 2, 85, 105),
+    lurkerCount:    Math.max(2, Math.floor(clamp(14 + k * 3, 14, 50) * mobScale)),
+    stalkerCount:   Math.max(1, Math.floor(clamp(1 + Math.floor(k / 2), 1, 12) * mobScale)),
+    // monsterMax with a TWO-STAGE cap + multi-boss taper. Climbs to 105
+    // then eases off past L20 (perf), and on boss nights with 2+ bosses
+    // it's further reduced by mobScale so the field clears for the boss
+    // fight. L9 (2 bosses) ~88 mobs, L15 (3 bosses) ~67, L21 (4) ~50.
+    monsterMax:     Math.max(20, Math.floor(baseMonsterMax * mobScale)),
     monsterSpeed:   clamp(0.90 + k * 0.08, 0.90, 1.70),
     monsterFleeSpeed: clamp(0.90 + k * 0.03, 0.90, 1.30),
     // AI tempo caps relaxed for the late-game pressure pass: the formula
@@ -242,7 +265,9 @@ function computeEndlessTuning(level: number): LevelTuning {
     //   monsterSpawnInterval reaches 0.07 at L9+ (was 0.12 at L8+)
     //   strikeTelegraph reaches 0.45 at L14+ (was 0.70 at L9+)
     //   strikeCooldown reaches 1.0 at L24+ (was 1.5 at L17+)
-    monsterSpawnInterval: clamp(0.55 - k * 0.06, 0.07, 0.55),
+    // Spawn interval ALSO stretched on multi-boss nights — fewer mobs +
+    // slower trickle keeps the bosses center-stage instead of mob soup.
+    monsterSpawnInterval: clamp((0.55 - k * 0.06) / mobScale, 0.07, 0.90),
     stalkerSpawnRatio:    clamp(0.10 + k * 0.025, 0.10, 0.32),
     strikeTelegraph:      clamp(1.20 - k * 0.06, 0.45, 1.20),
     strikeRangeMax:       clamp(1.0 + k * 0.03, 1.0, 1.5),

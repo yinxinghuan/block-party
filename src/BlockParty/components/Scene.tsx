@@ -1602,6 +1602,12 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       // Body position + facing.
       slot.group.position.copy(m.position);
       slot.group.rotation.y = m.rotation;
+      // Boss size scales with cycle as a strength tell (set by
+      // spawnMonsterTier via m.scaleMul). Applied once per render —
+      // group.scale isn't otherwise touched per-frame.
+      if (m.scaleMul && m.scaleMul !== 1 && slot.group.scale.x !== m.scaleMul) {
+        slot.group.scale.setScalar(m.scaleMul);
+      }
       // Late-game LOD — only run per-frame cosmetic animation (idle hop,
       // limb swing, strike-telegraph ring pulse, elite ring breathe) for
       // monsters within 18u of the player. Far ones still draw at the
