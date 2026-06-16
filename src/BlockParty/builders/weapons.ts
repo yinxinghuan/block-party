@@ -29,19 +29,21 @@ export interface WeaponSpec {
   tint: string;
 }
 
+// 2026-06-16 baseline DPS bump (~20% per weapon) — user feedback "难度大".
+// All values are the LEVEL-1 base; lvl-up still compounds via 1.12^(lvl-1).
 export const WEAPONS: Record<WeaponId, WeaponSpec> = {
   // Baseline pistol — every run starts here. Reliable, medium dps.
-  pistol:  { count: 1, spreadRad: 0,    cooldown: 0.32, burstDelay: 0,    dmgPerShot: 1.0,  speedMul: 1.0, label: 'PISTOL',  tint: '#ffd060' },
+  pistol:  { count: 1, spreadRad: 0,    cooldown: 0.30, burstDelay: 0,    dmgPerShot: 1.25, speedMul: 1.0, label: 'PISTOL',  tint: '#ffd060' },
   // Close-range crowd cleaner. Massive close DPS, falls off at distance.
-  shotgun: { count: 5, spreadRad: 0.32, cooldown: 0.62, burstDelay: 0,    dmgPerShot: 0.55, speedMul: 1.05, label: 'SHOTGUN', tint: '#ff7050' },
+  shotgun: { count: 5, spreadRad: 0.32, cooldown: 0.58, burstDelay: 0,    dmgPerShot: 0.72, speedMul: 1.05, label: 'SHOTGUN', tint: '#ff7050' },
   // High fire-rate spray — single bullet but quick cooldown. Weak per
   // shot, so it leans on volume + pierce/crit perks.
-  smg:     { count: 1, spreadRad: 0.04, cooldown: 0.14, burstDelay: 0,    dmgPerShot: 0.45, speedMul: 1.10, label: 'SMG',     tint: '#7eccff' },
+  smg:     { count: 1, spreadRad: 0.04, cooldown: 0.13, burstDelay: 0,    dmgPerShot: 0.55, speedMul: 1.10, label: 'SMG',     tint: '#7eccff' },
   // Nurse's old burst, repurposed as a pickup. 3 darts staggered over
   // 0.12s with a tiny jitter so a stationary target eats all three.
-  syringe: { count: 3, spreadRad: 0.05, cooldown: 0.55, burstDelay: 0.06, dmgPerShot: 0.85, speedMul: 1.0,  label: 'SYRINGE', tint: '#7fffa8' },
+  syringe: { count: 3, spreadRad: 0.05, cooldown: 0.50, burstDelay: 0.06, dmgPerShot: 1.0,  speedMul: 1.0,  label: 'SYRINGE', tint: '#7fffa8' },
   // High-damage slow revolver. One-shots lurkers + stalkers (with crit).
-  magnum:  { count: 1, spreadRad: 0,    cooldown: 0.85, burstDelay: 0,    dmgPerShot: 3.5,  speedMul: 1.25, label: 'MAGNUM',  tint: '#cf8aff' },
+  magnum:  { count: 1, spreadRad: 0,    cooldown: 0.80, burstDelay: 0,    dmgPerShot: 4.2,  speedMul: 1.25, label: 'MAGNUM',  tint: '#cf8aff' },
 };
 
 /** Pool of weapons that can drop on the street. Pistol is the baseline
