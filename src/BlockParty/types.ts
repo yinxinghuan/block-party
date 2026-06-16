@@ -62,6 +62,28 @@ export interface Monster {
    *  spawner to scale the body with the cycle (bigger boss = stronger
    *  boss as a readable cue). Defaults to 1.0 in the renderer. */
   scaleMul?: number;
+  /** Boss variant — controls which model + which AI skill the boss
+   *  carries. 'vampire' = original melee, 'swat' = shield, 'mech' =
+   *  beam, 'minotaur' = charge. Only meaningful when tier='boss'. */
+  bossKind?: 'vampire' | 'swat' | 'mech' | 'minotaur';
+  /** Skill state machine — populated for elite/boss kinds with unique
+   *  behaviors. The AI loop branches on `skill.kind` and runs the
+   *  appropriate signature move (charge / beam / shield raise). */
+  skill?: {
+    kind: 'charge' | 'beam' | 'shield';
+    /** Sub-state machine — semantics vary per skill but the field is
+     *  shared so the dispatcher can do a single switch. */
+    phase: 'idle' | 'telegraph' | 'active' | 'recover';
+    /** Time accumulated in the current phase. */
+    phaseT: number;
+    /** Time until the next skill activation can start (decrements
+     *  every frame while phase='idle'). */
+    cooldownT: number;
+    /** Locked direction for charge/beam — set at the END of telegraph
+     *  so the player has a window to dodge. (Unit vector in XZ.) */
+    aimX: number;
+    aimZ: number;
+  };
 }
 
 // Enemy ranged projectile — spitters (the stalker tier) lob these. Linear

@@ -1536,6 +1536,13 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
     ringMat: THREE.MeshBasicMaterial;
     eliteRing: THREE.Mesh | null;
     eliteRingMat: THREE.MeshBasicMaterial | null;
+    // Boss-skill telegraph — added lazily for bosses with a skill. A
+    // flat ground beam mesh (positioned along skill.aim, scaled per
+    // phase) used by charge + beam. Shield uses shieldRing instead.
+    skillBeam: THREE.Mesh | null;
+    skillBeamMat: THREE.MeshBasicMaterial | null;
+    shieldRing: THREE.Mesh | null;
+    shieldRingMat: THREE.MeshBasicMaterial | null;
     tier: ZombieTier;
   };
   const slots = useRef<Map<number, Slot>>(new Map());
@@ -1555,7 +1562,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       live.add(m.id);
       let slot = slots.current.get(m.id);
       if (!slot) {
-        const group = makeMonster(m.tier as ZombieTier);
+        const group = makeMonster(m.tier as ZombieTier, m.bossKind);
         // Strike-warning ground ring — bright red disc, only visible during
         // bite windup. Kept separate so the zombie body can scale freely.
         const ringGeom = new THREE.RingGeometry(0.7, 0.95, 32);
@@ -1595,7 +1602,60 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           group.add(eliteRing);
         }
 
-        slot = { group, ring, ringMat, eliteRing, eliteRingMat, tier: m.tier as ZombieTier };
+        // Boss skill telegraph meshes — built once for bosses with a
+        // skill, then animated per frame. Two flavors: skillBeam is a
+        // long thin flat box that scales/orients along the skill's aim
+        // (used by charge ground-line + beam laser); shieldRing is a
+        // pulsing ring under SWAT's feet (used by shield).
+        let skillBeam: THREE.Mesh | null = null;
+        let skillBeamMat: THREE.MeshBasicMaterial | null = null;
+        let shieldRing: THREE.Mesh | null = null;
+        let shieldRingMat: THREE.MeshBasicMaterial | null = null;
+        if (m.skill?.kind === 'charge' || m.skill?.kind === 'beam') {
+          // 1u-wide unit box; per-frame we scale Z (length) + alpha.
+          // Group-relative is awkward because we want the beam in WORLD
+          // space (the boss rotates during dying etc.). Make it a free
+          // child of the rendered group root — Monsters renders into
+          // its own rootRef so this lives at scene root level.
+          skillBeamMat = new THREE.MeshBasicMaterial({
+            color: m.skill.kind === 'beam' ? 0xff2030 : 0xff7030,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          });
+          skillBeam = new THREE.Mesh(
+            new THREE.PlaneGeometry(1, 1),  // X = width, Y = length
+            skillBeamMat,
+          );
+          skillBeam.rotation.x = -Math.PI / 2;
+          skillBeam.position.y = 0.05;
+          skillBeam.visible = false;
+          root.add(skillBeam);  // not parented to monster group — world-space
+        }
+        if (m.skill?.kind === 'shield') {
+          shieldRingMat = new THREE.MeshBasicMaterial({
+            color: 0x4fc0ff,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          });
+          shieldRing = new THREE.Mesh(
+            new THREE.RingGeometry(1.0, 1.35, 36),
+            shieldRingMat,
+          );
+          shieldRing.rotation.x = -Math.PI / 2;
+          shieldRing.position.y = 0.05;
+          shieldRing.visible = false;
+          group.add(shieldRing);  // local to SWAT, follows it
+        }
+
+        slot = { group, ring, ringMat, eliteRing, eliteRingMat,
+                 skillBeam, skillBeamMat, shieldRing, shieldRingMat,
+                 tier: m.tier as ZombieTier };
         slots.current.set(m.id, slot);
         root.add(group);
       }
@@ -1625,6 +1685,69 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         const epulse = 0.70 + Math.sin(t * 3.2 + m.id) * 0.30;
         slot.eliteRing.scale.setScalar(1 + epulse * 0.10);
         slot.eliteRingMat.opacity = 0.40 + epulse * 0.30;
+      }
+
+      // ── Boss skill telegraphs ────────────────────────────────────
+      // Charge + beam draw a ground-line via slot.skillBeam (world-space).
+      // Shield pulses slot.shieldRing (local to SWAT).
+      if (m.skill && slot.skillBeam && slot.skillBeamMat) {
+        const sk = m.skill;
+        if (sk.kind === 'charge') {
+          // Length = 12u dash distance, lay along aim from minotaur foot.
+          const LEN = 12;
+          if (sk.phase === 'telegraph') {
+            slot.skillBeam.visible = true;
+            slot.skillBeamMat.opacity = 0.25 + (sk.phaseT / 0.7) * 0.55;
+            const w = 0.6 + sk.phaseT * 0.4;
+            slot.skillBeam.scale.set(w, LEN, 1);
+            slot.skillBeam.position.set(
+              m.position.x + sk.aimX * LEN * 0.5,
+              0.05,
+              m.position.z + sk.aimZ * LEN * 0.5,
+            );
+            slot.skillBeam.rotation.z = Math.atan2(sk.aimX, sk.aimZ);
+          } else if (sk.phase === 'active') {
+            // Hot trail behind the actual dash position — fades quickly.
+            slot.skillBeam.visible = true;
+            slot.skillBeamMat.opacity = Math.max(0, 0.7 - sk.phaseT * 0.6);
+            slot.skillBeam.scale.set(1.2, LEN, 1);
+          } else {
+            slot.skillBeam.visible = false;
+          }
+        } else if (sk.kind === 'beam') {
+          // Long laser line, locked aim. Telegraph = thin dotted-red
+          // narrowing onto player. Active = thick bright pulse.
+          const LEN = 22;
+          if (sk.phase === 'telegraph') {
+            slot.skillBeam.visible = true;
+            const t01 = sk.phaseT / 1.8;
+            slot.skillBeamMat.opacity = 0.20 + t01 * 0.55;
+            slot.skillBeam.scale.set(0.30 + t01 * 0.25, LEN, 1);
+            slot.skillBeam.position.set(
+              m.position.x + sk.aimX * LEN * 0.5,
+              0.06,
+              m.position.z + sk.aimZ * LEN * 0.5,
+            );
+            slot.skillBeam.rotation.z = Math.atan2(sk.aimX, sk.aimZ);
+          } else if (sk.phase === 'active') {
+            slot.skillBeam.visible = true;
+            slot.skillBeamMat.opacity = 0.95 * (1 - sk.phaseT / 0.4);
+            slot.skillBeam.scale.set(1.0, LEN, 1);
+          } else {
+            slot.skillBeam.visible = false;
+          }
+        }
+      }
+      if (m.skill?.kind === 'shield' && slot.shieldRing && slot.shieldRingMat) {
+        const sk = m.skill;
+        if (sk.phase === 'active' || sk.phase === 'telegraph') {
+          slot.shieldRing.visible = true;
+          const breathe = 0.7 + Math.sin(t * 8 + m.id) * 0.3;
+          slot.shieldRingMat.opacity = 0.50 + breathe * 0.35;
+          slot.shieldRing.scale.setScalar(1.0 + breathe * 0.06);
+        } else {
+          slot.shieldRing.visible = false;
+        }
       }
 
       // DYING — body is launched; arc upward then fall. deathStyle picks
@@ -1765,6 +1888,10 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         slot.ringMat.dispose();
         if (slot.eliteRing) slot.eliteRing.geometry.dispose();
         if (slot.eliteRingMat) slot.eliteRingMat.dispose();
+        if (slot.skillBeam) { root.remove(slot.skillBeam); slot.skillBeam.geometry.dispose(); }
+        if (slot.skillBeamMat) slot.skillBeamMat.dispose();
+        if (slot.shieldRing) slot.shieldRing.geometry.dispose();
+        if (slot.shieldRingMat) slot.shieldRingMat.dispose();
         slots.current.delete(id);
       }
     }

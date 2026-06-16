@@ -326,6 +326,8 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
   const pos = randomSpawnPos(d, minDist, 2);
   let hp = MONSTER_HP[tier];
   let scaleMul: number | undefined;
+  let bossKind: 'vampire' | 'swat' | 'mech' | 'minotaur' | undefined;
+  let skill: Monster['skill'];
   if (tier === 'boss') {
     // Pass 4 boss scaling — slope 0.9→1.2 / cap 9×→14×. Each cycle adds
     // +120% boss HP so individual bosses keep scaling alongside
@@ -337,6 +339,30 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
     // boss = stronger boss. +10% per cycle, capped at 1.6× so the
     // model doesn't outgrow the camera frame.
     scaleMul = Math.min(1.6, 1 + (cycle - 1) * 0.10);
+    // Boss variant + skill. Cycle 1 is the OG vampire (no skill); from
+    // cycle 2 on the elite roster rotates so a multi-boss night can
+    // present 2-4 different skill threats simultaneously.
+    if (cycle === 1) {
+      bossKind = 'vampire';
+    } else {
+      // Deterministic-ish rotation that doesn't repeat instantly on
+      // multi-boss spawns: per-spawn index seeded via current monster
+      // count keeps each boss in the wave distinct.
+      const rotation: ('minotaur' | 'mech' | 'swat')[] = ['minotaur', 'mech', 'swat'];
+      bossKind = rotation[(d.monsters.length + cycle) % rotation.length];
+      const skillKind: 'charge' | 'beam' | 'shield' =
+        bossKind === 'minotaur' ? 'charge'
+        : bossKind === 'mech'   ? 'beam'
+        :                         'shield';   // swat
+      skill = {
+        kind: skillKind,
+        phase: 'idle',
+        phaseT: 0,
+        cooldownT: 3 + Math.random() * 2,  // first skill arrives 3-5s in
+        aimX: 0,
+        aimZ: 0,
+      };
+    }
   } else {
     // Per-level non-boss HP scaling. L1-3 stay hand-tuned (no scale).
     // Pass 4 slope 0.28→0.35 / cap 8×→10× — keeps the curve climbing
@@ -374,6 +400,8 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
     deathArc: 0,
     isBoss: tier === 'boss',
     scaleMul,
+    bossKind,
+    skill,
   });
 }
 
@@ -840,6 +868,190 @@ export function useGameLoop(p: GameLoopParams) {
         continue;       // skip AI this frame while flying back
       }
 
+      // ── BOSS SKILL STATE MACHINES ───────────────────────────────────
+      // Each boss variant carries a unique signature ability. The
+      // state machine is independent of the default AI: when a skill
+      // is in an "override" phase (charge dash, beam fire) we run the
+      // skill code and `continue` past the regular AI. Shield is the
+      // exception — it stays still but lets the SWAT keep walking.
+      if (m.skill) {
+        const sk = m.skill;
+        if (sk.kind === 'charge') {
+          // MINOTAUR CHARGE — telegraph 0.7s (paw scrape), then dash
+          // 1.2s at 12 u/s along locked aim, then 1.4s stun.
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 3.5 && dist < 18) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+              // Face player during telegraph.
+              if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            }
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            // Face-lock toward player throughout the windup so the
+            // ground-line telegraph aims where the dash will go.
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= 0.7) {
+              // LOCK aim, transition to dash. From here on the
+              // direction is fixed — player can step out of the line.
+              const inv = dist > 0.001 ? 1 / dist : 0;
+              sk.aimX = dx * inv;
+              sk.aimZ = dz * inv;
+              sk.phase = 'active';
+              sk.phaseT = 0;
+            }
+            // Idle in place during windup (no chase).
+            m.velocity.x *= 0.8; m.velocity.z *= 0.8;
+            continue;
+          } else if (sk.phase === 'active') {
+            sk.phaseT += c;
+            const DASH_SPEED = 12;
+            const DASH_DUR = 1.2;
+            m.position.x += sk.aimX * DASH_SPEED * c;
+            m.position.z += sk.aimZ * DASH_SPEED * c;
+            m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+            m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+            // Contact damage along the dash path.
+            const cdx = d.pos.x - m.position.x;
+            const cdz = d.pos.z - m.position.z;
+            const cdist = Math.hypot(cdx, cdz);
+            const hitR = (m.scaleMul ?? 1) * 1.4;
+            if (cdist < hitR && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+              applyPlayerHit(d);
+              d.iframesT = 1.2;
+              shakeCamera(d, 0.95, 0.36);
+              emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+              p.playSfx('strike_hit');
+              p.haptic?.('heavy');
+              p.onStrikeHit?.();
+              // Knockback player off the charge line.
+              const kbInv = cdist > 0.001 ? 1 / cdist : 0;
+              const kbMag = 4.5;
+              d.cameraShakeMag = 1.1;
+              d.cameraShakeT = 0.40;
+              // Use velocity knock — player pos cannot be set directly
+              // here, but iframes + shake sells the hit.
+              // Stop the dash on hit (no infinite penetration).
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+              // Slow the rest of the dash distance — feels like the
+              // charge "buried" into the player.
+              sk.aimX *= 0; sk.aimZ *= 0;
+              void kbInv; void kbMag;
+            } else if (sk.phaseT >= DASH_DUR) {
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else {  // recover (stun)
+            sk.phaseT += c;
+            m.velocity.x *= 0.8; m.velocity.z *= 0.8;
+            if (sk.phaseT >= 1.4) {
+              sk.phase = 'idle';
+              sk.cooldownT = 4 + Math.random() * 2;  // 4-6s before next charge
+            }
+            continue;
+          }
+        } else if (sk.kind === 'beam') {
+          // COMBAT MECH BEAM — 1.8s telegraph (laser line drawn on
+          // ground), then 0.4s firing (hitscan along locked aim).
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 5 && dist < 24) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+            }
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            // Telegraph aim TRACKS player slowly — player can still
+            // dodge but it takes commitment. Aim locks fully at end.
+            const inv = dist > 0.001 ? 1 / dist : 0;
+            const trackBlend = Math.min(1, sk.phaseT / 1.8) * 0.6 + 0.4;
+            sk.aimX = sk.aimX * (1 - trackBlend * 0.15) + dx * inv * (trackBlend * 0.15);
+            sk.aimZ = sk.aimZ * (1 - trackBlend * 0.15) + dz * inv * (trackBlend * 0.15);
+            // Don't move during charge — feet planted, glow ramping.
+            m.velocity.x *= 0.5; m.velocity.z *= 0.5;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= 1.8) {
+              // Final aim lock.
+              sk.aimX = dx * inv;
+              sk.aimZ = dz * inv;
+              sk.phase = 'active';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else if (sk.phase === 'active') {
+            sk.phaseT += c;
+            // Hitscan check — does the beam line pass through player?
+            // Compute perpendicular distance from player to the ray
+            // starting at mech, direction (aimX, aimZ).
+            const px = d.pos.x - m.position.x;
+            const pz = d.pos.z - m.position.z;
+            const along = px * sk.aimX + pz * sk.aimZ;          // forward
+            const perpX = px - sk.aimX * along;
+            const perpZ = pz - sk.aimZ * along;
+            const perpDist = Math.hypot(perpX, perpZ);
+            if (along > 0 && perpDist < 0.9 && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+              applyPlayerHit(d);
+              d.iframesT = 1.2;
+              shakeCamera(d, 0.90, 0.32);
+              emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+              p.playSfx('strike_hit');
+              p.haptic?.('heavy');
+              p.onStrikeHit?.();
+            }
+            if (sk.phaseT >= 0.4) {
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else {  // recover
+            sk.phaseT += c;
+            if (sk.phaseT >= 0.6) {
+              sk.phase = 'idle';
+              sk.cooldownT = 3.5 + Math.random() * 2;  // 3.5-5.5s before next beam
+            }
+            // Still no movement during recovery cooldown — readable break.
+            m.velocity.x *= 0.4; m.velocity.z *= 0.4;
+            continue;
+          }
+        } else if (sk.kind === 'shield') {
+          // SWAT SHIELD — periodic 2.5s shield-up window where frontal
+          // bullets are absorbed. Movement is NOT overridden so the
+          // SWAT keeps walking; the shield effect is enforced in the
+          // bullet-hit code via skill.phase === 'active'.
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 1.5 && dist < 22) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+            }
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            if (sk.phaseT >= 0.3) {
+              sk.phase = 'active';
+              sk.phaseT = 0;
+            }
+          } else if (sk.phase === 'active') {
+            sk.phaseT += c;
+            // Face the player so the shield faces incoming fire.
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= 2.5) {
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+          } else {  // recover (lowering)
+            sk.phaseT += c;
+            if (sk.phaseT >= 0.4) {
+              sk.phase = 'idle';
+              sk.cooldownT = 3.5 + Math.random() * 1.5;
+            }
+          }
+          // Fall through to regular boss/melee AI for movement.
+        }
+      }
+
       // STALKER = RANGED SPITTER. Stops at SPITTER_OPTIMAL_RANGE, keeps
       // distance, and spits at the player. Distinct from melee lurkers
       // and the boss who must close to bite.
@@ -1267,6 +1479,27 @@ export function useGameLoop(p: GameLoopParams) {
         const bdz = b.position.z - m.position.z;
         const hitR = BULLET_RADIUS + (m.tier === 'boss' ? 1.4 : 0.55);
         if (bdx * bdx + bdz * bdz < hitR * hitR) {
+          // SWAT SHIELD — if a shield boss has its shield raised and
+          // the bullet is hitting from its frontal 120° cone, absorb
+          // the hit (no damage, no kill). Player must flank.
+          if (m.skill && m.skill.kind === 'shield' && m.skill.phase === 'active') {
+            // Bullet direction is (b.dirX, b.dirZ); shield faces along
+            // monster's facing direction (sin(rot), cos(rot)).
+            const facingX = Math.sin(m.rotation);
+            const facingZ = Math.cos(m.rotation);
+            // Dot of -bullet direction with facing → if bullet is
+            // coming FROM the front, dot > cos(60°).
+            const incomingDot = -(b.dirX * facingX + b.dirZ * facingZ);
+            if (incomingDot > 0.5) {
+              // Absorbed — bullet stops here, no damage, small visual
+              // ping at the impact point.
+              emitFx(d, 'bullet_hit', b.position.x, b.position.z);
+              b.hitIds.add(m.id);
+              d.bullets.splice(i, 1);
+              alive = false;
+              continue;
+            }
+          }
           m.hp -= b.dmg;
           m.hitFlashT = 0.10;
           b.hitIds.add(m.id);

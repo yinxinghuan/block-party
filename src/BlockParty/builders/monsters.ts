@@ -375,23 +375,257 @@ export function makeVampire(): RiggedGroup {
   return g;
 }
 
-// Dispatcher — Scene.tsx calls this when spawning a new monster.
-export function makeMonster(tier: ZombieTier): ZombieGroup {
+// ──────────────────────────────────────────────────────────────────────
+// BOSS-VARIANT BUILDERS — distinct silhouettes for the "elite/boss"
+// roster the player meets at higher cycles. Each one is also a unique
+// AI skill carrier (charge / beam / shield) wired in useGameLoop.
+// Ported from _lowpoly_lab/builders/{villains,mechs,mythic}.js.
+// ──────────────────────────────────────────────────────────────────────
+
+// SWAT enforcer — tactical kit + riot shield. Carrier of the SHIELD skill.
+export function makeSwat(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const tactBlk = 0x1a1c20, tactDk = 0x101116;
+  const kevlar  = 0x2c2f36, kevlarD = 0x1b1d22;
+  const visor   = 0x6fb3ff;
+  const shield  = 0xe9e5d6, shieldD = 0xc7c3b4;
+  const hazardY = 0xf4d020;
+  const warnR   = 0xff3030;
+  const rubber  = 0x0c0c10;
+  const gunM    = 0x2a2a30;
+  const BW = 0.96, BD = 0.56, torsoH = 0.90, legH = 0.86, bootH = 0.20;
+  const lx = 0.24, hipY = bootH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.36, bootH, BD + 0.06, rubber, 0, bootH / 2 - hipY, 0.04));
+    L.add(box(0.34, bootH * 0.40, BD + 0.02, tactDk, 0, bootH * 0.85 - hipY, 0.04));
+    L.add(box(0.28, legH, BD - 0.08, tactBlk, 0, (bootH + legH / 2) - hipY, 0));
+    L.add(box(0.30, 0.24, 0.12, kevlar, 0, hipY * 0.20 - hipY, BD / 2 - 0.04));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, tactBlk, 0, torsoY, 0));
+  g.add(box(BW + 0.06, torsoH * 0.92, BD + 0.06, kevlar, 0, torsoY, 0));
+  g.add(box(0.20, 0.18, 0.05, hazardY, 0, torsoY + torsoH * 0.32, BD / 2 + 0.04));
+  g.add(box(0.06, 0.06, 0.05, warnR, BW * 0.30, torsoY + torsoH * 0.32, BD / 2 + 0.04, { e: warnR, ei: 0.85 }));
+  for (const xx of [-0.22, 0.0, 0.22]) {
+    g.add(box(0.14, 0.16, 0.06, kevlarD, xx, torsoY - torsoH * 0.10, BD / 2 + 0.04));
+  }
+  g.add(box(BW + 0.10, 0.10, BD + 0.08, tactDk, 0, hipY - 0.04, 0));
+  const ax = BW / 2 + 0.16, shoulderY = torsoY + torsoH / 2, armH = torsoH + 0.28;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(0.32, 0.20, 0.34, kevlar, 0, -0.05, 0));
+    A.add(box(0.22, armH, BD - 0.16, tactBlk, 0, -armH / 2 + 0.10, 0));
+    A.add(box(0.24, 0.20, 0.20, rubber, 0, -armH + 0.18, 0));
+  }
+  // Riot shield — wide panel on LEFT arm. Named for the skill system to
+  // grab and orient (raised / lowered).
+  const shieldGrp = new THREE.Group();
+  shieldGrp.name = 'shield';
+  shieldGrp.position.set(0.10, -armH / 2 + 0.40, BD / 2 + 0.18);
+  shieldGrp.add(box(1.10, 1.50, 0.10, shield, 0, 0, 0));
+  shieldGrp.add(box(1.18, 0.10, 0.14, shieldD, 0, 0.70, 0));
+  shieldGrp.add(box(1.18, 0.10, 0.14, shieldD, 0, -0.70, 0));
+  shieldGrp.add(box(0.20, 0.10, 0.10, tactDk, 0, 0.04, 0.055));
+  shieldGrp.add(box(0.06, 0.30, 0.16, hazardY, -0.40, 0, 0));
+  armL.add(shieldGrp);
+  const gun = new THREE.Group();
+  gun.position.set(0.02, -armH + 0.10, 0.34);
+  gun.add(box(0.16, 0.16, 0.66, gunM, 0, 0, 0));
+  gun.add(box(0.10, 0.20, 0.16, tactDk, 0, -0.08, -0.12));
+  gun.add(box(0.06, 0.06, 0.12, warnR, 0, 0.02, 0.40, { e: warnR, ei: 0.85 }));
+  armR.add(gun);
+  const HW = 0.62, HH = 0.62, HDP = 0.56;
+  const headY = torsoY + torsoH / 2 + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, tactBlk, 0, headY, 0));
+  g.add(box(HW + 0.06, HH * 0.38, HDP + 0.06, tactDk, 0, headY + HH * 0.30, 0));
+  g.add(box(HW - 0.06, 0.26, 0.04, visor, 0, headY - 0.02, HDP / 2 + 0.03, { e: visor, ei: 0.85 }));
+  g.add(box(HW - 0.10, 0.06, 0.04, 0x3a72b3, 0, headY - 0.15, HDP / 2 + 0.04));
+  g.add(box(HW - 0.20, 0.10, 0.20, tactDk, 0, headY - HH / 2 + 0.06, HDP / 2 - 0.02));
+  g.add(box(0.04, 0.22, 0.04, gunM, HW / 2 - 0.06, headY + HH / 2 + 0.12, -HDP / 2 + 0.08));
+  g.add(box(0.04, 0.06, 0.04, warnR, HW / 2 - 0.06, headY + HH / 2 + 0.26, -HDP / 2 + 0.08, { e: warnR, ei: 0.85 }));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// COMBAT MECH — bipedal walker with chest core + dual cannons. Carrier
+// of the BEAM skill (long-telegraph laser).
+export function makeCombatMech(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const hull = 0x46484d, hullD = 0x2d2e33, hullL = 0x6a6e76;
+  const joint = 0x18181c;
+  const core = 0xff7028, coreD = 0xc44820;
+  const sensor = 0x4fd2ff;
+  const amber = 0xffaa30;
+  const warnR = 0xff3030;
+  const BW = 1.30, BD = 0.80, torsoH = 1.10, legH = 1.05, footH = 0.22;
+  const lx = 0.34, hipY = footH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.52, footH, BD + 0.10, hullD, 0, footH / 2 - hipY, 0.06));
+    L.add(box(0.46, 0.06, BD, amber, 0, footH * 0.20 - hipY, 0.10));
+    L.add(box(0.36, legH * 0.5, BD - 0.18, hull, 0, footH + legH * 0.25 - hipY, 0));
+    L.add(box(0.38, 0.16, BD - 0.10, joint, 0, footH + legH * 0.50 - hipY, 0));
+    L.add(box(0.42, legH * 0.42, BD - 0.04, hull, 0, footH + legH * 0.74 - hipY, 0));
+    L.add(box(0.04, legH * 0.42, 0.20, amber, 0.21, footH + legH * 0.74 - hipY, 0));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, hull, 0, torsoY, 0));
+  g.add(box(BW + 0.10, torsoH * 0.30, BD + 0.06, hullD, 0, torsoY + torsoH * 0.30, 0));
+  g.add(box(BW + 0.06, torsoH * 0.18, BD + 0.02, hullD, 0, torsoY - torsoH * 0.40, 0));
+  g.add(box(0.42, 0.32, 0.10, coreD, 0, torsoY, BD / 2 + 0.01));
+  // Core mesh is named so the beam-charge effect can pulse it.
+  const coreMesh = box(0.32, 0.22, 0.08, core, 0, torsoY, BD / 2 + 0.06, { e: core, ei: 1.0 });
+  coreMesh.name = 'core';
+  g.add(coreMesh);
+  for (const sx of [-1, 1]) {
+    g.add(box(0.04, 0.30, 0.10, amber, sx * (BW / 2 + 0.02), torsoY - 0.05, 0, { e: amber, ei: 0.85 }));
+    g.add(box(0.42, 0.36, BD - 0.04, hull, sx * (BW / 2 + 0.18), torsoY + torsoH / 2 - 0.06, 0));
+    g.add(box(0.44, 0.06, BD - 0.04, amber, sx * (BW / 2 + 0.18), torsoY + torsoH / 2 + 0.16, 0));
+  }
+  const ax = BW / 2 + 0.36, shoulderY = torsoY + torsoH / 2 - 0.22, armH = torsoH + 0.20;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(0.32, armH * 0.40, 0.36, hull, 0, -armH * 0.20 + 0.04, 0));
+    A.add(box(0.36, 0.16, 0.40, joint, 0, -armH * 0.42 + 0.04, 0));
+    A.add(box(0.36, armH * 0.40, 0.42, hullL, 0, -armH * 0.66 + 0.04, 0));
+    A.add(box(0.28, 0.28, 0.62, hullD, 0, -armH + 0.10, 0.28));
+    A.add(box(0.18, 0.18, 0.10, core, 0, -armH + 0.10, 0.62, { e: core, ei: 1.0 }));
+    A.add(box(0.06, 0.08, 0.30, amber, 0, -armH + 0.22, 0.36));
+  }
+  const HW = 0.46, HH = 0.30, HDP = 0.50;
+  const headY = torsoY + torsoH / 2 + 0.12 + HH / 2;
+  g.add(box(HW, HH, HDP, hullD, 0, headY, 0));
+  // Named so we can highlight the sensor while beam is charging.
+  const eye = box(HW - 0.08, 0.16, 0.04, sensor, 0, headY, HDP / 2 + 0.02, { e: sensor, ei: 1.0 });
+  eye.name = 'sensor';
+  g.add(eye);
+  for (const sx of [-1, 1]) {
+    g.add(box(0.04, 0.30, 0.04, hullD, sx * (HW / 2 - 0.04), headY + HH / 2 + 0.16, -HDP / 2 + 0.08));
+    g.add(box(0.04, 0.06, 0.04, warnR, sx * (HW / 2 - 0.04), headY + HH / 2 + 0.32, -HDP / 2 + 0.08, { e: warnR, ei: 0.85 }));
+  }
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// MINOTAUR — bull-headed warrior, broad torso, horns + axe. Carrier of
+// the CHARGE skill (telegraph → high-speed line dash → stun).
+export function makeMinotaur(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const fur = 0x6b4a2e, furD = 0x4a3320, furL = 0x8a6740;
+  const hide = 0x9d7148;
+  const horn = 0xe6dec3, hornD = 0xc3b994;
+  const iron = 0x44464d, ironD = 0x2a2c30;
+  const brass = 0xc78a2f;
+  const loin = 0x4a342a, loinTrim = 0xa86628;
+  const bloodR = 0xa01a1a;
+  const BW = 1.28, BD = 0.66, torsoH = 1.04, legH = 0.92, hoofH = 0.18;
+  const lx = 0.30, hipY = hoofH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.36, hoofH, BD + 0.10, horn, 0, hoofH / 2 - hipY, 0.10));
+    L.add(box(0.36, hoofH * 0.65, 0.16, hornD, 0, hoofH / 2 - hipY, BD / 2 + 0.08));
+    L.add(box(0.38, legH * 0.70, BD - 0.04, fur, 0, (hoofH + legH * 0.35) - hipY, 0));
+    L.add(box(0.42, legH * 0.20, BD, furD, 0, (hoofH + legH * 0.05) - hipY, 0));
+    L.add(box(0.42, legH * 0.18, BD + 0.02, furD, 0, (hoofH + legH * 0.85) - hipY, 0));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, hide, 0, torsoY, 0));
+  g.add(box(BW - 0.08, torsoH * 0.32, BD - 0.02, furL, 0, torsoY + torsoH * 0.28, 0.02));
+  g.add(box(BW + 0.08, 0.04, BD + 0.06, fur, 0, torsoY + torsoH * 0.50 - 0.02, 0));
+  g.add(box(BW + 0.10, 0.30, BD + 0.06, loin, 0, hipY - 0.08, 0));
+  g.add(box(BW + 0.14, 0.06, BD + 0.08, loinTrim, 0, hipY + 0.06, 0));
+  for (const xx of [-0.30, -0.10, 0.10, 0.30]) {
+    g.add(box(0.06, 0.06, 0.04, brass, xx, hipY + 0.06, BD / 2 + 0.04, { e: brass, ei: 0.85 }));
+  }
+  for (const sx of [-1, 1]) {
+    g.add(box(0.36, 0.24, BD - 0.04, furD, sx * (BW / 2 + 0.10), torsoY + torsoH / 2 - 0.10, 0));
+  }
+  const ax = BW / 2 + 0.20, shoulderY = torsoY + torsoH / 2 - 0.10, armH = torsoH + 0.40;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(0.30, armH * 0.50, BD - 0.18, fur, 0, -armH * 0.25 + 0.04, 0));
+    A.add(box(0.34, 0.10, BD - 0.10, furD, 0, -armH * 0.50 + 0.04, 0));
+    A.add(box(0.30, armH * 0.42, BD - 0.16, furL, 0, -armH * 0.74 + 0.04, 0));
+    A.add(box(0.36, 0.16, BD - 0.08, loinTrim, 0, -armH + 0.18, 0));
+    A.add(box(0.34, 0.18, BD - 0.10, hide, 0, -armH + 0.04, 0));
+  }
+  const axe = new THREE.Group();
+  axe.position.set(0.04, -armH + 0.12, 0.30);
+  axe.add(box(0.10, 0.10, 1.00, furD, 0, 0, 0));
+  for (const zz of [-0.32, 0.0, 0.32]) {
+    axe.add(box(0.12, 0.12, 0.06, brass, 0, 0, zz));
+  }
+  axe.add(box(0.06, 0.62, 0.46, iron, 0, 0.20, 0.66));
+  axe.add(box(0.06, 0.50, 0.38, iron, 0, 0.20, 0.96));
+  axe.add(box(0.06, 0.30, 0.18, ironD, 0, 0.30, 1.08));
+  axe.add(box(0.04, 0.04, 0.40, horn, 0, 0.50, 0.70, { e: brass, ei: 0.85 }));
+  armR.add(axe);
+  const HW = 0.62, HH = 0.58, HDP = 0.62;
+  const headY = torsoY + torsoH / 2 + 0.04 + HH / 2;
+  g.add(box(HW, HH, HDP, fur, 0, headY, 0));
+  g.add(box(HW - 0.10, 0.20, 0.30, hide, 0, headY - HH * 0.20, HDP / 2 + 0.04));
+  g.add(box(0.18, 0.10, 0.10, horn, 0, headY - HH * 0.30, HDP / 2 + 0.22));
+  for (const sx of [-1, 1]) {
+    g.add(box(0.10, 0.06, 0.04, bloodR, sx * 0.14, headY + 0.06, HDP / 2 + 0.02, { e: bloodR, ei: 0.85 }));
+  }
+  for (const sx of [-1, 1]) {
+    const hornGrp = new THREE.Group();
+    hornGrp.position.set(sx * (HW / 2 - 0.02), headY + HH * 0.30, 0);
+    hornGrp.rotation.z = sx * 0.30;
+    hornGrp.add(box(0.18, 0.16, 0.30, horn, sx * 0.22, 0.10, 0));
+    hornGrp.add(box(0.14, 0.14, 0.26, horn, sx * 0.42, 0.18, 0));
+    hornGrp.add(box(0.10, 0.10, 0.22, hornD, sx * 0.58, 0.26, 0));
+    g.add(hornGrp);
+  }
+  for (const sx of [-1, 1]) {
+    g.add(box(0.10, 0.14, 0.04, furD, sx * (HW / 2 - 0.02), headY + 0.04, -HDP / 2 + 0.04));
+  }
+  g.add(box(0.30, 0.14, 0.20, furD, 0, headY + HH / 2 + 0.04, 0));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+/** Boss variant — picks which model + skill the boss uses on a given
+ *  cycle. 'vampire' is the original; the new three are the elite roster
+ *  with their own AI skills. Each runs at tier='boss' base stats. */
+export type BossKind = 'vampire' | 'swat' | 'mech' | 'minotaur';
+
+// Dispatcher — Scene.tsx calls this when spawning a new monster. For
+// tier='boss' it also takes an optional kind so we can pick the variant.
+export function makeMonster(tier: ZombieTier, bossKind?: BossKind): ZombieGroup {
   let g: RiggedGroup;
   switch (tier) {
     case 'runner':  g = makeWerewolf(); break;
     case 'brute':   g = makeSkeleton(); break;
     case 'stalker': g = makeMummy();    break;
     case 'ghost':   g = makeGhost();    break;
-    case 'boss':    g = makeVampire();  break;
+    case 'boss':
+      g = bossKind === 'swat'     ? makeSwat()
+        : bossKind === 'mech'     ? makeCombatMech()
+        : bossKind === 'minotaur' ? makeMinotaur()
+        : makeVampire();
+      break;
     default:        return makeZombie(tier);    // lurker / exploder
   }
+  // Per-variant target scale — the elite roster is built bigger than
+  // the vampire so the silhouette still reads as "boss" without needing
+  // the m.scaleMul cycle bump (which still stacks on top).
   const targetScale =
     tier === 'runner'  ? 0.62 :
     tier === 'brute'   ? 0.78 :
     tier === 'stalker' ? 0.72 :
     tier === 'ghost'   ? 0.70 :
-    tier === 'boss'    ? 1.40 :
+    tier === 'boss'    ? (bossKind === 'mech' ? 1.55 : bossKind === 'minotaur' ? 1.45 : bossKind === 'swat' ? 1.30 : 1.40) :
                          0.66;
   g.scale.setScalar(targetScale);
   return g as ZombieGroup;
