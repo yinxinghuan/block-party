@@ -711,9 +711,15 @@ function summonExit(d: GameRef, atPos?: THREE.Vector3) {
 function checkExitTrigger(d: GameRef, killedTier: MonsterTier, killPos: THREE.Vector3) {
   if (d.exit) return;
   if (killedTier === 'boss') {
-    // Are any bosses still standing? (dying corpses are mid-flight but
-    // already counted as kills, so skip them.)
-    const bossesAlive = d.monsters.filter(m => m.tier === 'boss' && !m.dying).length;
+    // Are any bosses still standing? Filter by `hp > 0` — the just-
+    // killed boss already has `hp <= 0` at this point (m.dying is
+    // not flagged true until AFTER this function returns, so we
+    // can't use !m.dying as the filter). hp > 0 reliably excludes
+    // both the just-killed boss AND any already-dying corpses.
+    // Latent bug from 5e4a089: was `!m.dying` which counted the
+    // just-killed boss as alive — every single-boss level (L1-10
+    // after Batch B) became uncompletable.
+    const bossesAlive = d.monsters.filter(m => m.tier === 'boss' && m.hp > 0).length;
     if (bossesAlive > 0) return;          // more bosses to clear before exit
     summonExit(d, killPos);
     return;
