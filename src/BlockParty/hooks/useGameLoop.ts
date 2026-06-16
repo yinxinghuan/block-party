@@ -24,9 +24,9 @@ import { DROPPABLE_WEAPONS, weaponEffectiveSpec, WEAPON_LEVEL_MAX } from '../bui
 import type { WeaponId } from '../builders/weapons';
 import type { SurvivorId } from '../builders/characters';
 
-const WEAPON_DROP_INTERVAL = 25;     // seconds between drops
-const WEAPON_DROP_LIFE = 22;         // a drop fades out after this long
-const WEAPON_PICKUP_RADIUS = 1.6;
+const WEAPON_DROP_INTERVAL = 16;     // 2026-06-16 eased — 25→16s between drops, weapon flow now more like Vampire Survivors than Brotato
+const WEAPON_DROP_LIFE = 30;         // 22→30s — drop lingers long enough that the player can usually finish the current wave first
+const WEAPON_PICKUP_RADIUS = 1.9;    // 1.6→1.9 — generous walk-over hitbox, no more "passed within an inch" near-misses
 
 const CRYSTAL_RESPAWN_INTERVAL = 2.5;     // every 2.5s drop a fresh ambient XP gem
 
