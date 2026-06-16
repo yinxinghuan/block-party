@@ -1607,14 +1607,15 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           group.add(eliteRing);
         }
 
-        // Persistent boss marker — every tier='boss' gets a violet
-        // pulsing ground ring under its feet so the player can find
-        // it in a swarm of 30+ regular zombies. Bigger + brighter
-        // than the elite red ring; only one boss in scene at low
-        // cycle, several at high cycle, all clearly flagged.
+        // Persistent boss marker — DISABLED 2026-06-17 by user request
+        // (the violet ring felt visually noisy under the boss). The
+        // boss is already distinct by its 1.4× scaleMul + unique
+        // model + skill telegraph; the always-on ring was overkill.
+        // To re-enable, flip BOSS_RING_ENABLED to true.
+        const BOSS_RING_ENABLED = false;
         let bossRing: THREE.Mesh | null = null;
         let bossRingMat: THREE.MeshBasicMaterial | null = null;
-        if (m.tier === 'boss') {
+        if (BOSS_RING_ENABLED && m.tier === 'boss') {
           const bRingGeom = new THREE.RingGeometry(1.20, 1.70, 40);
           bossRingMat = new THREE.MeshBasicMaterial({
             color: 0xa060ff,
