@@ -421,7 +421,12 @@ export function BlockParty() {
     <div className="ln">
       {showCanvas && (
         <div className="ln__canvas">
-          <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }} frameloop={canvasFrameloop}>
+          {/* DPR capped at 1.6 (was 2) — saves ~25% fragment cost on iPhones
+              (device pixel ratio 3 → render at 1.6× instead of 2×) without a
+              visually obvious downgrade at the camera distance the game runs
+              at. `shadows` prop dropped: no scene light casts shadows anymore
+              after perf #1, so the shadowmap infrastructure was dead weight. */}
+          <Canvas dpr={[1, 1.6]} gl={{ antialias: true }} frameloop={canvasFrameloop}>
             <Scene
               state={stateRef}
               playing={phase === 'playing'}

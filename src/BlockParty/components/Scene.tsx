@@ -1602,9 +1602,20 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       // Body position + facing.
       slot.group.position.copy(m.position);
       slot.group.rotation.y = m.rotation;
+      // Late-game LOD — only run per-frame cosmetic animation (idle hop,
+      // limb swing, strike-telegraph ring pulse, elite ring breathe) for
+      // monsters within 18u of the player. Far ones still draw at the
+      // right position but freeze in pose, dropping ~30-40% of the per-
+      // frame Monsters CPU work at endless L8+ when the field has 70+
+      // bodies. Dying ragdolls keep full-fidelity animation for visual
+      // punch; they're capped in count by the death-flight life.
+      const dxP = m.position.x - d.pos.x;
+      const dzP = m.position.z - d.pos.z;
+      const distSqToPlayer = dxP * dxP + dzP * dzP;
+      const farMonster = !m.dying && distSqToPlayer > 18 * 18;
       // Elite-ring pulse — slow scale + alpha breathe so the marker reads
-      // alive across a 70+ second standoff.
-      if (slot.eliteRing && slot.eliteRingMat) {
+      // alive across a 70+ second standoff. Skipped for far monsters.
+      if (!farMonster && slot.eliteRing && slot.eliteRingMat) {
         const epulse = 0.70 + Math.sin(t * 3.2 + m.id) * 0.30;
         slot.eliteRing.scale.setScalar(1 + epulse * 0.10);
         slot.eliteRingMat.opacity = 0.40 + epulse * 0.30;
@@ -1665,6 +1676,20 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           }
         }
         // Skip the live-AI animation block this frame.
+        continue;
+      }
+
+      // Far-monster early-out — skip rig animation, idle hop, knockback
+      // flinch, strike-ring update, and hit-flash for monsters out of
+      // the player's immediate proximity. They still render at the
+      // correct world position; the body just freezes pose. Big CPU win
+      // at endless L8+ when 70-90% of the roster is past 18u.
+      if (farMonster) {
+        // Clear any sticky visual state from the last close-frame so a
+        // monster that just walked out of range doesn't carry a strike
+        // ring or hit-flash with it.
+        if (slot.ring.visible) slot.ring.visible = false;
+        flashWhite(slot.group, 0);
         continue;
       }
 

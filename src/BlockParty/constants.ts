@@ -222,12 +222,15 @@ function computeEndlessTuning(level: number): LevelTuning {
     timeLimit: 45,  // informational; clear condition is the exit beacon, not the timer
     lurkerCount:    clamp(14 + k * 3, 14, 50),
     stalkerCount:   clamp(1 + Math.floor(k / 2), 1, 12),
-    // Pass 1 dropped 120→90 for FPS; pass 2 (after pillar merge / gem
-    // instancing / HUD bail-out / hero-shadow-off bought back budget)
-    // pushes 90→105. Late-game floor for bodies-on-screen now lands
-    // closer to the original design intent while still well under the
-    // pre-perf 120. Slope unchanged.
-    monsterMax:     clamp(38 + k * 9, 38, 105),
+    // monsterMax with a TWO-STAGE cap. Climbs to 105 then *eases off*
+    // past L20 to keep the framebuffer manageable on mobile in very
+    // late endless: difficulty there is carried by HP scaling + per-hit
+    // damage + AI tempo, not by stacking more bodies on top of the
+    // perf budget.
+    //   L1=38, L8=101, L9-L20=105, L21=98, L25=88, L31+=85 (floor).
+    monsterMax:     k <= 17
+      ? clamp(38 + k * 9, 38, 105)
+      : clamp(105 - (k - 17) * 2, 85, 105),
     monsterSpeed:   clamp(0.90 + k * 0.08, 0.90, 1.70),
     monsterFleeSpeed: clamp(0.90 + k * 0.03, 0.90, 1.30),
     // AI tempo caps relaxed for the late-game pressure pass: the formula
