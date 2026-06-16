@@ -1777,7 +1777,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
             slot.skillBeam.visible = true;
             const t01 = sk.phaseT / 1.5;
             slot.skillBeamMat.opacity = 0.22 + t01 * 0.55;
-            slot.skillBeam.scale.set(0.18 + t01 * 0.18, LEN, 1);     // narrowed: 0.18→0.36 (was 0.30→0.55)
+            slot.skillBeam.scale.set(0.24 + t01 * 0.20, LEN, 1);     // v3 widened slightly: 0.24→0.44 (matches 0.70u corridor)
             slot.skillBeam.position.set(
               m.position.x + sk.aimX * LEN * 0.5,
               0.06,
@@ -1787,7 +1787,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           } else if (sk.phase === 'active') {
             slot.skillBeam.visible = true;
             slot.skillBeamMat.opacity = 0.95 * (1 - sk.phaseT / 0.4);
-            slot.skillBeam.scale.set(0.65, LEN, 1);                  // narrowed: 0.65 (was 1.0) — matches 0.55u hit corridor
+            slot.skillBeam.scale.set(0.80, LEN, 1);                  // v3 widened: 0.80 (matches 0.70u corridor; was 0.65/0.55)
           } else {
             slot.skillBeam.visible = false;
           }

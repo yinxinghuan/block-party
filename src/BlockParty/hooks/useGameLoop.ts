@@ -341,12 +341,10 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
   let bossKind: BossKind | undefined;
   let skill: Monster['skill'];
   if (tier === 'boss') {
-    // 2026-06-16 curve flatten — boss HP slope 0.15→0.10, cap 8×→5×.
-    //   L1=32, L5=45, L10=61, L15=77, L20=93, L41+=160 (cap).
-    // Combined with the boss being 1 of 1 on L1-10 and the player's
-    // weapon-level + perk compound, this keeps bosses challenging but
-    // not "I can't bring it down in time" walls.
-    hp = Math.min(MONSTER_HP.boss * 5, Math.round(MONSTER_HP.boss * (1 + (tuning.level - 1) * 0.10)));
+    // 2026-06-16 v3 midpoint — slope 0.10→0.12, cap 5×→6.5× (halfway
+    // between the prior too-steep 0.15/8× and the over-flattened 0.10/5×).
+    //   L1=32, L5=51, L10=67, L15=83, L20=99, L47+=208 (cap).
+    hp = Math.min(Math.round(MONSTER_HP.boss * 6.5), Math.round(MONSTER_HP.boss * (1 + (tuning.level - 1) * 0.12)));
     // Batch C — boss entry MUST read as boss. Floor at 1.4× for every
     // boss spawn (L1 vampire included), +5% per ~3 levels on top,
     // capped at 1.6× so the model doesn't outgrow the camera. This is
@@ -388,13 +386,11 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
       };
     }
   } else {
-    // 2026-06-16 curve flatten — non-boss HP slope 0.35→0.22, cap 10×→6×.
-    //   L4=1.22×, L8=2.10×, L12=2.98×, L15=3.64×, L20=4.74×, L26+=6.0×.
-    // The 0.35 ramp made mid-game (L7-L12) feel like an HP wall every
-    // 2 levels; 0.22 gives the player room for their compounding
-    // weapon + perk DPS to catch up before the next jump.
+    // 2026-06-16 v3 midpoint — slope 0.22→0.28, cap 6×→8× (halfway
+    // between the prior 0.35/10× and the over-flat 0.22/6×).
+    //   L4=1.28×, L8=2.40×, L12=3.52×, L15=4.36×, L20=5.76×, L29+=8×.
     if (tuning.level > 3) {
-      const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.22);
+      const scale = Math.min(8.0, 1 + (tuning.level - 3) * 0.28);
       hp = Math.round(hp * scale);
     }
   }
@@ -445,7 +441,7 @@ function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
   // (pass 4 slope 0.35 / cap 10×).
   let hp = MONSTER_HP.stalker * 2;
   if (tuning.level > 3) {
-    const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.22);
+    const scale = Math.min(8.0, 1 + (tuning.level - 3) * 0.28);
     hp = Math.round(hp * scale);
   }
   d.monsters.push({
@@ -530,7 +526,7 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
   // (boss = 14× at L15). Same per-level scaling as everyone else.
   let hp = MONSTER_HP[tier] * 3;
   if (tuning.level > 3) {
-    const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.22);
+    const scale = Math.min(8.0, 1 + (tuning.level - 3) * 0.28);
     hp = Math.round(hp * scale);
   }
   d.monsters.push({
@@ -1204,7 +1200,10 @@ export function useGameLoop(p: GameLoopParams) {
             const perpX = px - sk.aimX * along;
             const perpZ = pz - sk.aimZ * along;
             const perpDist = Math.hypot(perpX, perpZ);
-            if (along > 0 && perpDist < 0.55 && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+            // 2026-06-16 v3 — hit corridor 0.55→0.70 (halfway back from
+            // the original 0.9). Still readably thin but less "I dodged
+            // and got hit anyway" feel.
+            if (along > 0 && perpDist < 0.70 && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
               applyPlayerHit(d);
               d.iframesT = 1.2;
               shakeCamera(d, 0.90, 0.32);
@@ -1220,9 +1219,11 @@ export function useGameLoop(p: GameLoopParams) {
             continue;
           } else {  // recover
             sk.phaseT += c;
-            if (sk.phaseT >= 1.0) {
+            // 2026-06-16 v3 — recover 1.0→0.8s, cooldown 5-7→4-6s
+            // (midpoint between 3.5-5.5 prior and 5-7 over-flat).
+            if (sk.phaseT >= 0.8) {
               sk.phase = 'idle';
-              sk.cooldownT = 5 + Math.random() * 2;  // 5-7s before next beam (was 3.5-5.5)
+              sk.cooldownT = 4 + Math.random() * 2;
             }
             // Still no movement during recovery cooldown — readable break.
             m.velocity.x *= 0.4; m.velocity.z *= 0.4;
@@ -1288,7 +1289,7 @@ export function useGameLoop(p: GameLoopParams) {
                 const px = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sx));
                 const pz = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sz));
                 let mHp = MONSTER_HP.lurker;
-                if (tuning.level > 3) mHp = Math.round(mHp * Math.min(6, 1 + (tuning.level - 3) * 0.22));
+                if (tuning.level > 3) mHp = Math.round(mHp * Math.min(8, 1 + (tuning.level - 3) * 0.28));
                 d.monsters.push({
                   id: nextId(),
                   position: new THREE.Vector3(px, 0, pz),
@@ -2358,7 +2359,7 @@ export function useGameLoop(p: GameLoopParams) {
         // Spawn a runner (fast melee) — best for forcing the camp open.
         const hpBase = MONSTER_HP.runner;
         const hp = tuning.level > 3
-          ? Math.round(hpBase * Math.min(6, 1 + (tuning.level - 3) * 0.22))
+          ? Math.round(hpBase * Math.min(8, 1 + (tuning.level - 3) * 0.28))
           : hpBase;
         d.monsters.push({
           id: nextId(),
