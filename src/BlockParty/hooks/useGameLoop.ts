@@ -101,6 +101,10 @@ export interface GameRef {
    *  corresponding ambient elite spawn from AMBIENT_ELITE_UNLOCK_LEVEL+.
    *  Persists across levels in a run; reset on createGameState (fresh run). */
   defeatedBossKinds: Set<BossKind>;
+  /** Continuous time (seconds) the player has been tucked in a corner of
+   *  the arena. Used to detect + punish corner-camping (free-fire from a
+   *  90° safe zone). Resets toward 0 when the player moves out. */
+  cornerCampT: number;
 
   // ─── perk stats (Phase 5) ──────────────────────────────────────────
   // Multipliers/adders applied on top of the survivor's base weapon spec.
@@ -176,6 +180,7 @@ export function createGameState(): GameRef {
     lastEliteSpawnT: 0,
     lastEliteAlertAt: 0,
     defeatedBossKinds: new Set<BossKind>(),
+    cornerCampT: 0,
     xp: 0,
     xpInLevel: 0,
     xpNeededForLevel: 5,
@@ -572,26 +577,95 @@ function rollSpawnTier(level: number): Exclude<MonsterTier, 'boss'> {
   return 'lurker';
 }
 
-// Pick an EXIT spawn position: far from the player, away from edges.
-// Falls through to the opposite-of-player position if it can't find a
-// clean spot in 30 tries.
+// Pick an EXIT spawn position: far from the player, away from edges,
+// and CLEAR of any pillar (no spawning inside a wrecked truck etc.).
+// We rate each candidate (60 attempts) and accept the first one that's
+// far enough AND not overlapping any solid pillar. Failing that, the
+// best clear-of-pillars candidate found wins; final fallback is the
+// opposite-of-player position with a small lateral nudge.
 function pickExitSpawn(d: GameRef): THREE.Vector3 {
-  for (let i = 0; i < 30; i++) {
+  // Clearance margin = EXIT_PICKUP_RADIUS + slack so the beacon glow
+  // doesn't poke into geometry even if the center barely clears.
+  const CLEARANCE_PAD = EXIT_PICKUP_RADIUS + 0.6;
+  const isClear = (x: number, z: number) => {
+    for (const p of d.pillars) {
+      // Skip walkable variants — players can already stand on them.
+      if (p.variant === 'steamGrate' || p.variant === 'bodyBag') continue;
+      const base =
+        p.variant === 'dome'           ? 1.15 :
+        p.variant === 'cluster'        ? 0.95 :
+        p.variant === 'wreckTruck'     ? 1.80 :
+        p.variant === 'wreckCruiser'   ? 1.40 :
+        p.variant === 'boardedShop'    ? 1.05 :
+        p.variant === 'tippedDumpster' ? 1.10 :
+        p.variant === 'barricade'      ? 0.85 :
+        p.variant === 'burnBarrel'     ? 0.55 :
+        0.70;
+      const r = base * p.scale + CLEARANCE_PAD;
+      const ddx = x - p.position.x;
+      const ddz = z - p.position.z;
+      if (ddx * ddx + ddz * ddz < r * r) return false;
+    }
+    return true;
+  };
+  for (let i = 0; i < 60; i++) {
     const x = (Math.random() - 0.5) * (PLAYFIELD - 6);
     const z = (Math.random() - 0.5) * (PLAYFIELD - 6);
-    if (Math.hypot(x - d.pos.x, z - d.pos.z) >= EXIT_MIN_DIST) {
-      return new THREE.Vector3(x, 0, z);
+    if (Math.hypot(x - d.pos.x, z - d.pos.z) < EXIT_MIN_DIST) continue;
+    if (isClear(x, z)) return new THREE.Vector3(x, 0, z);
+  }
+  // Fallback: opposite of player, but if that also collides, sweep
+  // outward in a small radius until we find a clear spot.
+  const fx = -d.pos.x * 0.8, fz = -d.pos.z * 0.8;
+  if (isClear(fx, fz)) return new THREE.Vector3(fx, 0, fz);
+  for (let r = 1.5; r <= 8; r += 1.5) {
+    for (let a = 0; a < 8; a++) {
+      const ang = a * Math.PI / 4;
+      const x = fx + Math.cos(ang) * r;
+      const z = fz + Math.sin(ang) * r;
+      if (Math.abs(x) < ARENA_HALF - 2 && Math.abs(z) < ARENA_HALF - 2 && isClear(x, z)) {
+        return new THREE.Vector3(x, 0, z);
+      }
     }
   }
-  return new THREE.Vector3(-d.pos.x * 0.8, 0, -d.pos.z * 0.8);
+  // Truly stuck — return the fallback even if it overlaps. Better than
+  // a permanently unreachable level.
+  return new THREE.Vector3(fx, 0, fz);
 }
 
 function summonExit(d: GameRef, atPos?: THREE.Vector3) {
   if (d.exit) return;
-  d.exit = {
-    position: atPos ? atPos.clone() : pickExitSpawn(d),
-    bornAt: d.time,
-  };
+  // If the caller passed a kill position (boss death), validate it
+  // doesn't overlap a pillar — monsters don't collide with pillars so
+  // a boss can die inside a wrecked truck and the naive exit-here
+  // placement would be unreachable. Fall back to pickExitSpawn() in
+  // that case, which does proper clearance checking.
+  let pos: THREE.Vector3;
+  if (atPos) {
+    const CLEARANCE_PAD = EXIT_PICKUP_RADIUS + 0.6;
+    let overlaps = false;
+    for (const p of d.pillars) {
+      if (p.variant === 'steamGrate' || p.variant === 'bodyBag') continue;
+      const base =
+        p.variant === 'dome'           ? 1.15 :
+        p.variant === 'cluster'        ? 0.95 :
+        p.variant === 'wreckTruck'     ? 1.80 :
+        p.variant === 'wreckCruiser'   ? 1.40 :
+        p.variant === 'boardedShop'    ? 1.05 :
+        p.variant === 'tippedDumpster' ? 1.10 :
+        p.variant === 'barricade'      ? 0.85 :
+        p.variant === 'burnBarrel'     ? 0.55 :
+        0.70;
+      const r = base * p.scale + CLEARANCE_PAD;
+      const ddx = atPos.x - p.position.x;
+      const ddz = atPos.z - p.position.z;
+      if (ddx * ddx + ddz * ddz < r * r) { overlaps = true; break; }
+    }
+    pos = overlaps ? pickExitSpawn(d) : atPos.clone();
+  } else {
+    pos = pickExitSpawn(d);
+  }
+  d.exit = { position: pos, bornAt: d.time };
   d.exitJustOpened = true;
 }
 
@@ -1772,6 +1846,69 @@ export function useGameLoop(p: GameLoopParams) {
           : d.levelT - d.lastEliteSpawnT >= ELITE_INTERVAL)
     ) {
       spawnEliteStalker(d, tuning);
+    }
+
+    // ── Corner-camp punishment ─────────────────────────────────────
+    // Detect player tucked in a corner of the arena (90° safe zone =
+    // monsters can only approach from two open quadrants, easy to mow
+    // with auto-fire). After CORNER_CAMP_THRESHOLD seconds, spawn a
+    // burst of zombies AT close range around the player so they have
+    // to move. Resets after each burst.
+    const CORNER_MARGIN = 5;
+    const inCorner =
+      Math.abs(d.pos.x) > ARENA_HALF - CORNER_MARGIN &&
+      Math.abs(d.pos.z) > ARENA_HALF - CORNER_MARGIN;
+    if (inCorner) {
+      d.cornerCampT += c;
+    } else {
+      // Quick decay when not in corner — short trips out shouldn't reset
+      // the timer entirely, but moving out cleanly does.
+      d.cornerCampT = Math.max(0, d.cornerCampT - c * 2);
+    }
+    if (d.cornerCampT > 6.0 && !d.exit && !d.gameOver) {
+      // Punish — spawn 3 lurkers within 2.5-4u of the player, on the
+      // FIELD-side semicircle (so they can actually reach the player
+      // instead of clipping into the wall). The pull-out vector points
+      // from player back toward arena center.
+      const cx = -Math.sign(d.pos.x);
+      const cz = -Math.sign(d.pos.z);
+      // Center of the pull-out arc — bias toward field, not corner.
+      const baseAng = Math.atan2(cx, cz);
+      const BURST_N = 3;
+      for (let i = 0; i < BURST_N; i++) {
+        // Spread across ±70° of the field-facing semicircle.
+        const ang = baseAng + (Math.random() - 0.5) * (140 * Math.PI / 180);
+        const r = 2.6 + Math.random() * 1.4;
+        const sx = d.pos.x + Math.sin(ang) * r;
+        const sz = d.pos.z + Math.cos(ang) * r;
+        // Clamp to arena bounds so we don't drop outside.
+        const px = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sx));
+        const pz = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sz));
+        if (d.monsters.length >= tuning.monsterMax) break;
+        // Spawn a runner (fast melee) — best for forcing the camp open.
+        const hpBase = MONSTER_HP.runner;
+        const hp = tuning.level > 3
+          ? Math.round(hpBase * Math.min(10, 1 + (tuning.level - 3) * 0.35))
+          : hpBase;
+        d.monsters.push({
+          id: nextId(),
+          position: new THREE.Vector3(px, 0, pz),
+          velocity: new THREE.Vector3(),
+          rotation: Math.atan2(d.pos.x - px, d.pos.z - pz),
+          state: 'lurking',
+          fleeT: 0, cooldownT: 0, strikeT: 0,
+          strikeAimX: 0, strikeAimZ: 0,
+          tier: 'runner',
+          hp, maxHp: hp,
+          hitFlashT: 0,
+          knockbackVX: 0, knockbackVZ: 0, knockbackT: 0,
+          dying: false, dyingT: 0,
+          flightVX: 0, flightVZ: 0, flightSpin: 0,
+          deathStyle: 0, deathArc: 0,
+          isBoss: false,
+        });
+      }
+      d.cornerCampT = 0;
     }
 
     // ---- EXIT PICKUP ----

@@ -1536,6 +1536,11 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
     ringMat: THREE.MeshBasicMaterial;
     eliteRing: THREE.Mesh | null;
     eliteRingMat: THREE.MeshBasicMaterial | null;
+    /** Persistent violet ground ring for tier='boss' monsters — makes
+     *  the boss instantly pickable from a crowd of 30+ regular zombies.
+     *  Pulses slowly so it reads "important" without flickering. */
+    bossRing: THREE.Mesh | null;
+    bossRingMat: THREE.MeshBasicMaterial | null;
     // Boss-skill telegraph — added lazily for bosses with a skill. A
     // flat ground beam mesh (positioned along skill.aim, scaled per
     // phase) used by charge + beam. Shield uses shieldRing instead.
@@ -1602,6 +1607,29 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           group.add(eliteRing);
         }
 
+        // Persistent boss marker — every tier='boss' gets a violet
+        // pulsing ground ring under its feet so the player can find
+        // it in a swarm of 30+ regular zombies. Bigger + brighter
+        // than the elite red ring; only one boss in scene at low
+        // cycle, several at high cycle, all clearly flagged.
+        let bossRing: THREE.Mesh | null = null;
+        let bossRingMat: THREE.MeshBasicMaterial | null = null;
+        if (m.tier === 'boss') {
+          const bRingGeom = new THREE.RingGeometry(1.20, 1.70, 40);
+          bossRingMat = new THREE.MeshBasicMaterial({
+            color: 0xa060ff,
+            transparent: true,
+            opacity: 0.75,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+          });
+          bossRing = new THREE.Mesh(bRingGeom, bossRingMat);
+          bossRing.rotation.x = -Math.PI / 2;
+          bossRing.position.y = 0.03;
+          group.add(bossRing);
+        }
+
         // Boss skill telegraph meshes — built once for bosses with a
         // skill, then animated per frame. Two flavors: skillBeam is a
         // long thin flat box that scales/orients along the skill's aim
@@ -1654,6 +1682,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         }
 
         slot = { group, ring, ringMat, eliteRing, eliteRingMat,
+                 bossRing, bossRingMat,
                  skillBeam, skillBeamMat, shieldRing, shieldRingMat,
                  tier: m.tier as ZombieTier };
         slots.current.set(m.id, slot);
@@ -1685,6 +1714,14 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         const epulse = 0.70 + Math.sin(t * 3.2 + m.id) * 0.30;
         slot.eliteRing.scale.setScalar(1 + epulse * 0.10);
         slot.eliteRingMat.opacity = 0.40 + epulse * 0.30;
+      }
+      // Boss ring — always-on violet halo so the player can spot the
+      // boss across the field. Slower pulse than the elite ring so the
+      // two markers stay distinguishable when both are on screen.
+      if (slot.bossRing && slot.bossRingMat) {
+        const bpulse = 0.65 + Math.sin(t * 2.0 + m.id) * 0.35;
+        slot.bossRing.scale.setScalar(1 + bpulse * 0.08);
+        slot.bossRingMat.opacity = 0.55 + bpulse * 0.30;
       }
 
       // ── Boss skill telegraphs ────────────────────────────────────
@@ -1888,6 +1925,8 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         slot.ringMat.dispose();
         if (slot.eliteRing) slot.eliteRing.geometry.dispose();
         if (slot.eliteRingMat) slot.eliteRingMat.dispose();
+        if (slot.bossRing) slot.bossRing.geometry.dispose();
+        if (slot.bossRingMat) slot.bossRingMat.dispose();
         if (slot.skillBeam) { root.remove(slot.skillBeam); slot.skillBeam.geometry.dispose(); }
         if (slot.skillBeamMat) slot.skillBeamMat.dispose();
         if (slot.shieldRing) slot.shieldRing.geometry.dispose();
