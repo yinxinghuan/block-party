@@ -248,13 +248,17 @@ function computeEndlessTuning(level: number): LevelTuning {
     lurkerCount:    Math.max(2, Math.floor(14 * decay)),
     stalkerCount:   Math.max(1, Math.floor((1 + Math.floor(k / 3)) * decay)),
     monsterMax:     Math.max(8, Math.floor(MOB_BASE * decay)),
-    monsterSpeed:   clamp(0.90 + k * 0.08, 0.90, 1.70),
+    // 2026-06-16 curve flatten — soften the late-game aggression knobs:
+    //   monsterSpeed cap 1.70→1.55  (less twitchy at L11+)
+    //   strikeTelegraph floor 0.45→0.60  (you can read the wind-up)
+    //   strikeCooldown floor 1.0→1.4   (mobs don't bite back-to-back)
+    monsterSpeed:   clamp(0.90 + k * 0.07, 0.90, 1.55),
     monsterFleeSpeed: clamp(0.90 + k * 0.03, 0.90, 1.30),
     monsterSpawnInterval: clamp(0.55 - k * 0.04, 0.20, 0.90),
     stalkerSpawnRatio:    clamp(0.10 + k * 0.025, 0.10, 0.32),
-    strikeTelegraph:      clamp(1.20 - k * 0.06, 0.45, 1.20),
+    strikeTelegraph:      clamp(1.20 - k * 0.05, 0.60, 1.20),
     strikeRangeMax:       clamp(1.0 + k * 0.03, 1.0, 1.5),
-    strikeCooldown:       clamp(2.8 - k * 0.08, 1.0, 2.8),
+    strikeCooldown:       clamp(2.8 - k * 0.07, 1.4, 2.8),
     crystalInitial:       clamp(4 - Math.floor(k / 2), 1, 4),
     pillarCount:          clamp(30 + k * 2, 30, 60),
     pillarScaleBias:      0.95 + ((level * 0.31) % 1) * 0.20,

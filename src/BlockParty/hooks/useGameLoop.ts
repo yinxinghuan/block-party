@@ -341,9 +341,12 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
   let bossKind: BossKind | undefined;
   let skill: Monster['skill'];
   if (tier === 'boss') {
-    // Batch B — per-LEVEL boss HP scaling. +15% per level, cap 8×.
-    //   L1=32, L5=51, L10=80, L20=131, L48+=256 (cap).
-    hp = Math.min(MONSTER_HP.boss * 8, Math.round(MONSTER_HP.boss * (1 + (tuning.level - 1) * 0.15)));
+    // 2026-06-16 curve flatten — boss HP slope 0.15→0.10, cap 8×→5×.
+    //   L1=32, L5=45, L10=61, L15=77, L20=93, L41+=160 (cap).
+    // Combined with the boss being 1 of 1 on L1-10 and the player's
+    // weapon-level + perk compound, this keeps bosses challenging but
+    // not "I can't bring it down in time" walls.
+    hp = Math.min(MONSTER_HP.boss * 5, Math.round(MONSTER_HP.boss * (1 + (tuning.level - 1) * 0.10)));
     // Batch C — boss entry MUST read as boss. Floor at 1.4× for every
     // boss spawn (L1 vampire included), +5% per ~3 levels on top,
     // capped at 1.6× so the model doesn't outgrow the camera. This is
@@ -385,12 +388,13 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
       };
     }
   } else {
-    // Per-level non-boss HP scaling. L1-3 stay hand-tuned (no scale).
-    // Pass 4 slope 0.28→0.35 / cap 8×→10× — keeps the curve climbing
-    // alongside the player's compounding perks + weapon levels.
-    //   L4=1.35×, L8=2.75×, L12=4.15×, L15=5.20×, L20=6.95×, L28+=10×.
+    // 2026-06-16 curve flatten — non-boss HP slope 0.35→0.22, cap 10×→6×.
+    //   L4=1.22×, L8=2.10×, L12=2.98×, L15=3.64×, L20=4.74×, L26+=6.0×.
+    // The 0.35 ramp made mid-game (L7-L12) feel like an HP wall every
+    // 2 levels; 0.22 gives the player room for their compounding
+    // weapon + perk DPS to catch up before the next jump.
     if (tuning.level > 3) {
-      const scale = Math.min(10.0, 1 + (tuning.level - 3) * 0.35);
+      const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.22);
       hp = Math.round(hp * scale);
     }
   }
@@ -441,7 +445,7 @@ function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
   // (pass 4 slope 0.35 / cap 10×).
   let hp = MONSTER_HP.stalker * 2;
   if (tuning.level > 3) {
-    const scale = Math.min(10.0, 1 + (tuning.level - 3) * 0.35);
+    const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.22);
     hp = Math.round(hp * scale);
   }
   d.monsters.push({
@@ -526,7 +530,7 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
   // (boss = 14× at L15). Same per-level scaling as everyone else.
   let hp = MONSTER_HP[tier] * 3;
   if (tuning.level > 3) {
-    const scale = Math.min(10.0, 1 + (tuning.level - 3) * 0.35);
+    const scale = Math.min(6.0, 1 + (tuning.level - 3) * 0.22);
     hp = Math.round(hp * scale);
   }
   d.monsters.push({
@@ -1153,29 +1157,38 @@ export function useGameLoop(p: GameLoopParams) {
             continue;
           }
         } else if (sk.kind === 'beam') {
-          // COMBAT MECH BEAM — 1.8s telegraph (laser line drawn on
-          // ground), then 0.4s firing (hitscan along locked aim).
+          // COMBAT MECH BEAM — 2026-06-16 redesign for dodgeability:
+          //   * 1.5s telegraph (was 1.8s) and aim LOCKS at 0.25s instead of
+          //     tracking the player to the end. Player can side-step OUT of
+          //     the line during the full remaining 1.25s.
+          //   * Hit corridor narrowed 0.9 → 0.55 — the laser is THIN.
+          //   * Recover bumped 0.6 → 1.0s; cooldown 3.5-5.5 → 5-7s so the
+          //     beam isn't back-to-back.
           if (sk.phase === 'idle') {
             sk.cooldownT -= c;
             if (sk.cooldownT <= 0 && dist > 5 && dist < 24) {
               sk.phase = 'telegraph';
               sk.phaseT = 0;
+              // Pre-lock the initial aim toward current player position so
+              // the visible beam line snaps in immediately (not at the end).
+              const inv = dist > 0.001 ? 1 / dist : 0;
+              sk.aimX = dx * inv;
+              sk.aimZ = dz * inv;
             }
           } else if (sk.phase === 'telegraph') {
             sk.phaseT += c;
-            // Telegraph aim TRACKS player slowly — player can still
-            // dodge but it takes commitment. Aim locks fully at end.
-            const inv = dist > 0.001 ? 1 / dist : 0;
-            const trackBlend = Math.min(1, sk.phaseT / 1.8) * 0.6 + 0.4;
-            sk.aimX = sk.aimX * (1 - trackBlend * 0.15) + dx * inv * (trackBlend * 0.15);
-            sk.aimZ = sk.aimZ * (1 - trackBlend * 0.15) + dz * inv * (trackBlend * 0.15);
+            // Aim tracks ONLY for the first 0.25s (acquisition window),
+            // then HARD-LOCKS for the rest of the telegraph. Player has
+            // ~1.25s to step out of the line.
+            if (sk.phaseT < 0.25) {
+              const inv = dist > 0.001 ? 1 / dist : 0;
+              sk.aimX = dx * inv;
+              sk.aimZ = dz * inv;
+            }
             // Don't move during charge — feet planted, glow ramping.
             m.velocity.x *= 0.5; m.velocity.z *= 0.5;
             if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
-            if (sk.phaseT >= 1.8) {
-              // Final aim lock.
-              sk.aimX = dx * inv;
-              sk.aimZ = dz * inv;
+            if (sk.phaseT >= 1.5) {
               sk.phase = 'active';
               sk.phaseT = 0;
             }
@@ -1191,7 +1204,7 @@ export function useGameLoop(p: GameLoopParams) {
             const perpX = px - sk.aimX * along;
             const perpZ = pz - sk.aimZ * along;
             const perpDist = Math.hypot(perpX, perpZ);
-            if (along > 0 && perpDist < 0.9 && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+            if (along > 0 && perpDist < 0.55 && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
               applyPlayerHit(d);
               d.iframesT = 1.2;
               shakeCamera(d, 0.90, 0.32);
@@ -1207,9 +1220,9 @@ export function useGameLoop(p: GameLoopParams) {
             continue;
           } else {  // recover
             sk.phaseT += c;
-            if (sk.phaseT >= 0.6) {
+            if (sk.phaseT >= 1.0) {
               sk.phase = 'idle';
-              sk.cooldownT = 3.5 + Math.random() * 2;  // 3.5-5.5s before next beam
+              sk.cooldownT = 5 + Math.random() * 2;  // 5-7s before next beam (was 3.5-5.5)
             }
             // Still no movement during recovery cooldown — readable break.
             m.velocity.x *= 0.4; m.velocity.z *= 0.4;
@@ -1275,7 +1288,7 @@ export function useGameLoop(p: GameLoopParams) {
                 const px = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sx));
                 const pz = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sz));
                 let mHp = MONSTER_HP.lurker;
-                if (tuning.level > 3) mHp = Math.round(mHp * Math.min(10, 1 + (tuning.level - 3) * 0.35));
+                if (tuning.level > 3) mHp = Math.round(mHp * Math.min(6, 1 + (tuning.level - 3) * 0.22));
                 d.monsters.push({
                   id: nextId(),
                   position: new THREE.Vector3(px, 0, pz),
@@ -2345,7 +2358,7 @@ export function useGameLoop(p: GameLoopParams) {
         // Spawn a runner (fast melee) — best for forcing the camp open.
         const hpBase = MONSTER_HP.runner;
         const hp = tuning.level > 3
-          ? Math.round(hpBase * Math.min(10, 1 + (tuning.level - 3) * 0.35))
+          ? Math.round(hpBase * Math.min(6, 1 + (tuning.level - 3) * 0.22))
           : hpBase;
         d.monsters.push({
           id: nextId(),

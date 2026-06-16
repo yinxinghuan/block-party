@@ -1770,13 +1770,14 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           }
         } else if (sk.kind === 'beam') {
           // Long laser line, locked aim. Telegraph = thin dotted-red
-          // narrowing onto player. Active = thick bright pulse.
+          // narrowing onto player. Active = thick bright pulse. Beam
+          // width is now narrower to match the slimmer hit corridor.
           const LEN = 22;
           if (sk.phase === 'telegraph') {
             slot.skillBeam.visible = true;
-            const t01 = sk.phaseT / 1.8;
-            slot.skillBeamMat.opacity = 0.20 + t01 * 0.55;
-            slot.skillBeam.scale.set(0.30 + t01 * 0.25, LEN, 1);
+            const t01 = sk.phaseT / 1.5;
+            slot.skillBeamMat.opacity = 0.22 + t01 * 0.55;
+            slot.skillBeam.scale.set(0.18 + t01 * 0.18, LEN, 1);     // narrowed: 0.18→0.36 (was 0.30→0.55)
             slot.skillBeam.position.set(
               m.position.x + sk.aimX * LEN * 0.5,
               0.06,
@@ -1786,7 +1787,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           } else if (sk.phase === 'active') {
             slot.skillBeam.visible = true;
             slot.skillBeamMat.opacity = 0.95 * (1 - sk.phaseT / 0.4);
-            slot.skillBeam.scale.set(1.0, LEN, 1);
+            slot.skillBeam.scale.set(0.65, LEN, 1);                  // narrowed: 0.65 (was 1.0) — matches 0.55u hit corridor
           } else {
             slot.skillBeam.visible = false;
           }
