@@ -64,6 +64,31 @@ export function getBossCount(level: number): number {
   return Math.max(1, Math.ceil(cycle / 2));
 }
 
+/** Pick the specific boss kinds that spawn on a given boss night.
+ *  Boss night = disguised tutorial — each cycle introduces ONE new
+ *  elite kind in slot 0, with previously-introduced kinds filling the
+ *  remaining slots for context. After cycle 4 all 3 elites are known,
+ *  rotation becomes a deterministic mix.
+ *    cycle 1 (L3): [vampire]              — original
+ *    cycle 2 (L6): [minotaur]             — introduce CHARGE
+ *    cycle 3 (L9): [mech, minotaur]       — introduce BEAM + revisit charge
+ *    cycle 4 (L12): [swat, mech]          — introduce SHIELD + revisit beam
+ *    cycle 5+ (L15+): mix all three, rotating per slot
+ */
+export type BossKind = 'vampire' | 'minotaur' | 'mech' | 'swat';
+export function pickBossKinds(level: number): BossKind[] {
+  if (level % 3 !== 0) return [];
+  const cycle = Math.floor(level / 3);
+  const count = getBossCount(level);
+  if (cycle === 1) return Array<BossKind>(count).fill('vampire');
+  if (cycle === 2) return ['minotaur'];
+  if (cycle === 3) return ['mech', 'minotaur'];
+  if (cycle === 4) return ['swat', 'mech'];
+  // cycle 5+ — all three available, rotate slot by slot
+  const order: BossKind[] = ['minotaur', 'mech', 'swat'];
+  return Array.from({ length: count }, (_, i) => order[(cycle + i) % 3]);
+}
+
 /** Kills needed before the exit beacon appears. Boss nights (every 3rd
  *  level) return -1 — boss deaths trigger the exit instead. Endless:
  *  the curve preserves the original N1/N2 hand-tuned values exactly, then

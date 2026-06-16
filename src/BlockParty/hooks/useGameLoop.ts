@@ -12,9 +12,11 @@ import {
   AIM_RANGE, FIRE_ARC_HALF, BULLET_SPEED, BULLET_TTL, BULLET_RADIUS,
   SURGE_PERIOD, SURGE_COUNT_BASE, SURGE_COUNT_PER_NIGHT,
   MONSTER_SPEED_K, MONSTER_KNOCKBACK_V, getTierWeights,
-  EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, getKillGoal, getBossCount,
+  EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, getKillGoal,
+  pickBossKinds,
   MONSTER_HP, SCORE_KILL,
 } from '../constants';
+import type { BossKind } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
 import type { BloodSplat, Bullet, Crystal, EnemyProjectile, ExitStone, FxEvent, Monster, MonsterTier, PerkDrop, Pillar, PillarVariant, Stick } from '../types';
 import { getPerk, rollOnePerk } from '../perks';
@@ -95,6 +97,10 @@ export interface GameRef {
   /** Set by spawnEliteStalker, polled + cleared by BlockParty.tsx for the
    *  "ELITE INCOMING" warning toast. Holds the spawn timestamp. */
   lastEliteAlertAt: number;
+  /** Boss kinds the player has defeated this run. Each one unlocks the
+   *  corresponding ambient elite spawn from AMBIENT_ELITE_UNLOCK_LEVEL+.
+   *  Persists across levels in a run; reset on createGameState (fresh run). */
+  defeatedBossKinds: Set<BossKind>;
 
   // ─── perk stats (Phase 5) ──────────────────────────────────────────
   // Multipliers/adders applied on top of the survivor's base weapon spec.
@@ -169,6 +175,7 @@ export function createGameState(): GameRef {
     elitesSpawnedThisLevel: 0,
     lastEliteSpawnT: 0,
     lastEliteAlertAt: 0,
+    defeatedBossKinds: new Set<BossKind>(),
     xp: 0,
     xpInLevel: 0,
     xpNeededForLevel: 5,
@@ -320,7 +327,7 @@ function randomSpawnPos(d: GameRef, minDistFromPlayer: number, marginFromEdge: n
   return new THREE.Vector3((Math.random() - 0.5) * PLAYFIELD * 0.8, 0, (Math.random() - 0.5) * PLAYFIELD * 0.8);
 }
 
-function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
+function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, explicitBossKind?: BossKind) {
   if (d.monsters.length >= tuning.monsterMax) return;
   const minDist = tier === 'boss' ? 18 : 14;
   const pos = randomSpawnPos(d, minDist, 2);
@@ -339,17 +346,12 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier) {
     // boss = stronger boss. +10% per cycle, capped at 1.6× so the
     // model doesn't outgrow the camera frame.
     scaleMul = Math.min(1.6, 1 + (cycle - 1) * 0.10);
-    // Boss variant + skill. Cycle 1 is the OG vampire (no skill); from
-    // cycle 2 on the elite roster rotates so a multi-boss night can
-    // present 2-4 different skill threats simultaneously.
-    if (cycle === 1) {
-      bossKind = 'vampire';
-    } else {
-      // Deterministic-ish rotation that doesn't repeat instantly on
-      // multi-boss spawns: per-spawn index seeded via current monster
-      // count keeps each boss in the wave distinct.
-      const rotation: ('minotaur' | 'mech' | 'swat')[] = ['minotaur', 'mech', 'swat'];
-      bossKind = rotation[(d.monsters.length + cycle) % rotation.length];
+    // Boss variant + skill. Caller (startLevel) hands in the kind via
+    // pickBossKinds() so the tutorial schedule is deterministic
+    // (cycle 2 = minotaur teaching charge, cycle 3 = mech + minotaur,
+    // cycle 4 = swat + mech, etc).
+    bossKind = explicitBossKind ?? (cycle === 1 ? 'vampire' : 'minotaur');
+    if (bossKind !== 'vampire') {
       const skillKind: 'charge' | 'beam' | 'shield' =
         bossKind === 'minotaur' ? 'charge'
         : bossKind === 'mech'   ? 'beam'
@@ -454,6 +456,80 @@ function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
   d.elitesSpawnedThisLevel += 1;
   d.lastEliteSpawnT = d.levelT;
   d.lastEliteAlertAt = d.time;
+}
+
+// ─── Ambient elite (defeated-boss kinds as occasional small enemies) ─
+// Once the player has killed a minotaur/mech/swat boss for the first
+// time, that kind unlocks. From AMBIENT_ELITE_UNLOCK_LEVEL onward,
+// each spawn-trickle tick has a small chance to spawn one of the
+// unlocked kinds as an ambient elite — wraps an appropriate base tier
+// (brute for minotaur / stalker for mech / lurker for swat) at ~3-4×
+// regular HP. Keeps the bossKind + skill state machine so the player
+// still has to deal with charge / beam / shield in non-boss levels.
+const AMBIENT_ELITE_UNLOCK_LEVEL = 13;   // after cycle 4 boss-night intro of all 3
+const AMBIENT_ELITE_BASE_CHANCE = 0.06;   // ~6% of trickle spawns at L13+
+function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
+  if (d.monsters.length >= tuning.monsterMax) return;
+  if (kind === 'vampire') return;   // no ambient vampires (boss-only)
+  // Pick a wrapper tier per kind so the base AI (movement / range / SFX)
+  // fits the silhouette: minotaur → brute (slow tough melee), mech →
+  // stalker (ranged), swat → lurker (walking melee).
+  const tier: MonsterTier =
+    kind === 'minotaur' ? 'brute'
+    : kind === 'mech'   ? 'stalker'
+    :                     'lurker';
+  const pos = randomSpawnPos(d, 14, 2);
+  // 3× tier baseline HP — meaty for an ambient, but well below boss
+  // (boss = 14× at L15). Same per-level scaling as everyone else.
+  let hp = MONSTER_HP[tier] * 3;
+  if (tuning.level > 3) {
+    const scale = Math.min(10.0, 1 + (tuning.level - 3) * 0.35);
+    hp = Math.round(hp * scale);
+  }
+  const skillKind: 'charge' | 'beam' | 'shield' =
+    kind === 'minotaur' ? 'charge'
+    : kind === 'mech'   ? 'beam'
+    :                     'shield';
+  d.monsters.push({
+    id: nextId(),
+    position: pos,
+    velocity: new THREE.Vector3(),
+    rotation: Math.random() * Math.PI * 2,
+    state: 'lurking',
+    fleeT: 0,
+    cooldownT: 0,
+    strikeT: 0,
+    strikeAimX: 0,
+    strikeAimZ: 0,
+    tier,
+    hp,
+    maxHp: hp,
+    hitFlashT: 0,
+    knockbackVX: 0,
+    knockbackVZ: 0,
+    knockbackT: 0,
+    dying: false,
+    dyingT: 0,
+    flightVX: 0,
+    flightVZ: 0,
+    flightSpin: 0,
+    deathStyle: 0,
+    deathArc: 0,
+    isBoss: false,
+    isElite: true,
+    // Slightly bigger than regular tier so the silhouette still reads
+    // "boss-grade", but smaller than the actual boss (~0.85× of base).
+    scaleMul: 0.90,
+    bossKind: kind,
+    skill: {
+      kind: skillKind,
+      phase: 'idle',
+      phaseT: 0,
+      cooldownT: 6 + Math.random() * 3,   // longer warmup than boss skills
+      aimX: 0,
+      aimZ: 0,
+    },
+  });
 }
 
 // Per-tier launch impulse when killed — bumped 33% so corpses really
@@ -576,11 +652,12 @@ export function startLevel(d: GameRef, level: number) {
     spawnMonsterTier(d, tuning, rollSpawnTier(level));
   }
   if (tuning.isBoss) {
-    // Multi-boss spawn — getBossCount returns 1 at L3/L6, 2 at L9/L12,
-    // 3 at L15/L18, etc. All bosses must be killed before the exit
-    // beacon spawns (see checkExitTrigger).
-    const bossCount = getBossCount(level);
-    for (let i = 0; i < bossCount; i++) spawnMonsterTier(d, tuning, 'boss');
+    // Multi-boss spawn — tutorial-schedule via pickBossKinds (cycle 2
+    // introduces minotaur, cycle 3 adds mech + revisits minotaur, …).
+    // All bosses must be killed before the exit beacon spawns
+    // (see checkExitTrigger).
+    const kinds = pickBossKinds(level);
+    for (const kind of kinds) spawnMonsterTier(d, tuning, 'boss', kind);
   }
 }
 
@@ -1558,6 +1635,13 @@ export function useGameLoop(p: GameLoopParams) {
             // gets a quick punch so the "you ended that one" beat lands.
             if (m.tier === 'boss') shakeCamera(d, 0.95, 0.55);
             else                   shakeCamera(d, 0.18, 0.10);
+            // Tutorial unlock — boss night was a disguised lesson; once
+            // the player has killed a minotaur/mech/swat boss, that
+            // kind unlocks as an ambient elite for later levels (gated
+            // by AMBIENT_ELITE_UNLOCK_LEVEL).
+            if (m.tier === 'boss' && m.bossKind && m.bossKind !== 'vampire') {
+              d.defeatedBossKinds.add(m.bossKind);
+            }
             // Launch the corpse — flies along the bullet vector, tumbles
             // for ~0.6s, bowls into anything in its path. deathStyle
             // randomizes the tumble axis + limp pose so a wave of dying
@@ -1647,7 +1731,26 @@ export function useGameLoop(p: GameLoopParams) {
     d.monsterSpawnTimer += c;
     if (d.monsterSpawnTimer >= tuning.monsterSpawnInterval) {
       d.monsterSpawnTimer = 0;
-      spawnMonsterTier(d, tuning, rollSpawnTier(d.level));
+      // Defeated-boss elite spawn — at L13+ (after cycle 4 finishes
+      // introducing all 3 elite kinds via boss-night tutorials), small
+      // chance each trickle to spawn one of the kinds the player has
+      // killed at least once as a regular boss. Caps to a few per
+      // level via the existing anti-stall counter.
+      let spawned = false;
+      if (
+        !tuning.isBoss
+        && d.level >= AMBIENT_ELITE_UNLOCK_LEVEL
+        && d.defeatedBossKinds.size > 0
+        && Math.random() < AMBIENT_ELITE_BASE_CHANCE
+      ) {
+        const pool = Array.from(d.defeatedBossKinds);
+        const kind = pool[Math.floor(Math.random() * pool.length)];
+        spawnAmbientElite(d, tuning, kind);
+        spawned = true;
+      }
+      if (!spawned) {
+        spawnMonsterTier(d, tuning, rollSpawnTier(d.level));
+      }
     }
     d.surgeTimer += c;
     if (d.surgeTimer >= SURGE_PERIOD) {
