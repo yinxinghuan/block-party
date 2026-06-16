@@ -595,10 +595,175 @@ export function makeMinotaur(): RiggedGroup {
   return g;
 }
 
+// VIKING RAIDER — replaces SWAT visually as the SHIELD carrier. Same
+// rig contract; the named 'shield' group on left arm is what the skill
+// telegraph could grab/orient if needed.
+export function makeViking(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const fur=0x6b4a2e, furD=0x4a3320;
+  const leather=0x4a342a, leatherD=0x2a1d18;
+  const skin=0xe2a877, skinD=0xb78550;
+  const beard=0xa9774a, hair=0x7c5230;
+  const horn=0xe6dec3, hornD=0xc3b994;
+  const iron=0x44464d, ironD=0x2a2c30;
+  const brass=0xc78a2f;
+  const shieldWood=0x7c5230, shieldRim=0x3b3b44;
+  const shieldGlyph=0xb05de8;
+  const eyeC=0x201b18;
+  const BW = 1.06, BD = 0.58, torsoH = 0.92, legH = 0.86, bootH = 0.20;
+  const lx = 0.24, hipY = bootH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.32, bootH, BD + 0.04, leatherD, 0, bootH / 2 - hipY, 0.04));
+    L.add(box(0.32, 0.06, BD, fur, 0, bootH + 0.04 - hipY, 0));
+    L.add(box(0.30, legH - 0.10, BD - 0.06, leather, 0, (bootH + legH * 0.5) - hipY, 0));
+    L.add(box(0.32, 0.04, BD - 0.02, brass, 0, (bootH + legH * 0.85) - hipY, 0));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, fur, 0, torsoY, 0));
+  g.add(box(BW - 0.04, torsoH * 0.70, BD - 0.02, iron, 0, torsoY + 0.02, 0));
+  g.add(box(BW + 0.08, 0.10, BD + 0.06, leatherD, 0, hipY - 0.04, 0));
+  g.add(box(0.20, 0.16, 0.06, brass, 0, hipY - 0.02, BD / 2 + 0.04, { e: brass, ei: 0.85 }));
+  for (const sx of [-1, 1]) {
+    g.add(box(0.30, 0.18, BD - 0.04, furD, sx * (BW / 2 + 0.06), torsoY + torsoH / 2 - 0.04, 0));
+  }
+  const ax = BW / 2 + 0.16, shoulderY = torsoY + torsoH / 2 - 0.04, armH = torsoH + 0.34;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(0.26, armH * 0.45, BD - 0.18, fur, 0, -armH * 0.225 + 0.04, 0));
+    A.add(box(0.22, armH * 0.40, BD - 0.20, skin, 0, -armH * 0.68 + 0.04, 0));
+    A.add(box(0.28, 0.18, BD - 0.10, leatherD, 0, -armH + 0.18, 0));
+    A.add(box(0.26, 0.16, BD - 0.12, skinD, 0, -armH + 0.04, 0));
+  }
+  // Round shield on LEFT arm — concentric boxes approximating a disc
+  const shield = new THREE.Group();
+  shield.name = 'shield';
+  shield.position.set(0.16, -armH / 2 + 0.40, BD / 2 + 0.16);
+  shield.add(box(1.12, 1.12, 0.10, shieldWood, 0, 0, 0));
+  shield.add(box(1.18, 0.10, 0.14, shieldRim,  0,  0.56, 0));
+  shield.add(box(1.18, 0.10, 0.14, shieldRim,  0, -0.56, 0));
+  shield.add(box(0.10, 1.18, 0.14, shieldRim,  0.56,  0, 0));
+  shield.add(box(0.10, 1.18, 0.14, shieldRim, -0.56,  0, 0));
+  shield.add(box(0.24, 0.24, 0.12, brass, 0, 0, 0.07));
+  shield.add(box(0.12, 0.96, 0.012, shieldGlyph, 0, 0, 0.06));
+  shield.add(box(0.96, 0.12, 0.012, shieldGlyph, 0, 0, 0.06));
+  armL.add(shield);
+  // Battle axe in RIGHT arm
+  const axe = new THREE.Group();
+  axe.position.set(0.02, -armH + 0.14, 0.26);
+  axe.add(box(0.10, 0.10, 0.78, leatherD, 0, 0, 0));
+  for (const zz of [-0.20, 0.20]) axe.add(box(0.12, 0.12, 0.06, brass, 0, 0, zz));
+  axe.add(box(0.06, 0.46, 0.32, iron, 0, 0.16, 0.52));
+  axe.add(box(0.06, 0.36, 0.24, iron, 0, 0.18, 0.74));
+  armR.add(axe);
+  // Head + beard + horned helm
+  const HW = 0.50, HH = 0.50, HDP = 0.46;
+  const headY = torsoY + torsoH / 2 + 0.04 + HH / 2;
+  g.add(box(HW, HH, HDP, skin, 0, headY, 0));
+  g.add(box(HW - 0.10, 0.20, 0.18, beard, 0, headY - HH / 2 - 0.04, HDP / 2 - 0.06));
+  g.add(box(HW - 0.14, 0.18, 0.14, beard, 0, headY - HH / 2 - 0.20, HDP / 2 - 0.08));
+  for (const sx of [-1, 1]) {
+    g.add(box(0.08, 0.06, 0.04, eyeC, sx * 0.12, headY + 0.04, HDP / 2 + 0.02));
+  }
+  for (const sx of [-1, 1]) {
+    g.add(box(0.10, 0.30, HDP - 0.08, hair, sx * (HW / 2 + 0.02), headY - 0.04, 0));
+  }
+  const helmY = headY + HH * 0.30;
+  g.add(box(HW + 0.08, HH * 0.42, HDP + 0.06, iron, 0, helmY, 0));
+  g.add(box(HW + 0.06, 0.10, HDP + 0.04, ironD, 0, helmY - HH * 0.25, 0));
+  g.add(box(0.10, 0.30, 0.10, ironD, 0, headY - HH * 0.02, HDP / 2 + 0.04));
+  for (const sx of [-1, 1]) {
+    const hornGrp = new THREE.Group();
+    hornGrp.position.set(sx * (HW / 2 - 0.02), helmY + HH * 0.18, 0);
+    hornGrp.rotation.z = sx * -0.20;
+    hornGrp.add(box(0.18, 0.22, 0.20, horn,  sx * 0.06, 0.10, 0));
+    hornGrp.add(box(0.14, 0.20, 0.16, horn,  sx * 0.14, 0.30, 0));
+    hornGrp.add(box(0.10, 0.18, 0.12, hornD, sx * 0.22, 0.50, 0));
+    g.add(hornGrp);
+  }
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// PUNK — ported from _lowpoly_lab/builders/archetypes.js. Tall mohawk +
+// studded jacket + leather pants. Maps to the CHARGE skill (alongside
+// minotaur) but tuned faster + shorter range — feels like a rabid
+// pounce vs. minotaur's heavy thunder.
+export function makePunk(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const ironD = P.ironD;
+  const steel = P.steel;
+  const skin = P.skin;
+  const eyeC = 0x241f1c;
+  const accent = P.accent;
+  const slateD = darken(P.slate, 0.95);
+  const BW = 0.86, BD = 0.46, torsoH = 0.80, legH = 1.04, shoeH = 0.20;
+  const lx = 0.16, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.30, shoeH + 0.06, BD, ironD, 0, (shoeH + 0.06) / 2 - hipY, 0.05));
+    for (let i = 0; i < 3; i++) L.add(box(0.04, 0.04, 0.04, steel, i * 0.06 - 0.06, shoeH / 2 - 0.04 - hipY, BD / 2 + 0.03));
+    L.add(box(0.20, legH, BD - 0.12, slateD, 0, (shoeH + legH / 2) - hipY, 0));
+    L.add(box(0.24, 0.04, BD - 0.08, steel, 0, (shoeH + legH * 0.55) - hipY, 0));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, ironD, 0, torsoY, 0));
+  g.add(box(0.10, 0.20, 0.04, darken(ironD, 0.4), -0.14, torsoY + torsoH * 0.28, BD / 2 + 0.02));
+  g.add(box(0.10, 0.20, 0.04, darken(ironD, 0.4),  0.14, torsoY + torsoH * 0.28, BD / 2 + 0.02));
+  for (let r = 0; r < 3; r++) for (let c = -1; c <= 1; c++) {
+    g.add(box(0.05, 0.05, 0.05, steel, c * 0.24, torsoY + 0.16 - r * 0.14, BD / 2 + 0.025));
+  }
+  // Belt + studs along it
+  g.add(box(BW + 0.02, 0.10, BD + 0.02, ironD, 0, torsoY - torsoH / 2 + 0.05, 0));
+  for (let i = -2; i <= 2; i++) g.add(box(0.05, 0.05, 0.05, steel, i * 0.16, torsoY - torsoH / 2 + 0.05, BD / 2 + 0.02));
+  // Shoulder spikes
+  for (const sx of [-1, 1]) for (let i = -2; i <= 2; i++) {
+    const h = 0.12 + Math.abs(i) * 0.04;
+    g.add(box(0.05, 0.16 + h, 0.05, steel, sx * (BW / 2 - 0.04) + i * 0.03, torsoY + torsoH / 2 + 0.08 + h / 2, i * 0.04));
+  }
+  // Arms — jacket sleeve over bare forearm + bracer studs
+  const armW = 0.18, armH = torsoH + legH * 0.30, shoulderY = torsoY + torsoH / 2;
+  const ax = BW / 2 + 0.02 + armW / 2;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(armW, armH * 0.72, BD - 0.12, ironD, 0, (torsoY + torsoH / 2 - armH * 0.36) - shoulderY, 0));
+    A.add(box(armW, armH * 0.28, BD - 0.12, skin,  0, (torsoY + torsoH / 2 - armH * 0.86) - shoulderY, 0));
+    for (let i = 0; i < 3; i++) A.add(box(0.05, 0.05, 0.05, steel, 0.03, (torsoY + torsoH / 2 - armH * 0.40) - shoulderY - i * 0.10, BD / 2 - 0.08));
+  }
+  // Head + spiky teal mohawk
+  const HW = 0.52, HH = 0.56, HDP = 0.46;
+  const neckY = torsoY + torsoH / 2 + 0.05;
+  g.add(box(0.26, 0.12, 0.24, skin, 0, neckY, 0));
+  const headY = neckY + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, skin, 0, headY, 0));
+  // Eyes
+  for (const sx of [-1, 1]) g.add(box(0.12, 0.12, 0.04, eyeC, sx * HW * 0.26, headY + 0.02, HDP / 2 + 0.01));
+  // Snarl line + nose stud
+  g.add(box(HW * 0.96, 0.06, 0.04, eyeC, 0, headY + 0.10, HDP / 2 + 0.012));
+  g.add(box(0.05, 0.05, 0.04, steel, -HW * 0.3, headY + 0.18, HDP / 2 + 0.020));
+  const topHead = headY + HH / 2;
+  g.add(box(0.18, 0.18, HDP * 0.82, ironD, 0, topHead + 0.04, 0));
+  // Tall teal mohawk — the silhouette anchor
+  g.add(box(0.14, 0.80, HDP * 0.78, accent, 0, topHead + 0.46, 0, { e: accent, ei: 0.55 }));
+  g.add(box(0.10, 0.24, HDP * 0.42, accent, 0, topHead + 0.94, 0, { e: accent, ei: 0.55 }));
+  // Sideburns
+  g.add(box(0.05, 0.16, HDP * 0.5, eyeC, -(HW / 2 + 0.02), topHead - 0.06, 0));
+  g.add(box(0.05, 0.16, HDP * 0.5, eyeC,  (HW / 2 + 0.02), topHead - 0.06, 0));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
 /** Boss variant — picks which model + skill the boss uses on a given
- *  cycle. 'vampire' is the original; the new three are the elite roster
- *  with their own AI skills. Each runs at tier='boss' base stats. */
-export type BossKind = 'vampire' | 'swat' | 'mech' | 'minotaur';
+ *  cycle. 'vampire' is the original; viking/mech/minotaur/punk are the
+ *  elite roster with their own AI skills. ('swat' kept for backwards
+ *  compat but no longer in the rotation; viking is the shield carrier.) */
+export type BossKind = 'vampire' | 'swat' | 'mech' | 'minotaur' | 'viking' | 'punk';
 
 // Dispatcher — Scene.tsx calls this when spawning a new monster. For
 // tier='boss' it also takes an optional kind so we can pick the variant.
@@ -610,7 +775,9 @@ export function makeMonster(tier: ZombieTier, bossKind?: BossKind): ZombieGroup 
     case 'stalker': g = makeMummy();    break;
     case 'ghost':   g = makeGhost();    break;
     case 'boss':
-      g = bossKind === 'swat'     ? makeSwat()
+      g = bossKind === 'viking'   ? makeViking()
+        : bossKind === 'punk'     ? makePunk()
+        : bossKind === 'swat'     ? makeSwat()        // legacy fallback
         : bossKind === 'mech'     ? makeCombatMech()
         : bossKind === 'minotaur' ? makeMinotaur()
         : makeVampire();
@@ -625,7 +792,14 @@ export function makeMonster(tier: ZombieTier, bossKind?: BossKind): ZombieGroup 
     tier === 'brute'   ? 0.78 :
     tier === 'stalker' ? 0.72 :
     tier === 'ghost'   ? 0.70 :
-    tier === 'boss'    ? (bossKind === 'mech' ? 1.55 : bossKind === 'minotaur' ? 1.45 : bossKind === 'swat' ? 1.30 : 1.40) :
+    tier === 'boss'    ? (
+        bossKind === 'mech'     ? 1.55 :
+        bossKind === 'minotaur' ? 1.45 :
+        bossKind === 'viking'   ? 1.35 :
+        bossKind === 'punk'     ? 1.25 :
+        bossKind === 'swat'     ? 1.30 :
+                                  1.40   // vampire
+      ) :
                          0.66;
   g.scale.setScalar(targetScale);
   return g as ZombieGroup;

@@ -63,9 +63,10 @@ export interface Monster {
    *  boss as a readable cue). Defaults to 1.0 in the renderer. */
   scaleMul?: number;
   /** Boss variant — controls which model + which AI skill the boss
-   *  carries. 'vampire' = original melee, 'swat' = shield, 'mech' =
-   *  beam, 'minotaur' = charge. Only meaningful when tier='boss'. */
-  bossKind?: 'vampire' | 'swat' | 'mech' | 'minotaur';
+   *  carries. 'vampire' = original melee, 'mech' = beam, 'minotaur' =
+   *  big charge, 'viking' = shield, 'punk' = fast charge. ('swat' kept
+   *  for backwards compat — no longer in active rotation.) */
+  bossKind?: 'vampire' | 'swat' | 'mech' | 'minotaur' | 'viking' | 'punk';
   /** Skill state machine — populated for elite/boss kinds with unique
    *  behaviors. The AI loop branches on `skill.kind` and runs the
    *  appropriate signature move (charge / beam / shield raise). */

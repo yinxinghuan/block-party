@@ -338,7 +338,7 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
   const pos = randomSpawnPos(d, minDist, 2);
   let hp = MONSTER_HP[tier];
   let scaleMul: number | undefined;
-  let bossKind: 'vampire' | 'swat' | 'mech' | 'minotaur' | undefined;
+  let bossKind: BossKind | undefined;
   let skill: Monster['skill'];
   if (tier === 'boss') {
     // Pass 4 boss scaling — slope 0.9→1.2 / cap 9×→14×. Each cycle adds
@@ -357,10 +357,14 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
     // cycle 4 = swat + mech, etc).
     bossKind = explicitBossKind ?? (cycle === 1 ? 'vampire' : 'minotaur');
     if (bossKind !== 'vampire') {
+      // Skill family per kind. Two carriers each for charge (minotaur
+      // = heavy, punk = fast) and shield (viking, plus legacy swat),
+      // single carrier for beam (mech).
       const skillKind: 'charge' | 'beam' | 'shield' =
         bossKind === 'minotaur' ? 'charge'
+        : bossKind === 'punk'   ? 'charge'
         : bossKind === 'mech'   ? 'beam'
-        :                         'shield';   // swat
+        :                         'shield';   // viking + swat
       skill = {
         kind: skillKind,
         phase: 'idle',
@@ -477,12 +481,22 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
   if (d.monsters.length >= tuning.monsterMax) return;
   if (kind === 'vampire') return;   // no ambient vampires (boss-only)
   // Pick a wrapper tier per kind so the base AI (movement / range / SFX)
-  // fits the silhouette: minotaur → brute (slow tough melee), mech →
-  // stalker (ranged), swat → lurker (walking melee).
+  // fits the silhouette.
+  //   minotaur → brute   (slow tough heavy melee)
+  //   mech     → stalker (ranged)
+  //   viking   → lurker  (walking shield melee)
+  //   punk     → runner  (fast melee — matches the rabid-pounce read)
+  //   swat     → lurker  (legacy)
   const tier: MonsterTier =
     kind === 'minotaur' ? 'brute'
     : kind === 'mech'   ? 'stalker'
-    :                     'lurker';
+    : kind === 'punk'   ? 'runner'
+    :                     'lurker';   // viking + swat
+  const skillKind: 'charge' | 'beam' | 'shield' =
+    kind === 'minotaur' ? 'charge'
+    : kind === 'punk'   ? 'charge'
+    : kind === 'mech'   ? 'beam'
+    :                     'shield';
   const pos = randomSpawnPos(d, 14, 2);
   // 3× tier baseline HP — meaty for an ambient, but well below boss
   // (boss = 14× at L15). Same per-level scaling as everyone else.
@@ -491,10 +505,6 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
     const scale = Math.min(10.0, 1 + (tuning.level - 3) * 0.35);
     hp = Math.round(hp * scale);
   }
-  const skillKind: 'charge' | 'beam' | 'shield' =
-    kind === 'minotaur' ? 'charge'
-    : kind === 'mech'   ? 'beam'
-    :                     'shield';
   d.monsters.push({
     id: nextId(),
     position: pos,
@@ -1028,8 +1038,16 @@ export function useGameLoop(p: GameLoopParams) {
       if (m.skill) {
         const sk = m.skill;
         if (sk.kind === 'charge') {
-          // MINOTAUR CHARGE — telegraph 0.7s (paw scrape), then dash
-          // 1.2s at 12 u/s along locked aim, then 1.4s stun.
+          // CHARGE — two carriers with different tuning:
+          //   minotaur: telegraph 0.7s / 12 u/s × 1.2s / 1.4s stun  (heavy)
+          //   punk:     telegraph 0.4s / 18 u/s × 0.55s / 0.7s stun (rabid)
+          const isPunk = m.bossKind === 'punk';
+          const TELEGRAPH_T = isPunk ? 0.40 : 0.70;
+          const DASH_SPEED  = isPunk ? 18 : 12;
+          const DASH_DUR    = isPunk ? 0.55 : 1.20;
+          const STUN_T      = isPunk ? 0.70 : 1.40;
+          const NEXT_CD_MIN = isPunk ? 2.5 : 4.0;
+          const NEXT_CD_RND = isPunk ? 1.5 : 2.0;
           if (sk.phase === 'idle') {
             sk.cooldownT -= c;
             if (sk.cooldownT <= 0 && dist > 3.5 && dist < 18) {
@@ -1043,7 +1061,7 @@ export function useGameLoop(p: GameLoopParams) {
             // Face-lock toward player throughout the windup so the
             // ground-line telegraph aims where the dash will go.
             if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
-            if (sk.phaseT >= 0.7) {
+            if (sk.phaseT >= TELEGRAPH_T) {
               // LOCK aim, transition to dash. From here on the
               // direction is fixed — player can step out of the line.
               const inv = dist > 0.001 ? 1 / dist : 0;
@@ -1057,8 +1075,6 @@ export function useGameLoop(p: GameLoopParams) {
             continue;
           } else if (sk.phase === 'active') {
             sk.phaseT += c;
-            const DASH_SPEED = 12;
-            const DASH_DUR = 1.2;
             m.position.x += sk.aimX * DASH_SPEED * c;
             m.position.z += sk.aimZ * DASH_SPEED * c;
             m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
@@ -1098,9 +1114,9 @@ export function useGameLoop(p: GameLoopParams) {
           } else {  // recover (stun)
             sk.phaseT += c;
             m.velocity.x *= 0.8; m.velocity.z *= 0.8;
-            if (sk.phaseT >= 1.4) {
+            if (sk.phaseT >= STUN_T) {
               sk.phase = 'idle';
-              sk.cooldownT = 4 + Math.random() * 2;  // 4-6s before next charge
+              sk.cooldownT = NEXT_CD_MIN + Math.random() * NEXT_CD_RND;
             }
             continue;
           }

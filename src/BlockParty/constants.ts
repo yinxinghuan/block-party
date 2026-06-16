@@ -75,18 +75,20 @@ export function getBossCount(level: number): number {
  *    cycle 4 (L12): [swat, mech]          — introduce SHIELD + revisit beam
  *    cycle 5+ (L15+): mix all three, rotating per slot
  */
-export type BossKind = 'vampire' | 'minotaur' | 'mech' | 'swat';
+export type BossKind = 'vampire' | 'minotaur' | 'mech' | 'viking' | 'punk' | 'swat';
 export function pickBossKinds(level: number): BossKind[] {
   if (level % 3 !== 0) return [];
   const cycle = Math.floor(level / 3);
   const count = getBossCount(level);
   if (cycle === 1) return Array<BossKind>(count).fill('vampire');
-  if (cycle === 2) return ['minotaur'];
-  if (cycle === 3) return ['mech', 'minotaur'];
-  if (cycle === 4) return ['swat', 'mech'];
-  // cycle 5+ — all three available, rotate slot by slot
-  const order: BossKind[] = ['minotaur', 'mech', 'swat'];
-  return Array.from({ length: count }, (_, i) => order[(cycle + i) % 3]);
+  // Tutorial cycles 2-5 each introduce one new kind in slot 0.
+  if (cycle === 2) return ['minotaur'];                      // intro CHARGE (heavy)
+  if (cycle === 3) return ['mech', 'minotaur'];              // intro BEAM
+  if (cycle === 4) return ['viking', 'mech'];                // intro SHIELD (Viking, not SWAT)
+  if (cycle === 5) return ['punk', 'viking', 'minotaur'];    // intro fast CHARGE variant (punk)
+  // Cycle 6+ — all 4 elite kinds available, rotate slot by slot.
+  const order: BossKind[] = ['minotaur', 'mech', 'viking', 'punk'];
+  return Array.from({ length: count }, (_, i) => order[(cycle + i) % 4]);
 }
 
 /** Kills needed before the exit beacon appears. Boss nights (every 3rd
