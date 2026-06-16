@@ -1607,20 +1607,18 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           group.add(eliteRing);
         }
 
-        // Persistent boss marker — DISABLED 2026-06-17 by user request
-        // (the violet ring felt visually noisy under the boss). The
-        // boss is already distinct by its 1.4× scaleMul + unique
-        // model + skill telegraph; the always-on ring was overkill.
-        // To re-enable, flip BOSS_RING_ENABLED to true.
-        const BOSS_RING_ENABLED = false;
+        // Persistent boss marker — violet pulsing ground ring so the
+        // boss is findable in a 30+ swarm. 2026-06-17: dialed back
+        // to a subtle band (thinner geometry + ~half opacity) after
+        // the original full-bright ring read as visually noisy.
         let bossRing: THREE.Mesh | null = null;
         let bossRingMat: THREE.MeshBasicMaterial | null = null;
-        if (BOSS_RING_ENABLED && m.tier === 'boss') {
-          const bRingGeom = new THREE.RingGeometry(1.20, 1.70, 40);
+        if (m.tier === 'boss') {
+          const bRingGeom = new THREE.RingGeometry(1.30, 1.55, 40);
           bossRingMat = new THREE.MeshBasicMaterial({
             color: 0xa060ff,
             transparent: true,
-            opacity: 0.75,
+            opacity: 0.35,
             depthWrite: false,
             blending: THREE.AdditiveBlending,
             side: THREE.DoubleSide,
@@ -1738,8 +1736,9 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       // two markers stay distinguishable when both are on screen.
       if (slot.bossRing && slot.bossRingMat) {
         const bpulse = 0.65 + Math.sin(t * 2.0 + m.id) * 0.35;
-        slot.bossRing.scale.setScalar(1 + bpulse * 0.08);
-        slot.bossRingMat.opacity = 0.55 + bpulse * 0.30;
+        slot.bossRing.scale.setScalar(1 + bpulse * 0.06);
+        // Dialed back 2026-06-17 — 0.20→0.40 range (was 0.55→0.85).
+        slot.bossRingMat.opacity = 0.20 + bpulse * 0.20;
       }
 
       // ── Boss skill telegraphs ────────────────────────────────────
