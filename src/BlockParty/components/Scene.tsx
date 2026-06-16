@@ -1614,7 +1614,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         let bossRing: THREE.Mesh | null = null;
         let bossRingMat: THREE.MeshBasicMaterial | null = null;
         if (m.tier === 'boss') {
-          const bRingGeom = new THREE.RingGeometry(1.30, 1.55, 40);
+          const bRingGeom = new THREE.RingGeometry(1.20, 1.70, 40);
           bossRingMat = new THREE.MeshBasicMaterial({
             color: 0xa060ff,
             transparent: true,
