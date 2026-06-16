@@ -66,12 +66,18 @@ export interface Monster {
    *  carries. 'vampire' = original melee, 'mech' = beam, 'minotaur' =
    *  big charge, 'viking' = shield, 'punk' = fast charge. ('swat' kept
    *  for backwards compat — no longer in active rotation.) */
-  bossKind?: 'vampire' | 'swat' | 'mech' | 'minotaur' | 'viking' | 'punk';
+  bossKind?: 'vampire' | 'swat' | 'mech' | 'minotaur' | 'viking' | 'punk'
+           | 'cop' | 'cowboy' | 'goth' | 'biker' | 'firefighter';
   /** Skill state machine — populated for elite/boss kinds with unique
    *  behaviors. The AI loop branches on `skill.kind` and runs the
-   *  appropriate signature move (charge / beam / shield raise). */
+   *  appropriate signature move. */
   skill?: {
-    kind: 'charge' | 'beam' | 'shield';
+    kind: 'charge' | 'beam' | 'shield'
+        | 'summon'    // cop — calls 2 lurkers to spawn nearby
+        | 'burstfire' // cowboy — 3 rapid revolver shots
+        | 'blink'     // goth — vanishes + reappears near player back
+        | 'flank'     // biker — passive perpendicular-to-player movement
+        | 'rage';     // firefighter — speed boost + KB immune burst
     /** Sub-state machine — semantics vary per skill but the field is
      *  shared so the dispatcher can do a single switch. */
     phase: 'idle' | 'telegraph' | 'active' | 'recover';

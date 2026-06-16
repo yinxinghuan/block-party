@@ -1639,14 +1639,25 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         let skillBeamMat: THREE.MeshBasicMaterial | null = null;
         let shieldRing: THREE.Mesh | null = null;
         let shieldRingMat: THREE.MeshBasicMaterial | null = null;
-        if (m.skill?.kind === 'charge' || m.skill?.kind === 'beam') {
+        // Telegraph meshes — two pools, one per geometry type:
+        //   skillBeam   = world-space PlaneGeometry (charge / beam /
+        //                  burstfire aim line)
+        //   shieldRing  = local-space RingGeometry under the boss
+        //                  (shield / summon / blink / rage)
+        const beamKinds = new Set(['charge', 'beam', 'burstfire']);
+        const ringKinds = new Set(['shield', 'summon', 'blink', 'rage']);
+        if (m.skill && beamKinds.has(m.skill.kind)) {
           // 1u-wide unit box; per-frame we scale Z (length) + alpha.
           // Group-relative is awkward because we want the beam in WORLD
           // space (the boss rotates during dying etc.). Make it a free
           // child of the rendered group root — Monsters renders into
           // its own rootRef so this lives at scene root level.
+          const beamCol =
+            m.skill.kind === 'beam'      ? 0xff2030
+            : m.skill.kind === 'burstfire' ? 0xff4060
+            :                              0xff7030;   // charge
           skillBeamMat = new THREE.MeshBasicMaterial({
-            color: m.skill.kind === 'beam' ? 0xff2030 : 0xff7030,
+            color: beamCol,
             transparent: true,
             opacity: 0,
             depthWrite: false,
@@ -1662,9 +1673,14 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           skillBeam.visible = false;
           root.add(skillBeam);  // not parented to monster group — world-space
         }
-        if (m.skill?.kind === 'shield') {
+        if (m.skill && ringKinds.has(m.skill.kind)) {
+          const ringCol =
+            m.skill.kind === 'shield' ? 0x4fc0ff
+            : m.skill.kind === 'summon' ? 0x80c0ff   // whistle blue
+            : m.skill.kind === 'blink'  ? 0xa050ff   // arcane purple
+            :                             0xff5030;  // rage orange-red
           shieldRingMat = new THREE.MeshBasicMaterial({
-            color: 0x4fc0ff,
+            color: ringCol,
             transparent: true,
             opacity: 0,
             depthWrite: false,
@@ -1678,7 +1694,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
           shieldRing.rotation.x = -Math.PI / 2;
           shieldRing.position.y = 0.05;
           shieldRing.visible = false;
-          group.add(shieldRing);  // local to SWAT, follows it
+          group.add(shieldRing);  // local — follows the boss
         }
 
         slot = { group, ring, ringMat, eliteRing, eliteRingMat,
@@ -1772,6 +1788,91 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
             slot.skillBeam.scale.set(1.0, LEN, 1);
           } else {
             slot.skillBeam.visible = false;
+          }
+        } else if (sk.kind === 'burstfire') {
+          // Cowboy revolver — thin red aim line during telegraph that
+          // tracks the player, then flashes per shot during active.
+          // Lays along the cowboy → player vector each frame in
+          // telegraph (no locked aim — each shot re-aims live).
+          const LEN = 18;
+          if (sk.phase === 'telegraph') {
+            const pdx = state.current.pos.x - m.position.x;
+            const pdz = state.current.pos.z - m.position.z;
+            const pd = Math.hypot(pdx, pdz);
+            const inv = pd > 0.001 ? 1 / pd : 0;
+            const aX = pdx * inv;
+            const aZ = pdz * inv;
+            slot.skillBeam.visible = true;
+            slot.skillBeamMat.opacity = 0.25 + (sk.phaseT / 0.5) * 0.40;
+            slot.skillBeam.scale.set(0.25, LEN, 1);
+            slot.skillBeam.position.set(
+              m.position.x + aX * LEN * 0.5,
+              0.06,
+              m.position.z + aZ * LEN * 0.5,
+            );
+            slot.skillBeam.rotation.z = Math.atan2(aX, aZ);
+          } else if (sk.phase === 'active') {
+            // Brief muzzle-flash style — visible for 60ms each shot
+            // (sk.aimX counts down between shots).
+            const flashUp = sk.aimX > 0.10;     // shot just fired ~60ms ago
+            slot.skillBeam.visible = !flashUp;
+            if (!flashUp) slot.skillBeamMat.opacity = 0.85;
+          } else {
+            slot.skillBeam.visible = false;
+          }
+        }
+      }
+      // Summon / blink / rage / flank — driven by shieldRing mesh
+      // (already drawn for shield above; this branch handles the rest).
+      if (m.skill && slot.shieldRing && slot.shieldRingMat) {
+        const sk = m.skill;
+        if (sk.kind === 'summon') {
+          // Whistle expanding ring during telegraph; brief pop after spawn.
+          if (sk.phase === 'telegraph') {
+            slot.shieldRing.visible = true;
+            const t01 = sk.phaseT / 0.6;
+            slot.shieldRingMat.opacity = 0.40 + t01 * 0.45;
+            slot.shieldRing.scale.setScalar(1.0 + t01 * 0.9);
+          } else if (sk.phase === 'recover') {
+            slot.shieldRing.visible = true;
+            slot.shieldRingMat.opacity = Math.max(0, 0.8 - sk.phaseT * 1.6);
+            slot.shieldRing.scale.setScalar(2.0);
+          } else {
+            slot.shieldRing.visible = false;
+          }
+        } else if (sk.kind === 'blink') {
+          // Purple swirl at telegraph spot, then re-puff at recover spot.
+          if (sk.phase === 'telegraph') {
+            slot.shieldRing.visible = true;
+            const t01 = sk.phaseT / 0.4;
+            slot.shieldRingMat.opacity = 0.30 + t01 * 0.65;
+            slot.shieldRing.scale.setScalar(1.0 + t01 * 0.6);
+          } else if (sk.phase === 'recover') {
+            slot.shieldRing.visible = true;
+            slot.shieldRingMat.opacity = Math.max(0, 0.95 - sk.phaseT * 2.5);
+            slot.shieldRing.scale.setScalar(1.6 - sk.phaseT * 1.0);
+          } else {
+            slot.shieldRing.visible = false;
+          }
+        } else if (sk.kind === 'rage') {
+          // Red flame ring under the firefighter while active. Telegraph
+          // = slow buildup, active = constant pulse, recover = fade.
+          if (sk.phase === 'telegraph') {
+            slot.shieldRing.visible = true;
+            const t01 = sk.phaseT / 1.0;
+            slot.shieldRingMat.opacity = 0.20 + t01 * 0.55;
+            slot.shieldRing.scale.setScalar(1.0 + t01 * 0.2);
+          } else if (sk.phase === 'active') {
+            slot.shieldRing.visible = true;
+            const breathe = 0.7 + Math.sin(t * 16 + m.id) * 0.3;
+            slot.shieldRingMat.opacity = 0.55 + breathe * 0.40;
+            slot.shieldRing.scale.setScalar(1.15 + breathe * 0.08);
+          } else if (sk.phase === 'recover') {
+            slot.shieldRing.visible = true;
+            slot.shieldRingMat.opacity = Math.max(0, 0.80 - sk.phaseT * 0.8);
+            slot.shieldRing.scale.setScalar(1.2);
+          } else {
+            slot.shieldRing.visible = false;
           }
         }
       }

@@ -17,7 +17,11 @@ export const P = {
   accent: 0x3fb6ac, gold: 0xf2c14e, glass: 0xbfe6ff,
   // primary swatches (zombie clothing tint, survivor clothing, etc.)
   red: 0xe0483b, orange: 0xffb13b, green: 0x4fae44, blue: 0x36a3ec,
-  purple: 0xb05de8, coral: 0xff7a4d,
+  purple: 0xb05de8, coral: 0xff7a4d, petal: 0xff85a8,
+  // wood + amber — for the V4 cultural archetype pack (cowboy / firefighter
+  // / biker tool belts + Stetson). amber is the saturated honey base the
+  // cowboy hat darkens from; woodD/woodM are leather + boot browns.
+  amber: 0xe0a830, woodD: 0x4a3526, woodM: 0x8b6f47,
   // skin + hair
   skin: 0xf2c79a, skinD: 0xe2a877, skinTan: 0xc68642, skinDk: 0x8d5524,
   hairDark: 0x3a2f28, hairGrey: 0xd2d0d4, hairBlond: 0xf2c531, hairBrown: 0x6b4423,

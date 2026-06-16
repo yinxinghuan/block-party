@@ -759,11 +759,357 @@ export function makePunk(): RiggedGroup {
   return g;
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// V4 CULTURAL ARCHETYPES — ported from _lowpoly_lab/builders/archetypes.js.
+// Each one is a Crossy-Road-style cultural caricature (NYPD cop, Clint
+// Eastwood cowboy, Morticia goth, Fonzie biker, FDNY firefighter) and
+// drives a unique AI skill in useGameLoop (summon / burstfire / blink /
+// flank / rage). Same rig contract as the existing roster.
+// ──────────────────────────────────────────────────────────────────────
+
+const SHADE = 0x14110e;
+const ARCH_EYE = 0x241f1c;
+
+// COP — donut-eating NYPD stereotype. Carrier of the SUMMON skill (calls
+// 2 lurkers nearby every 6-9s).
+export function makeCop(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const BW = 1.18, BD = 0.66, torsoH = 0.86, legH = 0.82, shoeH = 0.18;
+  const lx = 0.24, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.36, shoeH, BD, P.ironD,                 0, shoeH / 2 - hipY,        0.04));
+    L.add(box(0.32, legH, BD - 0.10, darken(P.ironD, 0.25), 0, (shoeH + legH / 2) - hipY, 0));
+    L.add(box(0.34, 0.06, BD - 0.08, P.gold,            0, (shoeH + legH * 0.50) - hipY, 0.04));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, P.blue, 0, torsoY, 0));
+  g.add(box(BW + 0.04, 0.30, BD + 0.06, P.blue, 0, torsoY - torsoH * 0.32, 0));
+  g.add(box(BW - 0.12, 0.10, BD + 0.10, P.blue, 0, torsoY - torsoH * 0.46, 0));
+  g.add(box(0.26, 0.16, 0.04, darken(P.blue, 0.3), 0, torsoY + torsoH / 2 - 0.10, BD / 2 + 0.02));
+  g.add(box(0.08, torsoH * 0.5, 0.04, P.ironD, 0, torsoY + 0.04, BD / 2 + 0.025));
+  g.add(box(0.26, 0.28, 0.05, P.gold, -BW / 2 + 0.26, torsoY + 0.10, BD / 2 + 0.03));
+  g.add(box(0.16, 0.18, 0.06, darken(P.gold, 0.4), -BW / 2 + 0.26, torsoY + 0.10, BD / 2 + 0.055));
+  g.add(box(0.22, 0.07, 0.04, P.steel, BW / 2 - 0.20, torsoY + 0.22, BD / 2 + 0.03));
+  g.add(box(BW + 0.06, 0.16, BD + 0.04, P.ironD, 0, torsoY - torsoH / 2 + 0.07, 0));
+  g.add(box(0.22, 0.18, 0.06, P.gold, 0, torsoY - torsoH / 2 + 0.07, BD / 2 + 0.030));
+  g.add(box(0.20, 0.26, 0.18, P.ironD,  BW / 2 + 0.10, torsoY - torsoH / 2 - 0.06, 0));
+  g.add(box(0.08, 0.42, 0.08, darken(P.woodD, 0.2), -BW / 2 - 0.10, torsoY - torsoH / 2 - 0.10, 0));
+  const armW = 0.26, armH = torsoH + legH * 0.22, shoulderY = torsoY + torsoH / 2;
+  const ax = BW / 2 + 0.02 + armW / 2;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(armW, armH * 0.66, BD - 0.06, P.blue, 0, (torsoY + torsoH / 2 - armH * 0.33) - shoulderY, 0));
+    A.add(box(armW, armH * 0.34, BD - 0.06, P.skin, 0, (torsoY + torsoH / 2 - armH * 0.83) - shoulderY, 0));
+  }
+  // DONUT in L hand — pink ring + sprinkles (cultural prop)
+  armL.add(box(0.30, 0.30, 0.18, P.petal, 0.08, -armH * 0.78, 0.18));
+  armL.add(box(0.14, 0.30, 0.06, P.cream, 0.08, -armH * 0.78, 0.18));
+  const sprinkleCols = [P.red, P.blue, P.gold, P.green, P.purple];
+  for (let i = 0; i < 5; i++) armL.add(box(0.03, 0.05, 0.03, sprinkleCols[i], 0.04 + i * 0.05, -armH * 0.74, 0.18));
+  const HW = 0.60, HH = 0.60, HDP = 0.52;
+  const neckY = torsoY + torsoH / 2 + 0.05;
+  g.add(box(0.32, 0.12, 0.30, P.skinTan, 0, neckY, 0));
+  const headY = neckY + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, P.skinTan, 0, headY, 0));
+  const fz = HDP / 2 + 0.01;
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE, -HW * 0.26, headY + 0.02, fz));
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE,  HW * 0.26, headY + 0.02, fz));
+  g.add(box(0.42, 0.10, 0.05, P.hairBrown, 0, headY - HH * 0.16, fz));
+  g.add(box(0.08, 0.10, 0.06, P.hairBrown,  0.18, headY - HH * 0.10, fz));
+  g.add(box(0.08, 0.10, 0.06, P.hairBrown, -0.18, headY - HH * 0.10, fz));
+  // AVIATOR shades
+  g.add(box(0.20, 0.14, 0.04, SHADE, -HW * 0.26, headY + 0.04, fz));
+  g.add(box(0.20, 0.14, 0.04, SHADE,  HW * 0.26, headY + 0.04, fz));
+  g.add(box(0.10, 0.04, 0.03, P.gold,        0, headY + 0.06, fz));
+  // PEAKED CAP
+  const topHead = headY + HH / 2;
+  g.add(box(HW + 0.06, 0.18, HDP + 0.06, darken(P.blue, 0.4), 0, topHead + 0.09, 0));
+  g.add(box(HW + 0.10, 0.05, HDP + 0.10, P.ironD, 0, topHead + 0.01, 0));
+  g.add(box(HW * 0.86, 0.05, 0.22, P.ironD,  0, topHead - 0.02, HDP / 2 + 0.10));
+  g.add(box(0.16, 0.10, 0.04, P.gold, 0, topHead + 0.06, HDP / 2 + 0.10));
+  attachRig(g, legL, legR, armL, armR, 0);
+  // Pose L arm raised holding donut (after attachRig — game rebinds during
+  // shamble but starting pose reads "guy with donut").
+  armL.rotation.x = -0.6;
+  finish(g);
+  return g;
+}
+
+// COWBOY — Clint Eastwood man-with-no-name. Carrier of BURSTFIRE
+// (telegraph → 3 revolver shots).
+export function makeCowboy(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const BW = 1.02, BD = 0.52, torsoH = 0.78, legH = 1.04, shoeH = 0.24;
+  const lx = 0.22, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.36, shoeH, BD + 0.04, P.woodD, 0, shoeH / 2 - hipY, 0.06));
+    L.add(box(0.10, 0.08, 0.10, darken(P.gold, 0.3), 0, shoeH - 0.12 - hipY, BD / 2 + 0.06));
+    L.add(box(0.20, 0.06, 0.06, P.steel, 0, shoeH - 0.08 - hipY, -BD / 2 - 0.04));
+    for (let i = 0; i < 4; i++) L.add(box(0.03, 0.06, 0.03, P.steel, i * 0.04 - 0.06, shoeH - 0.10 - hipY, -BD / 2 - 0.08));
+    L.add(box(0.32, legH, BD - 0.10, darken(P.blue, 0.6), 0, (shoeH + legH / 2) - hipY, 0));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, darken(P.blue, 0.55), 0, torsoY, 0));
+  // LONG DUSTER — silhouette extender
+  const dusterCol = P.woodM;
+  g.add(box(BW + 0.20, 1.10, 0.10, dusterCol, 0, torsoY - 0.10, -BD / 2 - 0.04));
+  g.add(box(0.16, torsoH + 0.70, BD + 0.10, dusterCol, -BW / 2 - 0.06, torsoY - 0.20, 0));
+  g.add(box(0.16, torsoH + 0.70, BD + 0.10, dusterCol,  BW / 2 + 0.06, torsoY - 0.20, 0));
+  g.add(box(0.12, torsoH + 0.40, 0.08, darken(dusterCol, 0.3), -BW * 0.30, torsoY - 0.10, BD / 2 + 0.02));
+  g.add(box(0.12, torsoH + 0.40, 0.08, darken(dusterCol, 0.3),  BW * 0.30, torsoY - 0.10, BD / 2 + 0.02));
+  // Poncho stripes
+  const ponchoCols = [darken(P.red, 0.1), P.gold, darken(P.green, 0.2)];
+  for (let i = -1; i <= 1; i++) {
+    g.add(box(BW + 0.30, 0.10, BD + 0.04, ponchoCols[i + 1], 0, torsoY + torsoH / 2 - 0.04 + i * 0.10, 0));
+  }
+  // Belt + revolver holster
+  g.add(box(BW + 0.02, 0.10, BD + 0.02, P.woodD, 0, torsoY - torsoH / 2 + 0.06, 0));
+  g.add(box(0.24, 0.18, 0.04, P.gold, 0, torsoY - torsoH / 2 + 0.06, BD / 2 + 0.020));
+  g.add(box(0.18, 0.28, 0.16, P.woodD,    BW / 2 + 0.10, torsoY - torsoH / 2 - 0.04, 0));
+  g.add(box(0.12, 0.14, 0.10, darken(P.woodD, 0.4), BW / 2 + 0.16, torsoY - torsoH / 2 - 0.18, 0.05));
+  const armW = 0.26, armH = torsoH + legH * 0.30, shoulderY = torsoY + torsoH / 2;
+  const ax = BW / 2 + 0.06 + armW / 2;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(armW, armH * 0.74, BD - 0.06, dusterCol, 0, (torsoY + torsoH / 2 - armH * 0.37) - shoulderY, 0));
+    A.add(box(armW - 0.04, armH * 0.26, BD - 0.08, P.skinTan, 0, (torsoY + torsoH / 2 - armH * 0.87) - shoulderY, 0));
+  }
+  // Revolver in R hand (named so skill telegraph could highlight it)
+  const revolver = new THREE.Group();
+  revolver.name = 'revolver';
+  revolver.position.set(0, -armH * 0.92, BD / 2 + 0.04);
+  revolver.add(box(0.10, 0.12, 0.34, P.steel, 0, 0, 0));
+  revolver.add(box(0.10, 0.10, 0.08, darken(P.woodD, 0.4), 0, -0.06, -0.12));
+  armR.add(revolver);
+  const HW = 0.54, HH = 0.58, HDP = 0.50;
+  const neckY = torsoY + torsoH / 2 + 0.05;
+  g.add(box(0.28, 0.12, 0.26, P.skinTan, 0, neckY, 0));
+  const headY = neckY + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, P.skinTan, 0, headY, 0));
+  const fz = HDP / 2 + 0.01;
+  // Squint eyes
+  g.add(box(0.14, 0.05, 0.04, ARCH_EYE, -HW * 0.26, headY + 0.04, fz));
+  g.add(box(0.14, 0.05, 0.04, ARCH_EYE,  HW * 0.26, headY + 0.04, fz));
+  g.add(box(HW * 0.85, 0.05, 0.04, P.hairBrown, 0, headY - HH * 0.14, fz));
+  g.add(box(0.16, 0.05, 0.05, darken(P.woodD, 0.2), 0.08, headY - HH * 0.30, fz + 0.03));
+  g.add(box(0.04, 0.04, 0.04, P.red, 0.18, headY - HH * 0.30, fz + 0.05, { e: P.red, ei: 0.6 }));
+  const topHead = headY + HH / 2;
+  g.add(box(HW + 0.02, 0.08, HDP + 0.02, P.hairBrown, 0, topHead - 0.02, 0));
+  // Stetson — wide brim disc
+  const stetson = darken(P.amber, 0.45);
+  g.add(box(HW + 0.56, 0.05, HDP + 0.56, stetson, 0, topHead + 0.02, 0));
+  g.add(box(HW + 0.04, 0.20, HDP + 0.04, stetson, 0, topHead + 0.15, 0));
+  g.add(box(HW + 0.06, 0.04, HDP - 0.10, darken(stetson, 0.3), 0, topHead + 0.07, 0));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// GOTH — Morticia Addams; pale skin, long black skirt, flowing black hair.
+// Carrier of the BLINK skill (vanishes + reappears behind player).
+export function makeGoth(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const BW = 0.82, BD = 0.46, torsoH = 0.74, legH = 0.86, shoeH = 0.24;
+  const lx = 0.18, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  const paleSkin = darken(P.cream, 0.08);
+  const skirtY = shoeH + 0.50;
+  g.add(box(BW + 0.20, 0.98, BD + 0.04, P.ironD, 0, skirtY, 0));
+  g.add(box(BW + 0.22, 0.04, BD + 0.06, darken(P.ironD, 0.4), 0, skirtY - 0.49, 0));
+  for (let i = -2; i <= 2; i++) g.add(box(0.04, 0.86, 0.04, darken(P.purple, 0.7), i * 0.16, skirtY, BD / 2 + 0.025));
+  for (const L of [legL, legR]) {
+    L.add(box(0.24, shoeH - 0.06, BD - 0.10, P.ironD, 0, (shoeH - 0.06) / 2 - hipY, 0.04));
+    L.add(box(0.06, 0.10, 0.10, darken(P.ironD, 0.5), 0, shoeH - 0.16 - hipY, BD / 2 - 0.06));
+    L.add(box(0.22, 0.16, BD - 0.12, paleSkin, 0, (shoeH + 0.06) - hipY, 0));
+  }
+  const torsoY = skirtY + 0.49 + torsoH / 2 - 0.06;
+  g.add(box(BW, torsoH, BD, P.ironD, 0, torsoY, 0));
+  for (let i = 0; i < 5; i++) g.add(box(0.20, 0.04, 0.04, P.cream, 0, torsoY + torsoH * 0.32 - i * 0.16, BD / 2 + 0.02));
+  for (let i = 0; i < 4; i++) g.add(box(0.02, 0.18, 0.05, P.cream, 0, torsoY + torsoH * 0.22 - i * 0.16, BD / 2 + 0.025));
+  const neckY = torsoY + torsoH / 2 + 0.05;
+  g.add(box(0.34, 0.08, 0.30, ARCH_EYE, 0, neckY + 0.03, 0));
+  g.add(box(0.06, 0.06, 0.05, P.steel, 0, neckY + 0.03, 0.16));
+  // Teal cross necklace
+  g.add(box(0.05, 0.24, 0.05, P.accent, 0, torsoY + torsoH / 2 - 0.08, BD / 2 + 0.040, { e: P.accent, ei: 0.55 }));
+  g.add(box(0.20, 0.05, 0.05, P.accent, 0, torsoY + torsoH / 2 - 0.14, BD / 2 + 0.040, { e: P.accent, ei: 0.55 }));
+  g.add(box(0.34, 0.04, 0.04, P.steel, 0, torsoY + 0.06, BD / 2 + 0.030));
+  g.add(box(0.30, 0.04, 0.04, P.steel, 0, torsoY - 0.10, BD / 2 + 0.030));
+  const armW = 0.20, armH = torsoH + 0.50, shoulderY = torsoY + torsoH / 2;
+  const ax = BW / 2 + 0.02 + armW / 2;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(armW, armH * 0.68, BD - 0.12, P.ironD,  0, (torsoY + torsoH / 2 - armH * 0.34) - shoulderY, 0));
+    A.add(box(armW, armH * 0.20, BD - 0.12, paleSkin, 0, (torsoY + torsoH / 2 - armH * 0.80) - shoulderY, 0));
+    A.add(box(armW + 0.14, armH * 0.34, BD - 0.06, P.ironD, 0, (torsoY + torsoH / 2 - armH * 0.92) - shoulderY, 0));
+    A.add(box(armW + 0.04, 0.04, BD - 0.04, darken(P.purple, 0.7), 0, (torsoY + torsoH / 2 - armH * 1.06) - shoulderY, 0.01));
+  }
+  const HW = 0.50, HH = 0.58, HDP = 0.46;
+  g.add(box(0.26, 0.10, 0.24, paleSkin, 0, neckY + 0.10, 0));
+  const headY = neckY + 0.10 + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, paleSkin, 0, headY, 0));
+  const fz = HDP / 2 + 0.01;
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE, -HW * 0.26, headY + 0.02, fz));
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE,  HW * 0.26, headY + 0.02, fz));
+  g.add(box(HW * 0.92, 0.10, 0.04, ARCH_EYE, 0, headY + 0.06, fz));
+  g.add(box(0.18, 0.05, 0.04, darken(P.purple, 0.5), 0, headY - HH * 0.30, fz));
+  const hair = darken(P.purple, 0.95);
+  const topHead = headY + HH / 2;
+  g.add(box(HW + 0.06, 0.20, HDP + 0.04, hair, 0, topHead + 0.05, 0));
+  g.add(box(HW + 0.08, 0.40, 0.14, hair, 0, headY + 0.04, -HDP * 0.55));
+  g.add(box(0.18, 1.10, HDP * 0.78, hair, -(HW / 2 + 0.05), headY - 0.56, -0.04));
+  g.add(box(0.18, 1.10, HDP * 0.78, hair,  (HW / 2 + 0.05), headY - 0.56, -0.04));
+  g.add(box(HW + 0.04, 0.14, 0.10, hair, 0, headY + HH * 0.30, HDP / 2 + 0.01));
+  g.add(box(0.10, 0.05, 0.06, darken(P.red, 0.4), -HW * 0.3, topHead + 0.10, 0.04));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// BIKER — Fonzie/Brando Wild One greaser. Black leather + pompadour +
+// cigarette. Carrier of the FLANK skill (passive perpendicular orbit).
+export function makeBiker(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const BW = 1.10, BD = 0.54, torsoH = 0.82, legH = 0.92, shoeH = 0.20;
+  const lx = 0.24, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.36, shoeH, BD + 0.04, P.ironD, 0, shoeH / 2 - hipY, 0.06));
+    L.add(box(0.32, legH * 0.85, BD - 0.06, P.blue, 0, (shoeH + legH * 0.42) - hipY, 0));
+    L.add(box(0.34, 0.10, BD - 0.02, darken(P.blue, 0.3), 0, (shoeH + 0.16) - hipY, 0.02));
+    L.add(box(0.36, 0.06, BD - 0.00, darken(P.blue, 0.4), 0, (shoeH + 0.10) - hipY, 0.04));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW - 0.18, torsoH, BD - 0.04, P.cream, 0, torsoY, 0));
+  g.add(box(BW, torsoH, BD, P.ironD, 0, torsoY, 0.005));
+  g.add(box(0.20, torsoH - 0.10, 0.04, P.cream, 0, torsoY - 0.04, BD / 2 + 0.025));
+  g.add(box(0.04, torsoH - 0.20, 0.04, P.steel, 0.10, torsoY, BD / 2 + 0.030));
+  g.add(box(0.16, 0.16, 0.04, P.gold, -BW / 2 + 0.18, torsoY + 0.14, BD / 2 + 0.025));
+  g.add(box(0.08, 0.04, 0.05, darken(P.gold, 0.4), -BW / 2 + 0.18, torsoY + 0.14, BD / 2 + 0.050));
+  // Popped collar
+  g.add(box(BW - 0.10, 0.12, 0.05, P.ironD, 0, torsoY + torsoH / 2 - 0.04, BD / 2 + 0.022));
+  g.add(box(0.18, 0.18, 0.04, P.ironD, -BW / 2 + 0.22, torsoY + torsoH / 2 - 0.02, BD / 2 + 0.022));
+  g.add(box(0.18, 0.18, 0.04, P.ironD,  BW / 2 - 0.22, torsoY + torsoH / 2 - 0.02, BD / 2 + 0.022));
+  // Studded belt
+  g.add(box(BW + 0.04, 0.10, BD + 0.02, P.ironD, 0, torsoY - torsoH / 2 + 0.05, 0));
+  g.add(box(0.20, 0.14, 0.05, P.steel, 0, torsoY - torsoH / 2 + 0.05, BD / 2 + 0.022));
+  for (let i = -2; i <= 2; i++) g.add(box(0.05, 0.05, 0.05, P.steel, i * 0.18, torsoY - torsoH / 2 + 0.05, BD / 2 + 0.025));
+  const armW = 0.26, armH = torsoH + legH * 0.28, shoulderY = torsoY + torsoH / 2;
+  const ax = BW / 2 + 0.02 + armW / 2;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(armW, armH * 0.72, BD - 0.04, P.ironD, 0, (torsoY + torsoH / 2 - armH * 0.36) - shoulderY, 0));
+    A.add(box(armW + 0.02, 0.05, BD - 0.02, P.cream, 0, (torsoY + torsoH / 2 - armH * 0.70) - shoulderY, 0.01));
+    A.add(box(armW, armH * 0.28, BD - 0.06, P.skinTan, 0, (torsoY + torsoH / 2 - armH * 0.86) - shoulderY, 0));
+  }
+  const HW = 0.56, HH = 0.60, HDP = 0.50;
+  const neckY = torsoY + torsoH / 2 + 0.05;
+  g.add(box(0.30, 0.12, 0.28, P.skinTan, 0, neckY, 0));
+  const headY = neckY + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, P.skinTan, 0, headY, 0));
+  const fz = HDP / 2 + 0.01;
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE, -HW * 0.26, headY + 0.02, fz));
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE,  HW * 0.26, headY + 0.02, fz));
+  // Cigarette + ember
+  g.add(box(0.16, 0.04, 0.04, P.cream, 0.08, headY - HH * 0.30, fz + 0.04));
+  g.add(box(0.04, 0.04, 0.04, P.red, 0.16, headY - HH * 0.30, fz + 0.06, { e: P.red, ei: 0.6 }));
+  // Sideburns
+  g.add(box(0.06, 0.18, 0.04, P.hairDark, -HW / 2 - 0.01, headY - 0.04, HDP / 2 - 0.04));
+  g.add(box(0.06, 0.18, 0.04, P.hairDark,  HW / 2 + 0.01, headY - 0.04, HDP / 2 - 0.04));
+  // POMPADOUR — iconic silhouette
+  const topHead = headY + HH / 2;
+  g.add(box(HW + 0.04, 0.16, HDP + 0.04, P.hairDark, 0, topHead + 0.06, 0));
+  g.add(box(HW - 0.06, 0.34, 0.16, P.hairDark, 0, topHead + 0.24, HDP / 2 - 0.02));
+  g.add(box(HW - 0.14, 0.16, 0.10, P.hairDark, 0, topHead + 0.40, HDP / 2 + 0.04));
+  g.add(box(HW + 0.04, 0.40, 0.14, P.hairDark, 0, headY + 0.04, -HDP * 0.5));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
+// FIREFIGHTER — FDNY hero. Yellow turnout coat + red helmet + diagonal
+// hose coil. Carrier of the RAGE skill (speed boost + KB immune burst).
+export function makeFirefighter(): RiggedGroup {
+  const g = new THREE.Group() as RiggedGroup;
+  const BW = 1.16, BD = 0.58, torsoH = 0.84, legH = 0.86, shoeH = 0.22;
+  const lx = 0.26, hipY = shoeH + legH;
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  legL.position.set(-lx, hipY, 0); legR.position.set(lx, hipY, 0);
+  for (const L of [legL, legR]) {
+    L.add(box(0.42, shoeH, BD + 0.04, P.ironD, 0, shoeH / 2 - hipY, 0.06));
+    L.add(box(0.36, legH, BD - 0.04, P.gold,   0, (shoeH + legH / 2) - hipY, 0));
+    L.add(box(0.38, 0.06, BD - 0.02, P.cream, 0, (shoeH + legH * 0.30) - hipY, 0.02));
+    L.add(box(0.38, 0.06, BD - 0.02, P.cream, 0, (shoeH + legH * 0.65) - hipY, 0.02));
+  }
+  const torsoY = hipY + torsoH / 2;
+  g.add(box(BW, torsoH, BD, P.gold, 0, torsoY, 0));
+  g.add(box(BW + 0.02, 0.07, BD + 0.02, P.cream,  0, torsoY + 0.20, 0));
+  g.add(box(BW + 0.02, 0.07, BD + 0.02, P.cream,  0, torsoY - 0.16, 0));
+  g.add(box(BW - 0.14, 0.16, 0.04, P.ironD, 0, torsoY + torsoH / 2 - 0.10, BD / 2 + 0.02));
+  g.add(box(0.06, torsoH - 0.20, 0.04, P.ironD, 0, torsoY - 0.04, BD / 2 + 0.02));
+  // FDNY stencil
+  for (let i = 0; i < 4; i++) g.add(box(0.10, 0.10, 0.04, darken(P.red, 0.2), -0.24 + i * 0.16, torsoY - 0.04, BD / 2 + 0.025));
+  // Flag patch
+  for (let i = 0; i < 3; i++) g.add(box(0.05, 0.04, 0.05, P.red,   -BW / 2 + 0.18, torsoY + 0.18 + i * 0.04, BD / 2 + 0.030));
+  for (let i = 0; i < 2; i++) g.add(box(0.05, 0.04, 0.05, P.cream, -BW / 2 + 0.18, torsoY + 0.20 + i * 0.04, BD / 2 + 0.030));
+  g.add(box(0.10, 0.07, 0.05, darken(P.blue, 0.2), -BW / 2 + 0.18, torsoY + 0.28, BD / 2 + 0.030));
+  // HOSE COIL — diagonal silhouette extender
+  const hoseCol = darken(P.red, 0.15);
+  for (let i = 0; i < 5; i++) {
+    const a = -0.55 + i * 0.27;
+    const yy = torsoY + i * 0.08 - 0.18;
+    g.add(box(0.14, 0.10, 0.10, hoseCol, a * 0.5,  yy,  BD / 2 + 0.05));
+    g.add(box(0.14, 0.10, 0.10, hoseCol, a * 0.5,  yy, -BD / 2 - 0.05));
+    g.add(box(0.10, 0.10, BD + 0.16, hoseCol, a * 0.5 + 0.15, yy, 0));
+  }
+  g.add(box(0.12, 0.18, 0.12, P.steel, BW / 2 + 0.04, torsoY - 0.30, BD / 2 + 0.04));
+  const armW = 0.28, armH = torsoH + legH * 0.24, shoulderY = torsoY + torsoH / 2;
+  const ax = BW / 2 + 0.02 + armW / 2;
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  armL.position.set(-ax, shoulderY, 0); armR.position.set(ax, shoulderY, 0);
+  for (const A of [armL, armR]) {
+    A.add(box(armW, armH * 0.66, BD - 0.06, P.gold,    0, (torsoY + torsoH / 2 - armH * 0.33) - shoulderY, 0));
+    A.add(box(armW + 0.02, armH * 0.34, BD - 0.06, P.ironD, 0, (torsoY + torsoH / 2 - armH * 0.83) - shoulderY, 0));
+    A.add(box(armW + 0.04, 0.06, BD - 0.04, P.cream, 0, (torsoY + torsoH / 2 - armH * 0.55) - shoulderY, 0.01));
+  }
+  const HW = 0.58, HH = 0.60, HDP = 0.52;
+  const neckY = torsoY + torsoH / 2 + 0.05;
+  g.add(box(0.30, 0.12, 0.28, P.skinTan, 0, neckY, 0));
+  const headY = neckY + 0.06 + HH / 2;
+  g.add(box(HW, HH, HDP, P.skinTan, 0, headY, 0));
+  const fz = HDP / 2 + 0.01;
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE, -HW * 0.26, headY + 0.02, fz));
+  g.add(box(0.12, 0.12, 0.04, ARCH_EYE,  HW * 0.26, headY + 0.02, fz));
+  g.add(box(0.42, 0.08, 0.05, P.hairBrown, 0, headY - HH * 0.16, fz));
+  // BUNKER HELMET — bright red dome + front shield
+  const topHead = headY + HH / 2;
+  g.add(box(HW + 0.12, 0.20, HDP + 0.10, P.red, 0, topHead + 0.11, 0));
+  g.add(box(HW + 0.12, 0.04, HDP + 0.32, P.red, 0, topHead + 0.02, -0.10));
+  g.add(box(HW - 0.02, 0.24, 0.12, P.red, 0, topHead + 0.18, HDP / 2 + 0.04));
+  g.add(box(HW - 0.20, 0.10, 0.14, P.cream, 0, topHead + 0.20, HDP / 2 + 0.10));
+  g.add(box(HW - 0.30, 0.06, 0.14, darken(P.blue, 0.3), 0, topHead + 0.12, HDP / 2 + 0.10));
+  attachRig(g, legL, legR, armL, armR, 0);
+  finish(g);
+  return g;
+}
+
 /** Boss variant — picks which model + skill the boss uses on a given
  *  cycle. 'vampire' is the original; viking/mech/minotaur/punk are the
- *  elite roster with their own AI skills. ('swat' kept for backwards
- *  compat but no longer in the rotation; viking is the shield carrier.) */
-export type BossKind = 'vampire' | 'swat' | 'mech' | 'minotaur' | 'viking' | 'punk';
+ *  cycle 2-5 elite roster; cop/cowboy/goth/biker/firefighter are the
+ *  cycle 6-10 cultural archetype roster (summon/burstfire/blink/flank/
+ *  rage skills). ('swat' kept for backwards compat — viking is the
+ *  shield carrier in active rotation.) */
+export type BossKind = 'vampire' | 'swat' | 'mech' | 'minotaur' | 'viking' | 'punk'
+                     | 'cop' | 'cowboy' | 'goth' | 'biker' | 'firefighter';
 
 // Dispatcher — Scene.tsx calls this when spawning a new monster. For
 // tier='boss' it also takes an optional kind so we can pick the variant.
@@ -775,11 +1121,16 @@ export function makeMonster(tier: ZombieTier, bossKind?: BossKind): ZombieGroup 
     case 'stalker': g = makeMummy();    break;
     case 'ghost':   g = makeGhost();    break;
     case 'boss':
-      g = bossKind === 'viking'   ? makeViking()
-        : bossKind === 'punk'     ? makePunk()
-        : bossKind === 'swat'     ? makeSwat()        // legacy fallback
-        : bossKind === 'mech'     ? makeCombatMech()
-        : bossKind === 'minotaur' ? makeMinotaur()
+      g = bossKind === 'viking'      ? makeViking()
+        : bossKind === 'punk'        ? makePunk()
+        : bossKind === 'swat'        ? makeSwat()        // legacy fallback
+        : bossKind === 'mech'        ? makeCombatMech()
+        : bossKind === 'minotaur'    ? makeMinotaur()
+        : bossKind === 'cop'         ? makeCop()
+        : bossKind === 'cowboy'      ? makeCowboy()
+        : bossKind === 'goth'        ? makeGoth()
+        : bossKind === 'biker'       ? makeBiker()
+        : bossKind === 'firefighter' ? makeFirefighter()
         : makeVampire();
       break;
     default:        return makeZombie(tier);    // lurker / exploder
@@ -793,12 +1144,17 @@ export function makeMonster(tier: ZombieTier, bossKind?: BossKind): ZombieGroup 
     tier === 'stalker' ? 0.72 :
     tier === 'ghost'   ? 0.70 :
     tier === 'boss'    ? (
-        bossKind === 'mech'     ? 1.55 :
-        bossKind === 'minotaur' ? 1.45 :
-        bossKind === 'viking'   ? 1.35 :
-        bossKind === 'punk'     ? 1.25 :
-        bossKind === 'swat'     ? 1.30 :
-                                  1.40   // vampire
+        bossKind === 'mech'        ? 1.55 :
+        bossKind === 'minotaur'    ? 1.45 :
+        bossKind === 'viking'      ? 1.35 :
+        bossKind === 'punk'        ? 1.25 :
+        bossKind === 'swat'        ? 1.30 :
+        bossKind === 'firefighter' ? 1.35 :
+        bossKind === 'cop'         ? 1.30 :
+        bossKind === 'cowboy'      ? 1.35 :
+        bossKind === 'biker'       ? 1.30 :
+        bossKind === 'goth'        ? 1.30 :
+                                     1.40   // vampire
       ) :
                          0.66;
   g.scale.setScalar(targetScale);

@@ -341,30 +341,40 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
   let bossKind: BossKind | undefined;
   let skill: Monster['skill'];
   if (tier === 'boss') {
-    // Pass 4 boss scaling — slope 0.9→1.2 / cap 9×→14×. Each cycle adds
-    // +120% boss HP so individual bosses keep scaling alongside
-    // multi-boss spawn count.
-    //   L3=32, L6=70, L9=109, L12=147, L15=186, L21=262, L33+=448 (cap).
-    const cycle = Math.max(1, Math.floor(tuning.level / 3));
-    hp = Math.min(MONSTER_HP.boss * 14, Math.round(MONSTER_HP.boss * (1 + (cycle - 1) * 1.2)));
-    // Body size scales with cycle as a readable strength tell — bigger
-    // boss = stronger boss. +10% per cycle, capped at 1.6× so the
-    // model doesn't outgrow the camera frame.
-    scaleMul = Math.min(1.6, 1 + (cycle - 1) * 0.10);
-    // Boss variant + skill. Caller (startLevel) hands in the kind via
-    // pickBossKinds() so the tutorial schedule is deterministic
-    // (cycle 2 = minotaur teaching charge, cycle 3 = mech + minotaur,
-    // cycle 4 = swat + mech, etc).
-    bossKind = explicitBossKind ?? (cycle === 1 ? 'vampire' : 'minotaur');
+    // Batch B — per-LEVEL boss HP scaling. +15% per level, cap 8×.
+    //   L1=32, L5=51, L10=80, L20=131, L48+=256 (cap).
+    hp = Math.min(MONSTER_HP.boss * 8, Math.round(MONSTER_HP.boss * (1 + (tuning.level - 1) * 0.15)));
+    // Batch C — boss entry MUST read as boss. Floor at 1.4× for every
+    // boss spawn (L1 vampire included), +5% per ~3 levels on top,
+    // capped at 1.6× so the model doesn't outgrow the camera. This is
+    // the visual contract: same-kind ambient elite spawn at 1.0× (see
+    // spawnAmbientElite), so boss vs elite is one glance apart.
+    scaleMul = Math.min(1.6, 1.4 + Math.floor((tuning.level - 1) / 3) * 0.05);
+    // Boss variant — caller (startLevel) passes the kind via
+    // pickBossKinds(). Fallback for safety = vampire (the L1 boss).
+    bossKind = explicitBossKind ?? 'vampire';
     if (bossKind !== 'vampire') {
-      // Skill family per kind. Two carriers each for charge (minotaur
-      // = heavy, punk = fast) and shield (viking, plus legacy swat),
-      // single carrier for beam (mech).
-      const skillKind: 'charge' | 'beam' | 'shield' =
-        bossKind === 'minotaur' ? 'charge'
-        : bossKind === 'punk'   ? 'charge'
-        : bossKind === 'mech'   ? 'beam'
-        :                         'shield';   // viking + swat
+      // Skill family per kind:
+      //   minotaur / punk      → charge
+      //   mech                 → beam
+      //   viking / swat        → shield
+      //   cop                  → summon  (calls 2 lurkers)
+      //   cowboy               → burstfire (3 revolver shots)
+      //   goth                 → blink   (teleport behind player)
+      //   biker                → flank   (passive perpendicular orbit)
+      //   firefighter          → rage    (speed boost + KB immune)
+      const skillKind: NonNullable<Monster['skill']>['kind'] =
+        bossKind === 'minotaur'    ? 'charge'
+        : bossKind === 'punk'      ? 'charge'
+        : bossKind === 'mech'      ? 'beam'
+        : bossKind === 'viking'    ? 'shield'
+        : bossKind === 'swat'      ? 'shield'
+        : bossKind === 'cop'       ? 'summon'
+        : bossKind === 'cowboy'    ? 'burstfire'
+        : bossKind === 'goth'      ? 'blink'
+        : bossKind === 'biker'     ? 'flank'
+        : bossKind === 'firefighter' ? 'rage'
+        :                            'shield';
       skill = {
         kind: skillKind,
         phase: 'idle',
@@ -475,28 +485,42 @@ function spawnEliteStalker(d: GameRef, tuning: LevelTuning) {
 // (brute for minotaur / stalker for mech / lurker for swat) at ~3-4×
 // regular HP. Keeps the bossKind + skill state machine so the player
 // still has to deal with charge / beam / shield in non-boss levels.
-const AMBIENT_ELITE_UNLOCK_LEVEL = 13;   // after cycle 4 boss-night intro of all 3
-const AMBIENT_ELITE_BASE_CHANCE = 0.06;   // ~6% of trickle spawns at L13+
+const AMBIENT_ELITE_UNLOCK_LEVEL = 11;   // post-unlock-ladder (Batch B: L1-10 intro)
+const AMBIENT_ELITE_BASE_CHANCE = 0.06;   // ~6% of trickle spawns at L11+
 function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
   if (d.monsters.length >= tuning.monsterMax) return;
   if (kind === 'vampire') return;   // no ambient vampires (boss-only)
   // Pick a wrapper tier per kind so the base AI (movement / range / SFX)
   // fits the silhouette.
-  //   minotaur → brute   (slow tough heavy melee)
-  //   mech     → stalker (ranged)
-  //   viking   → lurker  (walking shield melee)
-  //   punk     → runner  (fast melee — matches the rabid-pounce read)
-  //   swat     → lurker  (legacy)
+  //   minotaur    → brute   (slow tough heavy melee)
+  //   mech        → stalker (ranged)
+  //   viking      → lurker  (walking shield melee)
+  //   punk        → runner  (fast melee — matches the rabid-pounce read)
+  //   swat        → lurker  (legacy)
+  //   cop         → lurker  (regular guy who summons more)
+  //   cowboy      → stalker (ranged revolver shots)
+  //   goth        → ghost   (phaser feel for blink)
+  //   biker       → runner  (fast — flanks the player)
+  //   firefighter → brute   (tough — rages forward)
   const tier: MonsterTier =
-    kind === 'minotaur' ? 'brute'
-    : kind === 'mech'   ? 'stalker'
-    : kind === 'punk'   ? 'runner'
-    :                     'lurker';   // viking + swat
-  const skillKind: 'charge' | 'beam' | 'shield' =
-    kind === 'minotaur' ? 'charge'
-    : kind === 'punk'   ? 'charge'
-    : kind === 'mech'   ? 'beam'
-    :                     'shield';
+    kind === 'minotaur'    ? 'brute'
+    : kind === 'mech'      ? 'stalker'
+    : kind === 'punk'      ? 'runner'
+    : kind === 'cowboy'    ? 'stalker'
+    : kind === 'goth'      ? 'ghost'
+    : kind === 'biker'     ? 'runner'
+    : kind === 'firefighter' ? 'brute'
+    :                        'lurker';  // viking + swat + cop
+  const skillKind: NonNullable<Monster['skill']>['kind'] =
+    kind === 'minotaur'    ? 'charge'
+    : kind === 'punk'      ? 'charge'
+    : kind === 'mech'      ? 'beam'
+    : kind === 'cop'       ? 'summon'
+    : kind === 'cowboy'    ? 'burstfire'
+    : kind === 'goth'      ? 'blink'
+    : kind === 'biker'     ? 'flank'
+    : kind === 'firefighter' ? 'rage'
+    :                        'shield';   // viking + swat
   const pos = randomSpawnPos(d, 14, 2);
   // 3× tier baseline HP — meaty for an ambient, but well below boss
   // (boss = 14× at L15). Same per-level scaling as everyone else.
@@ -532,9 +556,11 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
     deathArc: 0,
     isBoss: false,
     isElite: true,
-    // Slightly bigger than regular tier so the silhouette still reads
-    // "boss-grade", but smaller than the actual boss (~0.85× of base).
-    scaleMul: 0.90,
+    // Batch C — ambient elite spawns at NORMAL size (1.0×). The boss
+    // ring + emissive ring still flag this as elite; the silhouette
+    // size is reserved for the actual boss (≥1.4×) so the two are
+    // immediately distinguishable on the battlefield.
+    scaleMul: 1.0,
     bossKind: kind,
     skill: {
       kind: skillKind,
@@ -1216,6 +1242,331 @@ export function useGameLoop(p: GameLoopParams) {
             }
           }
           // Fall through to regular boss/melee AI for movement.
+        } else if (sk.kind === 'summon') {
+          // COP SUMMON — 0.6s whistle telegraph → spawn 2 lurkers at
+          // ~3u around the cop. 7-10s cooldown. Cop holds position
+          // during windup, then keeps walking after recover.
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 3 && dist < 22) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+              emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+              p.playSfx('strike_telegraph');
+            }
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            m.velocity.x *= 0.6; m.velocity.z *= 0.6;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= 0.6) {
+              // Spawn 2 lurker minions near the cop.
+              for (let s = 0; s < 2; s++) {
+                if (d.monsters.length >= tuning.monsterMax) break;
+                const ang = Math.random() * Math.PI * 2;
+                const r = 2.2 + Math.random() * 0.8;
+                const sx = m.position.x + Math.cos(ang) * r;
+                const sz = m.position.z + Math.sin(ang) * r;
+                const px = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sx));
+                const pz = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, sz));
+                let mHp = MONSTER_HP.lurker;
+                if (tuning.level > 3) mHp = Math.round(mHp * Math.min(10, 1 + (tuning.level - 3) * 0.35));
+                d.monsters.push({
+                  id: nextId(),
+                  position: new THREE.Vector3(px, 0, pz),
+                  velocity: new THREE.Vector3(),
+                  rotation: Math.atan2(d.pos.x - px, d.pos.z - pz),
+                  state: 'lurking',
+                  fleeT: 0, cooldownT: 0, strikeT: 0,
+                  strikeAimX: 0, strikeAimZ: 0,
+                  tier: 'lurker',
+                  hp: mHp, maxHp: mHp,
+                  hitFlashT: 0,
+                  knockbackVX: 0, knockbackVZ: 0, knockbackT: 0,
+                  dying: false, dyingT: 0,
+                  flightVX: 0, flightVZ: 0, flightSpin: 0,
+                  deathStyle: 0, deathArc: 0,
+                  isBoss: false,
+                });
+              }
+              p.playSfx('strike_hit');
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else {  // recover
+            sk.phaseT += c;
+            m.velocity.x *= 0.7; m.velocity.z *= 0.7;
+            if (sk.phaseT >= 0.5) {
+              sk.phase = 'idle';
+              sk.cooldownT = 7 + Math.random() * 3;
+            }
+            continue;
+          }
+        } else if (sk.kind === 'burstfire') {
+          // COWBOY BURSTFIRE — 0.5s raise-revolver telegraph → 3
+          // projectiles, 0.18s apart, each re-aimed at the player's
+          // current position. 4-7s cooldown. Cowboy plants during the
+          // burst (no walking) so the shots are predictable to dodge.
+          const BURST_GAP = 0.18;
+          const BURST_COUNT = 3;
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 5 && dist < 22) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+              emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+              p.playSfx('strike_telegraph');
+            }
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            m.velocity.x *= 0.5; m.velocity.z *= 0.5;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= 0.5) {
+              sk.phase = 'active';
+              sk.phaseT = 0;
+              // Use aimX as the "next-shot timer" carrier (re-purposed
+              // since burstfire re-aims per shot).
+              sk.aimX = 0;     // next-shot timer
+              sk.aimZ = 0;     // shots-fired counter
+            }
+            continue;
+          } else if (sk.phase === 'active') {
+            sk.phaseT += c;
+            m.velocity.x *= 0.4; m.velocity.z *= 0.4;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            sk.aimX -= c;
+            if (sk.aimX <= 0 && sk.aimZ < BURST_COUNT) {
+              // Fire one projectile aimed at the player NOW.
+              const inv = dist > 0.001 ? 1 / dist : 0;
+              d.enemyProjectiles.push({
+                id: nextId(),
+                position: new THREE.Vector3(m.position.x, 1.1, m.position.z),
+                dirX: dx * inv,
+                dirZ: dz * inv,
+                bornAt: d.time,
+                ttl: PROJECTILE_TTL,
+                speedMul: 1.8,   // revolver rounds fly fast
+              });
+              p.playSfx('strike_hit');
+              sk.aimX = BURST_GAP;
+              sk.aimZ += 1;
+            }
+            if (sk.aimZ >= BURST_COUNT) {
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else {  // recover
+            sk.phaseT += c;
+            m.velocity.x *= 0.6; m.velocity.z *= 0.6;
+            if (sk.phaseT >= 0.4) {
+              sk.phase = 'idle';
+              sk.cooldownT = 4 + Math.random() * 3;
+            }
+            continue;
+          }
+        } else if (sk.kind === 'blink') {
+          // GOTH BLINK — 0.4s purple swirl at the goth → teleport to
+          // a point ~3u behind the player → 0.3s recover. The body
+          // is invulnerable / unhittable during the blink window
+          // (we just skip the regular AI and stay put visually until
+          // the warp lands). 5-9s cooldown.
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 4 && dist < 18) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+              emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+              p.playSfx('strike_telegraph');
+            }
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            m.velocity.x = 0; m.velocity.z = 0;
+            if (sk.phaseT >= 0.4) {
+              // Teleport to behind the player. "Behind" = opposite of
+              // player's facing (d.rot points along (sin(rot), cos(rot))).
+              const facingX = Math.sin(d.rot);
+              const facingZ = Math.cos(d.rot);
+              const tx = d.pos.x - facingX * 3.0;
+              const tz = d.pos.z - facingZ * 3.0;
+              m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, tx));
+              m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, tz));
+              // Face the player from the new position.
+              const ndx = d.pos.x - m.position.x;
+              const ndz = d.pos.z - m.position.z;
+              if (Math.hypot(ndx, ndz) > 0.001) m.rotation = Math.atan2(ndx, ndz);
+              emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+              p.playSfx('strike_hit');
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else if (sk.phase === 'active') {
+            // No active phase used — telegraph jumps straight to recover.
+            sk.phase = 'recover';
+            sk.phaseT = 0;
+            continue;
+          } else {  // recover
+            sk.phaseT += c;
+            m.velocity.x *= 0.6; m.velocity.z *= 0.6;
+            if (sk.phaseT >= 0.3) {
+              sk.phase = 'idle';
+              sk.cooldownT = 5 + Math.random() * 4;
+            }
+            continue;
+          }
+        } else if (sk.kind === 'flank') {
+          // BIKER FLANK — passive perpendicular orbit. While idle the
+          // biker walks TANGENT to the player (sidesteps), with a
+          // brief "lunge" sprint at the player on cooldown. Lunges
+          // are visible: 0.3s telegraph (face-lock) → 0.7s sprint at
+          // 1.5× → 0.5s recover.
+          if (sk.phase === 'idle') {
+            // Tangent override — biker circles the player rather than
+            // walking straight in. Pick CW or CCW based on monster id
+            // parity so a group of bikers visibly fans both ways.
+            const sign = (m.id & 1) ? 1 : -1;
+            if (dist > 0.001) {
+              const inv = 1 / dist;
+              const tx = -dz * inv * sign;     // tangent (90° rotation)
+              const tz =  dx * inv * sign;
+              // Mix toward player so they don't orbit at constant radius
+              // — slow drift in.
+              const drift = 0.20;
+              m.velocity.x = (tx * (1 - drift) + dx * inv * drift) * monsterBaseSpeed * 1.05;
+              m.velocity.z = (tz * (1 - drift) + dz * inv * drift) * monsterBaseSpeed * 1.05;
+            }
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 3 && dist < 16) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+              emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+              p.playSfx('strike_telegraph');
+            }
+            // Move now then continue past regular AI.
+            m.position.x += m.velocity.x * c;
+            m.position.z += m.velocity.z * c;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+            m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+            continue;
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            m.velocity.x *= 0.5; m.velocity.z *= 0.5;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= 0.3) {
+              sk.phase = 'active';
+              sk.phaseT = 0;
+              const inv = dist > 0.001 ? 1 / dist : 0;
+              sk.aimX = dx * inv;
+              sk.aimZ = dz * inv;
+            }
+            continue;
+          } else if (sk.phase === 'active') {
+            sk.phaseT += c;
+            // Sprint along locked aim at 1.5× speed.
+            const sprintS = monsterBaseSpeed * 1.5;
+            m.position.x += sk.aimX * sprintS * c;
+            m.position.z += sk.aimZ * sprintS * c;
+            m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+            m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+            // Contact damage.
+            const cdx = d.pos.x - m.position.x;
+            const cdz = d.pos.z - m.position.z;
+            const cdist = Math.hypot(cdx, cdz);
+            const hitR = (m.scaleMul ?? 1) * 1.2;
+            if (cdist < hitR && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+              applyPlayerHit(d);
+              d.iframesT = 1.2;
+              shakeCamera(d, 0.85, 0.30);
+              emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+              p.playSfx('strike_hit');
+              p.haptic?.('heavy');
+              p.onStrikeHit?.();
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            } else if (sk.phaseT >= 0.7) {
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else {  // recover
+            sk.phaseT += c;
+            m.velocity.x *= 0.7; m.velocity.z *= 0.7;
+            if (sk.phaseT >= 0.5) {
+              sk.phase = 'idle';
+              sk.cooldownT = 4 + Math.random() * 2;
+            }
+            continue;
+          }
+        } else if (sk.kind === 'rage') {
+          // FIREFIGHTER RAGE — 1s red-glow charge-up → 3s sprint at
+          // 1.5× speed with KB immunity → 1s recover. During active
+          // the firefighter ignores knockback impulses and runs
+          // straight at the player; contact damage on touch. 6-10s
+          // cooldown.
+          if (sk.phase === 'idle') {
+            sk.cooldownT -= c;
+            if (sk.cooldownT <= 0 && dist > 2 && dist < 18) {
+              sk.phase = 'telegraph';
+              sk.phaseT = 0;
+              emitFx(d, 'strike_telegraph', m.position.x, m.position.z);
+              p.playSfx('strike_telegraph');
+            }
+            // Fall through to regular melee AI during idle.
+          } else if (sk.phase === 'telegraph') {
+            sk.phaseT += c;
+            m.velocity.x *= 0.6; m.velocity.z *= 0.6;
+            if (dist > 0.001) m.rotation = Math.atan2(dx, dz);
+            if (sk.phaseT >= 1.0) {
+              sk.phase = 'active';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else if (sk.phase === 'active') {
+            sk.phaseT += c;
+            // KB IMMUNITY — clear any knockback impulses applied this frame.
+            m.knockbackT = 0;
+            m.knockbackVX = 0;
+            m.knockbackVZ = 0;
+            // Sprint at the player at 1.5× speed.
+            if (dist > 0.001) {
+              const inv = 1 / dist;
+              const sprintS = monsterBaseSpeed * 1.5;
+              m.position.x += dx * inv * sprintS * c;
+              m.position.z += dz * inv * sprintS * c;
+              m.rotation = Math.atan2(dx, dz);
+            }
+            m.position.x = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.x));
+            m.position.z = Math.max(-ARENA_HALF + 0.5, Math.min(ARENA_HALF - 0.5, m.position.z));
+            // Contact damage on touch.
+            const cdx = d.pos.x - m.position.x;
+            const cdz = d.pos.z - m.position.z;
+            const cdist = Math.hypot(cdx, cdz);
+            const hitR = (m.scaleMul ?? 1) * 1.3;
+            if (cdist < hitR && d.iframesT <= 0 && d.time > GRACE_PERIOD) {
+              applyPlayerHit(d);
+              d.iframesT = 1.2;
+              shakeCamera(d, 0.90, 0.34);
+              emitFx(d, 'strike_hit', d.pos.x, d.pos.z);
+              p.playSfx('strike_hit');
+              p.haptic?.('heavy');
+              p.onStrikeHit?.();
+            }
+            if (sk.phaseT >= 3.0) {
+              sk.phase = 'recover';
+              sk.phaseT = 0;
+            }
+            continue;
+          } else {  // recover
+            sk.phaseT += c;
+            m.velocity.x *= 0.7; m.velocity.z *= 0.7;
+            if (sk.phaseT >= 1.0) {
+              sk.phase = 'idle';
+              sk.cooldownT = 6 + Math.random() * 4;
+            }
+            continue;
+          }
         }
       }
 
@@ -1821,15 +2172,15 @@ export function useGameLoop(p: GameLoopParams) {
     d.monsterSpawnTimer += c;
     if (d.monsterSpawnTimer >= tuning.monsterSpawnInterval) {
       d.monsterSpawnTimer = 0;
-      // Defeated-boss elite spawn — at L13+ (after cycle 4 finishes
-      // introducing all 3 elite kinds via boss-night tutorials), small
-      // chance each trickle to spawn one of the kinds the player has
-      // killed at least once as a regular boss. Caps to a few per
-      // level via the existing anti-stall counter.
+      // Defeated-boss elite spawn — at L11+ (after the 10-kind unlock
+      // ladder completes at L10), small chance each trickle to spawn
+      // one of the kinds the player has killed at least once as a
+      // boss. Adds variety alongside the level-N bosses. Batch B
+      // removed the !isBoss gate — every level is a boss level now,
+      // so ambient elites coexist with the level's main boss(es).
       let spawned = false;
       if (
-        !tuning.isBoss
-        && d.level >= AMBIENT_ELITE_UNLOCK_LEVEL
+        d.level >= AMBIENT_ELITE_UNLOCK_LEVEL
         && d.defeatedBossKinds.size > 0
         && Math.random() < AMBIENT_ELITE_BASE_CHANCE
       ) {

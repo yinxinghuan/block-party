@@ -43,67 +43,60 @@ export const CAMERA_FOV = 55;
 export const GRACE_PERIOD = 3.0;
 
 // ===== EXIT GOAL (replaces wave timer) =====
-// Each night clears when the player walks into a violet exit beacon. The
-// beacon spawns automatically once the per-night kill goal is met (or, on
-// the boss night, when the boss is defeated).
+// Each level clears when the player walks into a violet exit beacon.
+// Batch B refactor — EVERY level is a boss level now (one new boss kind
+// unlocked per level for the first 10, multi-boss after); the beacon
+// spawns when ALL bosses on the level are defeated. The non-boss kill
+// goal flow is retired.
 export const EXIT_PICKUP_RADIUS = 1.8;
 export const EXIT_MIN_DIST = 18.0;     // spawn at least this far from player
-/** Boss count per boss night, scaled with the cycle. Cycle 1 (L3) and
- *  cycle 2 (L6) ship a single boss like the original game; from cycle 3
- *  on the formula adds another boss every 2 cycles so late endless is
- *  a real "1 vs N bosses" fight. Returns 0 for non-boss nights.
- *    L3 / L6: 1 boss
- *    L9 / L12: 2 bosses
- *    L15 / L18: 3 bosses
- *    L21 / L24: 4 bosses
- *    L27 / L30: 5 bosses, L33+: 6 bosses …
- *  All bosses must die before the exit beacon spawns. */
+
+/** Boss count per level. L1-10 = 1 boss (unlock cycle). L11+ ramps:
+ *  L11=1, L12=2, L14=3, L16+=4 (capped). Multi-boss feels like "1 vs N"
+ *  rather than "1 vs swarm". */
 export function getBossCount(level: number): number {
-  if (level % 3 !== 0) return 0;
-  const cycle = Math.floor(level / 3);
-  return Math.max(1, Math.ceil(cycle / 2));
+  if (level <= 10) return 1;
+  return Math.min(4, 1 + Math.floor((level - 10) / 2));
 }
 
-/** Pick the specific boss kinds that spawn on a given boss night.
- *  Boss night = disguised tutorial — each cycle introduces ONE new
- *  elite kind in slot 0, with previously-introduced kinds filling the
- *  remaining slots for context. After cycle 4 all 3 elites are known,
- *  rotation becomes a deterministic mix.
- *    cycle 1 (L3): [vampire]              — original
- *    cycle 2 (L6): [minotaur]             — introduce CHARGE
- *    cycle 3 (L9): [mech, minotaur]       — introduce BEAM + revisit charge
- *    cycle 4 (L12): [swat, mech]          — introduce SHIELD + revisit beam
- *    cycle 5+ (L15+): mix all three, rotating per slot
- */
-export type BossKind = 'vampire' | 'minotaur' | 'mech' | 'viking' | 'punk' | 'swat';
+export type BossKind = 'vampire' | 'minotaur' | 'mech' | 'viking' | 'punk' | 'swat'
+                     | 'cop' | 'cowboy' | 'goth' | 'biker' | 'firefighter';
+
+/** The 10-boss unlock ladder. L1 = first boss the player ever sees
+ *  (vampire — pure melee, no special). Each subsequent level introduces
+ *  exactly ONE new mechanic (charge / beam / shield / rabid charge /
+ *  summon / burstfire / blink / flank / rage). L11+ multi-boss rolls
+ *  through the unlocked roster. */
+const BOSS_UNLOCK: BossKind[] = [
+  'vampire',     // L1  — melee boss (intro)
+  'minotaur',    // L2  — CHARGE (heavy)
+  'mech',        // L3  — BEAM
+  'viking',      // L4  — SHIELD
+  'punk',        // L5  — CHARGE (rabid)
+  'cop',         // L6  — SUMMON
+  'cowboy',      // L7  — BURSTFIRE
+  'goth',        // L8  — BLINK
+  'biker',       // L9  — FLANK
+  'firefighter', // L10 — RAGE
+];
+
+/** Pick the specific boss kinds for a given level. L1-10 ship the
+ *  unlock-ladder kind alone. L11+ ship getBossCount(level) bosses,
+ *  rotated through the full unlocked roster so two adjacent levels
+ *  don't show the same combo. */
 export function pickBossKinds(level: number): BossKind[] {
-  if (level % 3 !== 0) return [];
-  const cycle = Math.floor(level / 3);
+  if (level < 1) return [];
+  if (level <= BOSS_UNLOCK.length) return [BOSS_UNLOCK[level - 1]];
   const count = getBossCount(level);
-  if (cycle === 1) return Array<BossKind>(count).fill('vampire');
-  // Tutorial cycles 2-5 each introduce one new kind in slot 0.
-  if (cycle === 2) return ['minotaur'];                      // intro CHARGE (heavy)
-  if (cycle === 3) return ['mech', 'minotaur'];              // intro BEAM
-  if (cycle === 4) return ['viking', 'mech'];                // intro SHIELD (Viking, not SWAT)
-  if (cycle === 5) return ['punk', 'viking', 'minotaur'];    // intro fast CHARGE variant (punk)
-  // Cycle 6+ — all 4 elite kinds available, rotate slot by slot.
-  const order: BossKind[] = ['minotaur', 'mech', 'viking', 'punk'];
-  return Array.from({ length: count }, (_, i) => order[(cycle + i) % 4]);
+  return Array.from({ length: count }, (_, i) =>
+    BOSS_UNLOCK[(level - BOSS_UNLOCK.length - 1 + i) % BOSS_UNLOCK.length]
+  );
 }
 
-/** Kills needed before the exit beacon appears. Boss nights (every 3rd
- *  level) return -1 — boss deaths trigger the exit instead. Endless:
- *  the curve preserves the original N1/N2 hand-tuned values exactly, then
- *  ramps for L4+ in a 2-non-boss + 1-boss cycle. */
-export function getKillGoal(level: number): number {
-  if (level === 1) return 25;
-  if (level === 2) return 45;
-  if (level % 3 === 0) return -1;  // L3, L6, L9, ... = boss
-  // L4+: each cycle adds 15 to the base; second non-boss in cycle adds 20.
-  // L4=40, L5=60 / L7=55, L8=75 / L10=70, L11=90 / L13=85, L14=105 …
-  const cycle = Math.floor((level - 1) / 3);                 // L4-6 → 1, L7-9 → 2
-  const inCycle = (level - 1) % 3;                           // 0 = first, 1 = second
-  return 25 + cycle * 15 + inCycle * 20;
+/** Kills needed before the exit beacon appears. Batch B: every level
+ *  is a boss level — boss deaths trigger the exit. Always -1. */
+export function getKillGoal(_level: number): number {
+  return -1;
 }
 
 // ===== AUTO-FIRE (Vampire Survivors / Brotato model) =====
@@ -223,90 +216,59 @@ const PALETTE: Record<string, LevelPalette> = {
   blackout: { floor: '#26161c', fog: '#0a0608', ambient: '#421824', hemiSky: '#542026', hemiGround: '#100810', pillar: '#3a1e22' },
 };
 
-// First-3-night hand-tuned data. L4+ are synthesized from formulas in
-// computeEndlessTuning() that preserve this curve's slope. Keeping these
-// exact rows means the opening 3 nights stay the player-tested feel.
-const LEVELS_HARDCODED: LevelTuning[] = [
-  // Night 1 — busy opening so the screen is already crowded when you draw
-  // your first breath. Lower-tier mix with one stalker mixed in.
-  { level: 1, name: 'Twilight', timeLimit: 45, lurkerCount: 14, stalkerCount: 1, monsterMax: 38, monsterSpeed: 0.90, monsterFleeSpeed: 0.90, monsterSpawnInterval: 0.55, stalkerSpawnRatio: 0.10, strikeTelegraph: 1.20, strikeRangeMax: 1.0, strikeCooldown: 2.8, crystalInitial: 4, pillarCount: 30, pillarScaleBias: 1.0,  isBoss: false, palette: PALETTE.twilight, bgmTension: 0.40 },
-  // Night 2 — stalkers take over; everything moves faster, fewer beats
-  // of safety. Spawn interval cuts the trickle to nearly continuous.
-  { level: 2, name: 'Dusk', timeLimit: 45, lurkerCount: 22, stalkerCount: 3, monsterMax: 56, monsterSpeed: 1.05, monsterFleeSpeed: 0.95, monsterSpawnInterval: 0.35, stalkerSpawnRatio: 0.18, strikeTelegraph: 1.05, strikeRangeMax: 1.1, strikeCooldown: 2.4, crystalInitial: 3, pillarCount: 36, pillarScaleBias: 0.95, isBoss: false, palette: PALETTE.dusk,     bgmTension: 0.65 },
-  // Night 3 — boss night. Max swarm, fastest stalkers, telegraph window
-  // shrinks so you can't dance through bites the way Night 1 lets you.
-  { level: 3, name: 'Blackout', timeLimit: 45, lurkerCount: 28, stalkerCount: 5, monsterMax: 72, monsterSpeed: 1.22, monsterFleeSpeed: 1.05, monsterSpawnInterval: 0.22, stalkerSpawnRatio: 0.22, strikeTelegraph: 0.90, strikeRangeMax: 1.2, strikeCooldown: 2.0, crystalInitial: 2, pillarCount: 42, pillarScaleBias: 1.10, isBoss: true,  palette: PALETTE.blackout, bgmTension: 0.95 },
-];
-
-// Backwards-compat export — referenced by a couple of older sites for
-// the "fell on night N · NAME" gameover line. Endless: still 3 hand-tuned
-// entries here, but the actual game loop reads from getLevelTuning().
-export const LEVELS = LEVELS_HARDCODED;
-
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 const PALETTE_CYCLE = [PALETTE.twilight, PALETTE.dusk, PALETTE.blackout];
 const NAME_CYCLE    = ['Twilight',       'Dusk',       'Blackout'];
 
-// Endless extrapolation for level 4+. Each 3-level cycle re-tints to
-// twilight → dusk → blackout while the difficulty knobs continue to
-// climb (capped so the late game is "max-difficulty arcade survival"
-// rather than impossible math). Boss spawns every 3rd level.
+// Batch B — mob count DECAYS as level rises. L1 baseline 38 mobs;
+// each level drops 6 percentage points, floored at 25% (=10 mobs).
+// The boss IS the level, ambient mobs are pressure not spotlight.
+//   L1=38, L5=30, L10=23, L13+=10 (floor)
+const MOB_BASE = 38;
+function mobDecay(level: number): number {
+  return Math.max(0.25, 1 - (level - 1) * 0.06);
+}
+
+// Single source of truth — every level is procedurally generated.
+// Boss flag is ALWAYS true (Batch B: every level a boss). Mob density
+// decays so bosses stay the spotlight. Per-monster AI/speed ramps
+// independently so late levels still feel sharper.
 function computeEndlessTuning(level: number): LevelTuning {
   const idx = (level - 1) % 3;
   const palette = PALETTE_CYCLE[idx];
   const name = NAME_CYCLE[idx];
-  const isBoss = level % 3 === 0;
   const k = level - 1;  // 0-based ramp parameter
-
-  // Multi-boss density modifier — when a boss night spawns N >= 2 bosses,
-  // ambient mob pressure tapers DOWN so the bosses are the spotlight
-  // (not lost in a sea of lurkers). 1 boss → no change. 2 bosses → 80%
-  // mobs. 3 → 64%. 4 → 51%. 5+ → 40% (floor). Both fewer monsters AND
-  // longer spawn intervals so the screen doesn't refill instantly.
-  const bossCount = isBoss ? Math.max(1, Math.ceil(Math.floor(level / 3) / 2)) : 0;
-  const mobScale = bossCount >= 2 ? Math.max(0.40, Math.pow(0.80, bossCount - 1)) : 1;
-  const baseMonsterMax = k <= 17
-    ? clamp(38 + k * 9, 38, 105)
-    : clamp(105 - (k - 17) * 2, 85, 105);
+  const decay = mobDecay(level);
 
   return {
     level,
     name,
-    timeLimit: 45,  // informational; clear condition is the exit beacon, not the timer
-    lurkerCount:    Math.max(2, Math.floor(clamp(14 + k * 3, 14, 50) * mobScale)),
-    stalkerCount:   Math.max(1, Math.floor(clamp(1 + Math.floor(k / 2), 1, 12) * mobScale)),
-    // monsterMax with a TWO-STAGE cap + multi-boss taper. Climbs to 105
-    // then eases off past L20 (perf), and on boss nights with 2+ bosses
-    // it's further reduced by mobScale so the field clears for the boss
-    // fight. L9 (2 bosses) ~88 mobs, L15 (3 bosses) ~67, L21 (4) ~50.
-    monsterMax:     Math.max(20, Math.floor(baseMonsterMax * mobScale)),
+    timeLimit: 45,  // informational; clear condition is boss death
+    lurkerCount:    Math.max(2, Math.floor(14 * decay)),
+    stalkerCount:   Math.max(1, Math.floor((1 + Math.floor(k / 3)) * decay)),
+    monsterMax:     Math.max(8, Math.floor(MOB_BASE * decay)),
     monsterSpeed:   clamp(0.90 + k * 0.08, 0.90, 1.70),
     monsterFleeSpeed: clamp(0.90 + k * 0.03, 0.90, 1.30),
-    // AI tempo caps relaxed for the late-game pressure pass: the formula
-    // keeps dropping these stats past their old plateau so L14+ feels
-    // genuinely faster (shorter spawn trickle, snappier bite warning,
-    // tighter cooldown between attacks). The on-screen monsterMax stays
-    // perf-locked at 90; this just makes each individual monster more
-    // aggressive without adding more bodies.
-    //   monsterSpawnInterval reaches 0.07 at L9+ (was 0.12 at L8+)
-    //   strikeTelegraph reaches 0.45 at L14+ (was 0.70 at L9+)
-    //   strikeCooldown reaches 1.0 at L24+ (was 1.5 at L17+)
-    // Spawn interval ALSO stretched on multi-boss nights — fewer mobs +
-    // slower trickle keeps the bosses center-stage instead of mob soup.
-    monsterSpawnInterval: clamp((0.55 - k * 0.06) / mobScale, 0.07, 0.90),
+    monsterSpawnInterval: clamp(0.55 - k * 0.04, 0.20, 0.90),
     stalkerSpawnRatio:    clamp(0.10 + k * 0.025, 0.10, 0.32),
     strikeTelegraph:      clamp(1.20 - k * 0.06, 0.45, 1.20),
     strikeRangeMax:       clamp(1.0 + k * 0.03, 1.0, 1.5),
     strikeCooldown:       clamp(2.8 - k * 0.08, 1.0, 2.8),
     crystalInitial:       clamp(4 - Math.floor(k / 2), 1, 4),
     pillarCount:          clamp(30 + k * 2, 30, 60),
-    pillarScaleBias:      0.95 + ((level * 0.31) % 1) * 0.20,  // 0.95-1.15 wobble per level
-    isBoss,
+    pillarScaleBias:      0.95 + ((level * 0.31) % 1) * 0.20,
+    isBoss:               true,   // Batch B: every level a boss level
     palette,
     bgmTension:           clamp(0.40 + k * 0.08, 0.40, 1.0),
   };
 }
+
+// Backwards-compat export — historical 3-night reference for the
+// "fell on night N · NAME" gameover line. With Batch B everything is
+// synthesized; this stays as a small compat-shim so any external
+// consumer reading LEVELS[0] still gets a sensible tuning row.
+export const LEVELS = [computeEndlessTuning(1), computeEndlessTuning(2), computeEndlessTuning(3)];
 
 // Per-night tier weights for the spawn roll. Boss never rolls here — it's
 // scripted on boss nights. Stalker (spitter) stays a special threat, not
@@ -337,6 +299,5 @@ export const SURGE_COUNT_PER_NIGHT = 2;  // +N per night (Endless: capped at 14 
 
 export function getLevelTuning(level: number): LevelTuning {
   const safe = Math.max(1, level | 0);
-  if (safe <= LEVELS_HARDCODED.length) return LEVELS_HARDCODED[safe - 1];
   return computeEndlessTuning(safe);
 }
