@@ -341,16 +341,16 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
   let bossKind: BossKind | undefined;
   let skill: Monster['skill'];
   if (tier === 'boss') {
-    // 2026-06-16 v3 midpoint — slope 0.10→0.12, cap 5×→6.5× (halfway
-    // between the prior too-steep 0.15/8× and the over-flattened 0.10/5×).
-    //   L1=32, L5=51, L10=67, L15=83, L20=99, L47+=208 (cap).
-    hp = Math.min(Math.round(MONSTER_HP.boss * 6.5), Math.round(MONSTER_HP.boss * (1 + (tuning.level - 1) * 0.12)));
-    // Batch C — boss entry MUST read as boss. Floor at 1.4× for every
-    // boss spawn (L1 vampire included), +5% per ~3 levels on top,
-    // capped at 1.6× so the model doesn't outgrow the camera. This is
-    // the visual contract: same-kind ambient elite spawn at 1.0× (see
-    // spawnAmbientElite), so boss vs elite is one glance apart.
-    scaleMul = Math.min(1.6, 1.4 + Math.floor((tuning.level - 1) / 3) * 0.05);
+    // 2026-06-16 v4 strengthen — bump slope 0.12→0.15 and cap 6.5×→8×
+    // (full revert to the original "too steep" curve; the beam dodge
+    // fix + the player's compounding weapon DPS now make this fair).
+    //   L1=32, L5=51, L10=80, L15=109, L20=141, L48+=256 (cap).
+    hp = Math.min(MONSTER_HP.boss * 8, Math.round(MONSTER_HP.boss * (1 + (tuning.level - 1) * 0.15)));
+    // 2026-06-16 v4 — scaleMul floor 1.4→1.5 and cap 1.6→1.75 so bosses
+    // read visibly larger by default (more menacing silhouette, slightly
+    // bigger contact box via m.scaleMul). Same-kind ambient elites stay
+    // at 1.0× so the "boss vs elite at a glance" contract holds.
+    scaleMul = Math.min(1.75, 1.5 + Math.floor((tuning.level - 1) / 3) * 0.05);
     // Boss variant — caller (startLevel) passes the kind via
     // pickBossKinds(). Fallback for safety = vampire (the L1 boss).
     bossKind = explicitBossKind ?? 'vampire';
@@ -380,7 +380,7 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
         kind: skillKind,
         phase: 'idle',
         phaseT: 0,
-        cooldownT: 3 + Math.random() * 2,  // first skill arrives 3-5s in
+        cooldownT: 2 + Math.random() * 1.5,  // v4 first skill 3-5 → 2-3.5s (bosses open with their move sooner)
         aimX: 0,
         aimZ: 0,
       };
@@ -1075,10 +1075,10 @@ export function useGameLoop(p: GameLoopParams) {
           // aim → 1.4s stun. (Punk used to share this case as a
           // faster variant; it now runs the `pounce` skill below.)
           const TELEGRAPH_T = 0.70;
-          const DASH_SPEED  = 12;
+          const DASH_SPEED  = 13;        // v4 +8% — slightly harder to outrun
           const DASH_DUR    = 1.20;
-          const STUN_T      = 1.40;
-          const NEXT_CD_MIN = 4.0;
+          const STUN_T      = 1.10;      // v4 stun 1.4→1.1 — gets back into the fight faster
+          const NEXT_CD_MIN = 3.0;       // v4 4.0→3.0
           const NEXT_CD_RND = 2.0;
           if (sk.phase === 'idle') {
             sk.cooldownT -= c;
@@ -1219,11 +1219,10 @@ export function useGameLoop(p: GameLoopParams) {
             continue;
           } else {  // recover
             sk.phaseT += c;
-            // 2026-06-16 v3 — recover 1.0→0.8s, cooldown 5-7→4-6s
-            // (midpoint between 3.5-5.5 prior and 5-7 over-flat).
+            // v4 — beam cooldown 4-6 → 3-5s (boss strengthen pass).
             if (sk.phaseT >= 0.8) {
               sk.phase = 'idle';
-              sk.cooldownT = 4 + Math.random() * 2;
+              sk.cooldownT = 3 + Math.random() * 2;
             }
             // Still no movement during recovery cooldown — readable break.
             m.velocity.x *= 0.4; m.velocity.z *= 0.4;
@@ -1258,7 +1257,7 @@ export function useGameLoop(p: GameLoopParams) {
             sk.phaseT += c;
             if (sk.phaseT >= 0.4) {
               sk.phase = 'idle';
-              sk.cooldownT = 3.5 + Math.random() * 1.5;
+              sk.cooldownT = 2.5 + Math.random() * 1.5;     // v4 shield 3.5-5 → 2.5-4
             }
           }
           // Fall through to regular boss/melee AI for movement.
@@ -1318,7 +1317,7 @@ export function useGameLoop(p: GameLoopParams) {
             m.velocity.x *= 0.7; m.velocity.z *= 0.7;
             if (sk.phaseT >= 0.5) {
               sk.phase = 'idle';
-              sk.cooldownT = 7 + Math.random() * 3;
+              sk.cooldownT = 5 + Math.random() * 3;     // v4 summon 7-10 → 5-8
             }
             continue;
           }
@@ -1381,7 +1380,7 @@ export function useGameLoop(p: GameLoopParams) {
             m.velocity.x *= 0.6; m.velocity.z *= 0.6;
             if (sk.phaseT >= 0.4) {
               sk.phase = 'idle';
-              sk.cooldownT = 4 + Math.random() * 3;
+              sk.cooldownT = 3 + Math.random() * 2;     // v4 burstfire 4-7 → 3-5
             }
             continue;
           }
@@ -1431,7 +1430,7 @@ export function useGameLoop(p: GameLoopParams) {
             m.velocity.x *= 0.6; m.velocity.z *= 0.6;
             if (sk.phaseT >= 0.3) {
               sk.phase = 'idle';
-              sk.cooldownT = 5 + Math.random() * 4;
+              sk.cooldownT = 4 + Math.random() * 3;     // v4 blink 5-9 → 4-7
             }
             continue;
           }
@@ -1515,7 +1514,7 @@ export function useGameLoop(p: GameLoopParams) {
             m.velocity.x *= 0.7; m.velocity.z *= 0.7;
             if (sk.phaseT >= 0.5) {
               sk.phase = 'idle';
-              sk.cooldownT = 4 + Math.random() * 2;
+              sk.cooldownT = 3 + Math.random() * 2;     // v4 flank 4-6 → 3-5
             }
             continue;
           }
@@ -1583,7 +1582,7 @@ export function useGameLoop(p: GameLoopParams) {
             m.velocity.x *= 0.7; m.velocity.z *= 0.7;
             if (sk.phaseT >= 1.0) {
               sk.phase = 'idle';
-              sk.cooldownT = 6 + Math.random() * 4;
+              sk.cooldownT = 4 + Math.random() * 3;     // v4 rage 6-10 → 4-7
             }
             continue;
           }
@@ -1667,7 +1666,7 @@ export function useGameLoop(p: GameLoopParams) {
             m.position.y = 0;
             if (sk.phaseT >= REC_T) {
               sk.phase = 'idle';
-              sk.cooldownT = 2.5 + Math.random() * 1.5;
+              sk.cooldownT = 1.8 + Math.random() * 1.2;    // v4 pounce 2.5-4 → 1.8-3 (rabid)
             }
             continue;
           }
