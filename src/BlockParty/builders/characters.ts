@@ -30,6 +30,7 @@ interface CharSpec {
   hat?: number;
   collar?: number;       // e.g. cop's badge area
   belt?: number;
+  faceTex?: THREE.Texture;  // identity games: map the player's face onto the head
 }
 
 function character(s: CharSpec): CharacterGroup {
@@ -106,7 +107,43 @@ function character(s: CharSpec): CharacterGroup {
   }
 
   finish(g);
+
+  // Identity hero — map the player's face onto the front of the head. Added
+  // after finish() so the photo material isn't overwritten. Self-lit a touch
+  // (emissiveMap) so it stays recognizable in the dark city; the voxel body +
+  // hair keep the house style so it reads as "me, in this world".
+  if (s.faceTex) {
+    const faceMat = new THREE.MeshStandardMaterial({
+      map: s.faceTex,
+      emissive: 0xffffff,
+      emissiveMap: s.faceTex,
+      emissiveIntensity: 0.5,
+      roughness: 0.85,
+      metalness: 0,
+    });
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(HW * 1.0, HH * 0.94), faceMat);
+    face.position.set(0, headY + 0.02, HDP / 2 + 0.02);
+    g.add(face);
+  }
+
   g.userData = { rig: { legL, legR, armL, armR } };
+  return g;
+}
+
+// Neutral civilian body for the photo / avatar hero — a plain hoodie so the
+// figure reads as "you" (your face, everyday clothes) rather than one of the
+// themed archetypes. The face texture is what carries identity.
+const PHOTO_HERO_SPEC: CharSpec = {
+  skin:  P.skin,
+  top:   0x3a6ea5, sleeve: 0x33648f, bottom: 0x26303f, shoes: 0x1a1a1e,
+  hair:  P.hairBrown,
+};
+
+/** Build the identity hero: neutral low-poly body + the player's face on the
+ *  head. Same rig/scale as makeSurvivor so the engine wires it identically. */
+export function makeSurvivorWithFace(faceTex: THREE.Texture): CharacterGroup {
+  const g = character({ ...PHOTO_HERO_SPEC, faceTex });
+  g.scale.setScalar(0.65);
   return g;
 }
 

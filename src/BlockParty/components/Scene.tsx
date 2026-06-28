@@ -9,8 +9,9 @@ import {
 } from '../constants';
 import { useGameLoop, GameRef, PickupKind, SfxKey } from '../hooks/useGameLoop';
 import type { Stick, Pillar, PillarVariant } from '../types';
-import { makeMonster, flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
-import { makeSurvivor, makeFlashlight, type CharacterGroup, type SurvivorId } from '../builders/characters';
+import { flashWhite, type ZombieGroup, type ZombieTier } from '../builders/monsters';
+import { makeFlashlight, type CharacterGroup } from '../builders/characters';
+import { CARTRIDGE, type HeroId } from '../cartridge';
 import { makeWeapon, WEAPONS } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
 import { PERKS } from '../perks';
@@ -20,7 +21,8 @@ interface SceneProps {
   playing: boolean;
   level: number;            // drives per-level palette
   stickRef: React.MutableRefObject<Stick>;
-  survivor: SurvivorId;     // selected archetype for this run
+  survivor: HeroId;     // selected hero for this run
+  heroPhotoUrl?: string | null;   // identity hero: face texture URL (avatar / upload)
   onScore: (s: number) => void;
   onDepth: (d: number) => void;
   onLightRadius: (r: number) => void;
@@ -689,7 +691,7 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
 // and a flashlight in the left. The left arm is locked forward so the
 // flashlight cone tracks the player's facing; the right arm tracks the
 // current aim target dynamically inside the 110° fire arc.
-function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>; survivorId: SurvivorId }) {
+function Player({ state, survivorId, heroPhotoUrl }: { state: React.MutableRefObject<GameRef>; survivorId: HeroId; heroPhotoUrl?: string | null }) {
   const rootRef = useRef<THREE.Group>(null);
   const survivorRef = useRef<CharacterGroup | null>(null);
   // The "hero light" — same omnidirectional PointLight the original lantern
@@ -704,47 +706,71 @@ function Player({ state, survivorId }: { state: React.MutableRefObject<GameRef>;
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const survivor = makeSurvivor(survivorId);
+    let disposed = false;
+    let mounted: CharacterGroup | null = null;
 
-    // Right arm — initial pistol prop. The Player useFrame swaps it out
-    // each time d.currentWeaponId changes. YXZ rotation order so rotation.y
-    // (target tracking) is applied AFTER rotation.x (forward lift),
-    // letting the gun swing left/right inside the firing arc.
-    survivor.userData.rig.armR.rotation.order = 'YXZ';
-    const weapon = makeWeapon('pistol');
-    weapon.position.set(0.03, -0.95, 0.15);
-    survivor.userData.rig.armR.add(weapon);
-    currentWeaponPropRef.current = weapon;
-    currentWeaponIdRef.current = 'pistol';
+    // Wire weapon + flashlight + hero light onto a freshly-built survivor and
+    // mount it. Factored out so both the synchronous (id) and asynchronous
+    // (photo-texture) hero builds run the exact same setup.
+    const mount = (survivor: CharacterGroup) => {
+      if (disposed) return;
 
-    // Left arm — flashlight prop. The model is just visual; the actual
-    // "hero light" is an omnidirectional PointLight attached at the lens.
-    const flashlight = makeFlashlight();
-    flashlight.position.set(0, -1.0, 0);
-    survivor.userData.rig.armL.add(flashlight);
+      // Right arm — initial pistol prop. The Player useFrame swaps it out
+      // each time d.currentWeaponId changes. YXZ rotation order so rotation.y
+      // (target tracking) is applied AFTER rotation.x (forward lift),
+      // letting the gun swing left/right inside the firing arc.
+      survivor.userData.rig.armR.rotation.order = 'YXZ';
+      const weapon = makeWeapon('pistol');
+      weapon.position.set(0.03, -0.95, 0.15);
+      survivor.userData.rig.armR.add(weapon);
+      currentWeaponPropRef.current = weapon;
+      currentWeaponIdRef.current = 'pistol';
 
-    // Hero PointLight — same omnidirectional model as the old lantern,
-    // tuned softer (intensity 100, distance 22) so it doesn't blow out
-    // the new streetlamp pools + neon signs we added in the lighting
-    // overhaul. Still casts shadow + breathes around its base value.
-    const heroLight = new THREE.PointLight(0xff9a3a, 100, 22, 2);
-    heroLight.position.set(0, 0, 0.25);          // at the lens, flashlight-local
-    // castShadow disabled — a 1024×1024 omnidirectional shadow map every
-    // frame is the single most expensive thing in the scene. The asphalt
-    // shadows it cast were subtle at top-down already; killing it buys a
-    // measurable FPS win on mobile with zero visual loss most can spot.
-    heroLight.castShadow = false;
-    flashlight.add(heroLight);
-    heroLightRef.current = heroLight;
+      // Left arm — flashlight prop. The model is just visual; the actual
+      // "hero light" is an omnidirectional PointLight attached at the lens.
+      const flashlight = makeFlashlight();
+      flashlight.position.set(0, -1.0, 0);
+      survivor.userData.rig.armL.add(flashlight);
 
-    root.add(survivor);
-    survivorRef.current = survivor;
+      // Hero PointLight — omnidirectional, tuned softer (intensity 100,
+      // distance 22) so it doesn't blow out the streetlamp pools + neon signs.
+      const heroLight = new THREE.PointLight(0xff9a3a, 100, 22, 2);
+      heroLight.position.set(0, 0, 0.25);          // at the lens, flashlight-local
+      // castShadow disabled — a 1024×1024 omnidirectional shadow map every
+      // frame is the single most expensive thing in the scene.
+      heroLight.castShadow = false;
+      flashlight.add(heroLight);
+      heroLightRef.current = heroLight;
+
+      root.add(survivor);
+      survivorRef.current = survivor;
+      mounted = survivor;
+    };
+
+    // Identity hero — when a photo URL is set and the cartridge supports it,
+    // load the face texture then build the photo hero. Falls back to the
+    // chosen archetype on any load error so the run is never heroless.
+    if (heroPhotoUrl && CARTRIDGE.buildHeroFromPhoto) {
+      new THREE.TextureLoader().load(
+        heroPhotoUrl,
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          mount(CARTRIDGE.buildHeroFromPhoto!(tex));
+        },
+        undefined,
+        () => mount(CARTRIDGE.buildHero(survivorId)),
+      );
+    } else {
+      mount(CARTRIDGE.buildHero(survivorId));
+    }
+
     return () => {
-      root.remove(survivor);
+      disposed = true;
+      if (mounted) root.remove(mounted);
       survivorRef.current = null;
       heroLightRef.current = null;
     };
-  }, [survivorId]);
+  }, [survivorId, heroPhotoUrl]);
 
   useFrame(({ clock }) => {
     const d = state.current;
@@ -1567,7 +1593,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       live.add(m.id);
       let slot = slots.current.get(m.id);
       if (!slot) {
-        const group = makeMonster(m.tier as ZombieTier, m.bossKind);
+        const group = CARTRIDGE.buildEnemy(m.tier as ZombieTier, m.bossKind);
         // Strike-warning ground ring — bright red disc, only visible during
         // bite windup. Kept separate so the zombie body can scale freely.
         const ringGeom = new THREE.RingGeometry(0.7, 0.95, 32);
@@ -2309,7 +2335,7 @@ export function Scene(props: SceneProps) {
       <Pillars state={state} />
       <Crystals state={state} />
       <CrystalLights state={state} />
-      <Player state={state} survivorId={props.survivor} />
+      <Player state={state} survivorId={props.survivor} heroPhotoUrl={props.heroPhotoUrl} />
       <Monsters state={state} />
       <Bullets state={state} />
       <MuzzleFlash state={state} />

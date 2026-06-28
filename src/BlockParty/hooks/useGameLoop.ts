@@ -22,7 +22,7 @@ import type { BloodSplat, Bullet, Crystal, EnemyProjectile, ExitStone, FxEvent, 
 import { getPerk, rollOnePerk } from '../perks';
 import { DROPPABLE_WEAPONS, weaponEffectiveSpec, WEAPON_LEVEL_MAX } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
-import type { SurvivorId } from '../builders/characters';
+import type { HeroId } from '../cartridge';
 
 const WEAPON_DROP_INTERVAL = 11;     // 2026-06-16 v2 — 16→11s between drops, weapon-level-up should be near-continuous now
 const WEAPON_DROP_LIFE = 36;         // 30→36s — three drops can overlap on the ground waiting for the player
@@ -858,7 +858,7 @@ export interface GameLoopParams {
   /** Selected survivor archetype — drives the weapon descriptor + future
    *  per-class perks. Drives no movement/cosmetic behavior; the Player
    *  component renders the matching body + weapon prop. */
-  survivor: SurvivorId;
+  survivor: HeroId;
   onScore: (s: number) => void;
   onDepth: (d: number) => void;
   onLightRadius: (r: number) => void;

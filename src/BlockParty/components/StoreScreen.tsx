@@ -2,18 +2,23 @@
 // accumulated score-credits. Tap RANDOM to roll from your owned roster
 // each run. Cards mirror the splash chip styling.
 
-import { SURVIVOR_IDS, SURVIVOR_META, SURVIVOR_UNLOCK_PRICE, type SurvivorId } from '../builders/characters';
+import { CARTRIDGE, type HeroId } from '../cartridge';
 import { buy, pick, type Selection, type StoreState } from '../store';
+
+const UNLOCK_PRICE = CARTRIDGE.heroUnlockPrice;
 
 export interface StoreScreenProps {
   state: StoreState;
   onChange: (s: StoreState) => void;
   onClose: () => void;
+  /** Identity hero — shown only when the active cartridge supports a photo hero.
+   *  `active` reflects whether a face is currently set; `onToggle` sets/clears it. */
+  photoHero?: { active: boolean; onToggle: () => void };
 }
 
-export function StoreScreen({ state, onChange, onClose }: StoreScreenProps) {
+export function StoreScreen({ state, onChange, onClose, photoHero }: StoreScreenProps) {
   const handlePick = (sel: Selection) => onChange(pick(state, sel));
-  const handleBuy = (id: SurvivorId) => onChange(buy(state, id, SURVIVOR_UNLOCK_PRICE));
+  const handleBuy = (id: HeroId) => onChange(buy(state, id, UNLOCK_PRICE));
 
   return (
     <div className="bp-store">
@@ -27,6 +32,20 @@ export function StoreScreen({ state, onChange, onClose }: StoreScreenProps) {
 
       {/* RANDOM card always at top */}
       <div className="bp-store__grid">
+        {/* Identity hero — "play as me" maps the player's face onto the body.
+            Overrides the archetype while active. */}
+        {photoHero && (
+          <button
+            className={`bp-store__card${photoHero.active ? ' is-active' : ''}`}
+            style={{ ['--card-tint' as string]: '#7ad0ff' }}
+            onPointerDown={photoHero.onToggle}
+          >
+            <div className="bp-store__card-dot bp-store__card-dot--random">★</div>
+            <div className="bp-store__card-name">ME</div>
+            <div className="bp-store__card-state">{photoHero.active ? 'IN USE' : 'USE PHOTO'}</div>
+          </button>
+        )}
+
         <button
           className={`bp-store__card${state.picked === 'random' ? ' is-active' : ''}`}
           style={{ ['--card-tint' as string]: '#ffd060' }}
@@ -39,18 +58,19 @@ export function StoreScreen({ state, onChange, onClose }: StoreScreenProps) {
           </div>
         </button>
 
-        {SURVIVOR_IDS.map(id => {
-          const m = SURVIVOR_META[id];
+        {CARTRIDGE.heroes.map(hero => {
+          const id = hero.id;
+          const m = { label: hero.label, tint: hero.tint };
           const owned = state.owned.includes(id);
           const active = state.picked === id;
-          const affordable = state.balance >= SURVIVOR_UNLOCK_PRICE;
+          const affordable = state.balance >= UNLOCK_PRICE;
           const tap = owned
             ? () => handlePick(active ? 'random' : id)
             : (affordable ? () => handleBuy(id) : undefined);
           const stateLabel = active ? 'IN USE'
             : owned ? 'TAP'
-            : affordable ? `BUY $${SURVIVOR_UNLOCK_PRICE}`
-            : `$${SURVIVOR_UNLOCK_PRICE}`;
+            : affordable ? `BUY $${UNLOCK_PRICE}`
+            : `$${UNLOCK_PRICE}`;
           return (
             <button
               key={id}

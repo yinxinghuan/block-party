@@ -1,5 +1,10 @@
-// BLOCK PARTY — top-down zombie survival on an empty city block.
-// Three nights × 45s + boss. All tuning constants live here.
+// BLOCK PARTY — top-down survival on an empty city block.
+// Three nights × 45s + boss. All GAMEPLAY TUNING lives here (HP, speed, score,
+// difficulty curve). All THEME (palette, night names, boss ladder) lives in the
+// active cartridge — see ./cartridge. This file reads the cartridge for theme
+// but owns every number that affects how hard the game is.
+
+import { CARTRIDGE } from './cartridge';
 
 // Map / world
 export const PLAYFIELD = 60;
@@ -62,34 +67,18 @@ export function getBossCount(level: number): number {
 export type BossKind = 'vampire' | 'minotaur' | 'mech' | 'viking' | 'punk' | 'swat'
                      | 'cop' | 'cowboy' | 'goth' | 'biker' | 'firefighter';
 
-/** The 10-boss unlock ladder. L1 = first boss the player ever sees
- *  (vampire — pure melee, no special). Each subsequent level introduces
- *  exactly ONE new mechanic (charge / beam / shield / rabid charge /
- *  summon / burstfire / blink / flank / rage). L11+ multi-boss rolls
- *  through the unlocked roster. */
-const BOSS_UNLOCK: BossKind[] = [
-  'vampire',     // L1  — melee boss (intro)
-  'minotaur',    // L2  — CHARGE (heavy)
-  'mech',        // L3  — BEAM
-  'viking',      // L4  — SHIELD
-  'punk',        // L5  — CHARGE (rabid)
-  'cop',         // L6  — SUMMON
-  'cowboy',      // L7  — BURSTFIRE
-  'goth',        // L8  — BLINK
-  'biker',       // L9  — FLANK
-  'firefighter', // L10 — RAGE
-];
-
-/** Pick the specific boss kinds for a given level. L1-10 ship the
- *  unlock-ladder kind alone. L11+ ship getBossCount(level) bosses,
- *  rotated through the full unlocked roster so two adjacent levels
- *  don't show the same combo. */
+/** The boss unlock ladder is THEME — which themed boss fills each rung lives
+ *  in the cartridge (CARTRIDGE.bossLadder). The engine owns only the SCHEDULE
+ *  below: L1-N ship the rung kind alone (one new behaviour per level), L(N+1)+
+ *  ship getBossCount(level) bosses rotated through the roster so two adjacent
+ *  levels don't show the same combo. */
 export function pickBossKinds(level: number): BossKind[] {
   if (level < 1) return [];
-  if (level <= BOSS_UNLOCK.length) return [BOSS_UNLOCK[level - 1]];
+  const ladder = CARTRIDGE.bossLadder;
+  if (level <= ladder.length) return [ladder[level - 1]];
   const count = getBossCount(level);
   return Array.from({ length: count }, (_, i) =>
-    BOSS_UNLOCK[(level - BOSS_UNLOCK.length - 1 + i) % BOSS_UNLOCK.length]
+    ladder[(level - ladder.length - 1 + i) % ladder.length]
   );
 }
 
@@ -206,20 +195,9 @@ export interface LevelTuning {
   bgmTension: number;
 }
 
-// City block at night. Three reads:
-//   N1  twilight asphalt — magenta + soft amber haze from a streetlamp
-//   N2  deep dusk — colder blue, more zombies, neon shop signs muted
-//   N3  blackout — bloody red ambient, boss enters
-const PALETTE: Record<string, LevelPalette> = {
-  twilight: { floor: '#23283d', fog: '#0a0d18', ambient: '#322856', hemiSky: '#46367a', hemiGround: '#101220', pillar: '#2c2e44' },
-  dusk:     { floor: '#1c233a', fog: '#06080f', ambient: '#1f2c52', hemiSky: '#2e4e7a', hemiGround: '#0a1322', pillar: '#1f2a3c' },
-  blackout: { floor: '#26161c', fog: '#0a0608', ambient: '#421824', hemiSky: '#542026', hemiGround: '#100810', pillar: '#3a1e22' },
-};
-
+// Palette + night-name cycle are THEME — they live in the active cartridge
+// (CARTRIDGE.palette). The engine rotates them by (level-1) % 3 below.
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-
-const PALETTE_CYCLE = [PALETTE.twilight, PALETTE.dusk, PALETTE.blackout];
-const NAME_CYCLE    = ['Twilight',       'Dusk',       'Blackout'];
 
 // Batch B — mob count DECAYS as level rises. L1 baseline 38 mobs;
 // each level drops 6 percentage points, floored at 25% (=10 mobs).
@@ -235,11 +213,13 @@ function mobDecay(level: number): number {
 // decays so bosses stay the spotlight. Per-monster AI/speed ramps
 // independently so late levels still feel sharper.
 function computeEndlessTuning(level: number): LevelTuning {
-  const idx = (level - 1) % 3;
-  const palette = PALETTE_CYCLE[idx];
-  const name = NAME_CYCLE[idx];
+  const cycle = CARTRIDGE.palette;
+  const idx = (level - 1) % cycle.length;
+  const palette = cycle[idx].colors;
+  const name = cycle[idx].name;
   const k = level - 1;  // 0-based ramp parameter
   const decay = mobDecay(level);
+  const moodFloor = CARTRIDGE.audioMood ?? 0.4;
 
   return {
     level,
@@ -266,7 +246,7 @@ function computeEndlessTuning(level: number): LevelTuning {
     pillarScaleBias:      0.95 + ((level * 0.31) % 1) * 0.20,
     isBoss:               true,   // Batch B: every level a boss level
     palette,
-    bgmTension:           clamp(0.40 + k * 0.08, 0.40, 1.0),
+    bgmTension:           clamp(moodFloor + k * 0.08, moodFloor, 1.0),
   };
 }
 

@@ -4,7 +4,7 @@
 // activates the joystick → the parent flips phase to 'playing' and the
 // run begins. No CTA button.
 import type { PointerEvent } from 'react';
-import { SURVIVOR_META, type SurvivorId } from '../builders/characters';
+import { CARTRIDGE } from '../cartridge';
 import type { Selection } from '../store';
 
 export interface SplashSceneProps {
@@ -20,7 +20,9 @@ export interface SplashSceneProps {
 function stop(e: PointerEvent) { e.nativeEvent.stopPropagation(); }
 
 export function SplashScene({ onOpenStore, onOpenLeaderboard, highScore, picked, champion }: SplashSceneProps) {
-  const survivorLabel = picked === 'random' ? 'RANDOM' : SURVIVOR_META[picked as SurvivorId].label;
+  const survivorLabel = picked === 'random'
+    ? 'RANDOM'
+    : (CARTRIDGE.heroes.find(h => h.id === picked)?.label ?? 'RANDOM');
 
   return (
     <div className="bp-splash">

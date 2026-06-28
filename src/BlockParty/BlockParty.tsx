@@ -3,13 +3,14 @@ import { Canvas } from '@react-three/fiber';
 import { Leaderboard, useGameScore } from '@shared/leaderboard';
 import type { LeaderboardEntry } from '@shared/leaderboard';
 import { useGameEvent, telegramId } from '@shared/runtime';
+import { callAigramAPI, isInAigram as inAigram } from '../shared/runtime/bridge';
 import { Scene } from './components/Scene';
 import { SplashScene } from './components/SplashScene';
 import { StoreScreen } from './components/StoreScreen';
 import { loadStore, saveStore, earn, resolveSurvivor, type StoreState } from './store';
 import { createGameState, startLevel } from './hooks/useGameLoop';
 import type { PickupKind, SfxKey } from './hooks/useGameLoop';
-import type { SurvivorId } from './builders/characters';
+import { CARTRIDGE, type HeroId } from './cartridge';
 import { WEAPONS, type WeaponId } from './builders/weapons';
 import { PERKS } from './perks';
 import { getKillGoal } from './constants';
@@ -83,7 +84,43 @@ export function BlockParty() {
   // Single consolidated HUD state — see HudState above for the rationale.
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [, setDepth] = useState(0);
-  const [selectedSurvivor, setSelectedSurvivor] = useState<SurvivorId>('cop');
+  const [selectedSurvivor, setSelectedSurvivor] = useState<HeroId>(CARTRIDGE.starterHeroIds[0]);
+  // Identity hero — when set, the player's face maps onto the low-poly body.
+  // Source: the Aigram avatar in-platform, or a file pick when standalone.
+  // Persisted so "play as me" survives refreshes; only offered when the
+  // active cartridge supports a photo hero.
+  const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(
+    () => localStorage.getItem('bp_hero_photo'),
+  );
+  const supportsPhotoHero = !!CARTRIDGE.buildHeroFromPhoto;
+
+  const setHeroPhoto = useCallback((url: string | null) => {
+    setHeroPhotoUrl(url);
+    if (url) localStorage.setItem('bp_hero_photo', url);
+    else localStorage.removeItem('bp_hero_photo');
+  }, []);
+
+  // Obtain the player's face image. In Aigram, pull their avatar (head_url) so
+  // it's literally one tap — no upload. Standalone, fall back to a file pick.
+  const pickHeroPhoto = useCallback(async () => {
+    if (heroPhotoUrl) { setHeroPhoto(null); return; }  // toggle off
+    if (inAigram && telegramId) {
+      try {
+        const info = await callAigramAPI<{ head_url?: string }>(
+          `/note/telegram/user/get/info/by/telegram_id?telegram_id=${telegramId}`,
+        );
+        if (info?.head_url) { setHeroPhoto(info.head_url); return; }
+      } catch { /* fall through to file pick */ }
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) setHeroPhoto(URL.createObjectURL(file));
+    };
+    input.click();
+  }, [heroPhotoUrl, setHeroPhoto]);
   // Persistent store — owned chars, balance, current pick. Synced to
   // localStorage on every mutation.
   const [storeState, setStoreStateRaw] = useState<StoreState>(() => loadStore());
@@ -253,7 +290,7 @@ export function BlockParty() {
     window.setTimeout(() => setLevelTitle(null), 1700);
   }, []);
 
-  const start = useCallback((survivorPick?: SurvivorId) => {
+  const start = useCallback((survivorPick?: HeroId) => {
     // CRITICAL: set the playing phase synchronously BEFORE touching audio.
     // Resolve which survivor to play as: explicit pick wins, else the
     // store's picked selection (with random→roll handled in store.ts).
@@ -433,6 +470,7 @@ export function BlockParty() {
               level={hud.level}
               stickRef={stickRef}
               survivor={selectedSurvivor}
+              heroPhotoUrl={heroPhotoUrl}
               onScore={onScore}
               onDepth={onDepth}
               onLightRadius={onLightRadius}
@@ -589,6 +627,7 @@ export function BlockParty() {
           state={storeState}
           onChange={setStoreState}
           onClose={() => setStoreOpen(false)}
+          photoHero={supportsPhotoHero ? { active: !!heroPhotoUrl, onToggle: pickHeroPhoto } : undefined}
         />
       )}
 

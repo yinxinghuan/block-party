@@ -1,0 +1,91 @@
+// ============================================================================
+//  RESOLVER — turn a pure-JSON CartridgeSpec into a runnable ArcadeCartridge by
+//  binding its string keys to engine builders. This is the bridge between the
+//  generator's output (data) and the engine's input (an ArcadeCartridge).
+// ============================================================================
+
+import type { ArcadeCartridge, EnemyRole } from './types';
+import type { CartridgeSpec, NonBossRole } from './spec';
+import { NON_BOSS_ROLES } from './spec';
+import { CREATURE_BUILDERS, CREATURE_KEYS, recolorGroup } from '../builders/registry';
+import { makeMonster } from '../builders/monsters';
+import { makeSurvivor, makeSurvivorWithFace, SURVIVOR_IDS } from '../builders/characters';
+
+// Per-role visual scale — mirrors makeMonster's non-boss targets so a generated
+// creature sits at the same size its role expects. Boss is built via makeMonster
+// (which applies its own per-kind scale).
+const ROLE_SCALE: Record<NonBossRole, number> = {
+  lurker: 0.66, runner: 0.62, brute: 0.78, stalker: 0.72, exploder: 0.66, ghost: 0.70,
+};
+
+/** Validate an untrusted spec (e.g. fresh LLM output). Returns the list of
+ *  problems; empty array = good to resolve. Cheap structural checks only. */
+export function validateSpec(s: unknown): string[] {
+  const errs: string[] = [];
+  const spec = s as Partial<CartridgeSpec>;
+  if (!spec || typeof spec !== 'object') return ['spec is not an object'];
+  if (!spec.id) errs.push('missing id');
+  for (const loc of ['en', 'zh'] as const) {
+    if (!spec.copy?.[loc]?.title) errs.push(`missing copy.${loc}.title`);
+  }
+  if (!Array.isArray(spec.palette) || spec.palette.length !== 3) {
+    errs.push('palette must have exactly 3 entries');
+  }
+  for (const role of NON_BOSS_ROLES) {
+    const e = spec.enemies?.[role];
+    if (!e) { errs.push(`missing enemies.${role}`); continue; }
+    if (!CREATURE_KEYS.includes(e.creature)) {
+      errs.push(`enemies.${role}.creature "${e.creature}" not in [${CREATURE_KEYS.join(', ')}]`);
+    }
+  }
+  if (!Array.isArray(spec.bossLadder) || spec.bossLadder.length < 1) {
+    errs.push('bossLadder must have at least 1 entry');
+  }
+  if (!Array.isArray(spec.heroes) || spec.heroes.length < 1) {
+    errs.push('heroes must have at least 1 entry');
+  }
+  return errs;
+}
+
+/** Bind a (validated) spec to a runnable cartridge. Throws if invalid. */
+export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
+  const errs = validateSpec(spec);
+  if (errs.length) throw new Error(`invalid cartridge spec:\n- ${errs.join('\n- ')}`);
+
+  const baseFor = (i: number) => SURVIVOR_IDS[i % SURVIVOR_IDS.length];
+
+  return {
+    id: spec.id,
+    copy: spec.copy,
+    palette: spec.palette,
+    bossLadder: spec.bossLadder.map((b) => b.kind),
+
+    buildEnemy: (role: EnemyRole, bossKind) => {
+      if (role === 'boss') return makeMonster('boss', bossKind);
+      const es = spec.enemies[role as NonBossRole];
+      const g = CREATURE_BUILDERS[es.creature]();
+      if (es.recolor) recolorGroup(g, es.recolor);
+      g.scale.setScalar(ROLE_SCALE[role as NonBossRole]);
+      return g;
+    },
+
+    // Heroes reuse the house-style archetypes (kept at full quality); the theme
+    // shows through labels + palette + copy, and identity through the photo hero.
+    buildHero: (id) => {
+      const i = Math.max(0, spec.heroes.findIndex((h) => h.id === id));
+      return makeSurvivor(baseFor(i));
+    },
+    heroes: spec.heroes.map((h, i) => ({
+      id: h.id,
+      label: h.label,
+      tint: h.tint,
+      build: () => makeSurvivor(baseFor(i)),
+    })),
+    starterHeroIds: spec.starterHeroIds.length ? spec.starterHeroIds : [spec.heroes[0].id],
+    heroUnlockPrice: spec.heroUnlockPrice,
+
+    buildHeroFromPhoto: spec.photoHero === false ? undefined : (tex) => makeSurvivorWithFace(tex),
+
+    audioMood: spec.audioMood,
+  };
+}
