@@ -24,7 +24,7 @@ export interface ZombieRig {
 }
 
 export interface ZombieGroup extends THREE.Group {
-  userData: { rig: ZombieRig; armBase: number };
+  userData: { rig?: ZombieRig; armBase?: number; isSprite?: boolean };
 }
 
 export type ZombieTier = 'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost' | 'boss';

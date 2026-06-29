@@ -6,6 +6,7 @@
 //  Usage:
 //    npx tsx scripts/gen-cartridge.ts --sentence "a cat surviving robot vacuums"
 //    npx tsx scripts/gen-cartridge.ts --sentence "..." --retries 5
+//    npx tsx scripts/gen-cartridge.ts --sentence "..." --sprites
 //    npx tsx scripts/gen-cartridge.ts --sentence "..." --dry-run
 // ============================================================================
 
@@ -23,18 +24,21 @@ interface Args {
   sentence: string;
   retries: number;
   dryRun: boolean;
+  sprites: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { sentence: '', retries: 3, dryRun: false };
+  const args: Args = { sentence: '', retries: 3, dryRun: false, sprites: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--sentence' && i + 1 < argv.length) args.sentence = argv[++i];
     else if (argv[i] === '--retries' && i + 1 < argv.length) args.retries = Math.max(1, parseInt(argv[++i], 10) || 3);
     else if (argv[i] === '--dry-run') args.dryRun = true;
+    else if (argv[i] === '--sprites') args.sprites = true;
   }
   if (!args.sentence) {
     console.error('Usage: npx tsx scripts/gen-cartridge.ts --sentence "a sentence describing a survival scenario"');
     console.error('  --retries N   max LLM retries on validation failure (default 3)');
+    console.error('  --sprites     generate unique sprites for each enemy via gen-image + R2 upload');
     console.error('  --dry-run     validate but do not write the output file');
     process.exit(1);
   }
@@ -61,6 +65,116 @@ async function chatOnce(system: string, user: string): Promise<string> {
   if (!res.ok) throw new Error(`Chat API HTTP ${res.status}`);
   const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   return json.choices?.[0]?.message?.content ?? '';
+}
+
+// ─── Gen-Image & Upload ──────────────────────────────────────────────────────
+
+const GEN_IMAGE_URL = 'https://chat.aiwaves.tech/aigram/api/gen-image';
+const UPLOAD_URL = 'https://chat.aiwaves.tech/aigram/api/upload';
+const API_HEADERS = {
+  'Content-Type': 'application/json',
+  Origin: 'https://aigram.app',
+};
+
+interface GenImageResult {
+  url: string;
+}
+
+async function genImage(prompt: string): Promise<string> {
+  const res = await fetch(GEN_IMAGE_URL, {
+    method: 'POST',
+    headers: API_HEADERS,
+    body: JSON.stringify({ prompt }),
+  });
+  if (!res.ok) throw new Error(`Gen-image API HTTP ${res.status}`);
+  const json = (await res.json()) as GenImageResult;
+  if (!json.url) throw new Error(`Gen-image returned no URL: ${JSON.stringify(json)}`);
+  return json.url; // temporary CDN URL (~24h)
+}
+
+async function downloadImage(url: string, destPath: string): Promise<Buffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Download HTTP ${res.status} for ${url}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+  fs.writeFileSync(destPath, buf);
+  return buf;
+}
+
+async function uploadToR2(filePath: string): Promise<string> {
+  const blob = new Blob([fs.readFileSync(filePath)], { type: 'image/png' });
+  const form = new FormData();
+  form.append('file', blob, path.basename(filePath));
+  const res = await fetch(UPLOAD_URL, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`Upload HTTP ${res.status}`);
+  const json = (await res.json()) as { url?: string };
+  if (!json.url) throw new Error(`Upload returned no URL: ${JSON.stringify(json)}`);
+  return json.url; // permanent R2 URL
+}
+
+// ─── Sprite generation loop ─────────────────────────────────────────────────
+
+type NonBossRole = 'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost';
+const NON_BOSS_ROLES: NonBossRole[] = ['lurker', 'runner', 'brute', 'stalker', 'exploder', 'ghost'];
+
+async function generateSprites(
+  spec: Record<string, unknown>,
+  slug: string,
+): Promise<void> {
+  const enemies = (spec.enemies ?? {}) as Record<string, { name?: string; spriteUrl?: string }>;
+  const copy = spec.copy as Record<string, { title?: string }> | undefined;
+  const theme = copy?.en?.title ?? slug;
+  const spriteDir = path.join(ROOT, 'public', 'sprites', slug);
+
+  let count = 0;
+  for (const role of NON_BOSS_ROLES) {
+    const enemy = enemies[role];
+    if (!enemy) continue;
+    const name = enemy.name || role;
+    const prompt = [
+      `low-poly voxel game sprite of a "${name}", ${theme} theme,`,
+      'front view, full body centered, standing pose,',
+      'clean solid #222222 dark background,',
+      'game asset, no text, no watermark, no logo, no UI',
+    ].join(' ');
+
+    console.log(`  🎨  Generating sprite for ${role} (${name})...`);
+    let tempUrl: string;
+    try {
+      tempUrl = await genImage(prompt);
+    } catch (e) {
+      console.error(`     ⚠️  Gen-image failed for ${role}: ${e}. Skipping.`);
+      continue;
+    }
+
+    const localPath = path.join(spriteDir, `${role}.png`);
+    try {
+      await downloadImage(tempUrl, localPath);
+      console.log(`     📥  Downloaded → ${path.relative(ROOT, localPath)}`);
+    } catch (e) {
+      console.error(`     ⚠️  Download failed for ${role}: ${e}. Skipping.`);
+      continue;
+    }
+
+    console.log(`     ☁️  Uploading to R2...`);
+    try {
+      const permanentUrl = await uploadToR2(localPath);
+      enemy.spriteUrl = permanentUrl;
+      console.log(`     ✅  R2: ${permanentUrl.slice(0, 60)}...`);
+      count++;
+    } catch (e) {
+      console.error(`     ⚠️  Upload failed for ${role}: ${e}. Keeping local only.`);
+      // Fallback: use relative path for local dev
+      enemy.spriteUrl = `/sprites/${slug}/${role}.png`;
+    }
+
+    // Rate-limit safety: ~1 req/sec natural pacing (each call takes 3-10s)
+  }
+
+  console.log(`  🖼️  ${count}/${NON_BOSS_ROLES.length} sprites generated and uploaded.`);
+  if (count < NON_BOSS_ROLES.length) {
+    console.log(`  📁  Local sprites saved to public/sprites/${slug}/`);
+  }
 }
 
 // ─── JSON extraction ─────────────────────────────────────────────────────────
@@ -209,6 +323,13 @@ async function main() {
 
   const spec = bestSpec;
   const slug = String(spec.id || 'generated').replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+
+  // ── Sprite generation ──────────────────────────────────────────────────
+  if (args.sprites) {
+    console.log(`\n🖼️  Generating sprites for ${NON_BOSS_ROLES.length} enemy roles...`);
+    await generateSprites(spec, slug);
+  }
+
   const varName = `gen${pascalCase(slug)}Spec`;
   const outPath = path.join(CARTRIDGE_DIR, `gen-${slug}.ts`);
 

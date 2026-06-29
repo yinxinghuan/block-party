@@ -22,6 +22,10 @@ export interface EnemySpec {
   name: string;
   /** optional hex colour to shift the creature toward; omit to keep native */
   recolor?: string;
+  /** optional gen-image sprite URL (R2 permanent). When present, the engine
+   *  renders this enemy as a textured billboard instead of a 3D creature,
+   *  giving each generated theme unique enemy visuals. */
+  spriteUrl?: string;
 }
 
 export interface BossSpec {

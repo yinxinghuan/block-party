@@ -4,12 +4,14 @@
 //  generator's output (data) and the engine's input (an ArcadeCartridge).
 // ============================================================================
 
+import * as THREE from 'three';
 import type { ArcadeCartridge, EnemyRole } from './types';
 import type { CartridgeSpec, NonBossRole } from './spec';
 import { NON_BOSS_ROLES } from './spec';
 import { CREATURE_BUILDERS, CREATURE_KEYS, recolorGroup } from '../builders/registry';
 import { makeMonster } from '../builders/monsters';
 import { makeSurvivor, makeSurvivorWithFace, SURVIVOR_IDS } from '../builders/characters';
+import { makeSpriteBillboard } from '../builders/sprites';
 
 // Per-role visual scale — mirrors makeMonster's non-boss targets so a generated
 // creature sits at the same size its role expects. Boss is built via makeMonster
@@ -54,6 +56,18 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
 
   const baseFor = (i: number) => SURVIVOR_IDS[i % SURVIVOR_IDS.length];
 
+  // Pre-load sprite textures for every enemy role that has a spriteUrl.
+  // TextureLoader.load returns immediately (empty texture) and fills async —
+  // the sprite pops in when loaded. The group is still a valid THREE.Group.
+  const loader = new THREE.TextureLoader();
+  const spriteTextures = new Map<NonBossRole, THREE.Texture | null>();
+  for (const role of NON_BOSS_ROLES) {
+    const es = spec.enemies[role];
+    if (es.spriteUrl) {
+      spriteTextures.set(role, loader.load(es.spriteUrl));
+    }
+  }
+
   return {
     id: spec.id,
     copy: spec.copy,
@@ -62,6 +76,12 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
 
     buildEnemy: (role: EnemyRole, bossKind) => {
       if (role === 'boss') return makeMonster('boss', bossKind);
+
+      // Sprite path — unique gen-image visual for this role
+      const tex = spriteTextures.get(role as NonBossRole);
+      if (tex) return makeSpriteBillboard(tex, ROLE_SCALE[role as NonBossRole]);
+
+      // Fallback — house-style 3D creature + recolor
       const es = spec.enemies[role as NonBossRole];
       const g = CREATURE_BUILDERS[es.creature]();
       if (es.recolor) recolorGroup(g, es.recolor);

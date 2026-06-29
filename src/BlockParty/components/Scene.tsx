@@ -1579,7 +1579,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
   const slots = useRef<Map<number, Slot>>(new Map());
   const rootRef = useRef<THREE.Group>(null);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock, camera: cam }) => {
     const d = state.current;
     const root = rootRef.current;
     if (!root) return;
@@ -1738,6 +1738,10 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       // group.scale isn't otherwise touched per-frame.
       if (m.scaleMul && m.scaleMul !== 1 && slot.group.scale.x !== m.scaleMul) {
         slot.group.scale.setScalar(m.scaleMul);
+      }
+      // Sprite billboard — flat plane always faces the camera.
+      if (slot.group.userData.isSprite) {
+        slot.group.quaternion.copy(cam.quaternion);
       }
       // Late-game LOD — only run per-frame cosmetic animation (idle hop,
       // limb swing, strike-telegraph ring pulse, elite ring breathe) for
@@ -2021,7 +2025,8 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
         // Arm reach: rests at armBase (-1.15rad bent forward); during the
         // bite windup interpolate to 0 (fully outstretched forward), then
         // hold there during the live frame.
-        const reach = striking ? slot.group.userData.armBase * (1 - (liveBite ? 1 : phase * 0.9)) : slot.group.userData.armBase;
+        const armBase = slot.group.userData.armBase ?? 0;
+        const reach = striking ? armBase * (1 - (liveBite ? 1 : phase * 0.9)) : armBase;
         rig.armL.rotation.x = reach;
         rig.armR.rotation.x = reach;
       }
