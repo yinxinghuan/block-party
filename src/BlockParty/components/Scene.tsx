@@ -2387,9 +2387,9 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
     }
     if (swipeRef.current) {
       swipeRef.current.visible = catSwipe && alpha > 0;
-      swipeRef.current.position.set(px, 1.08, pz);
-      swipeRef.current.rotation.set(0, d.rot, 0);
-      swipeRef.current.scale.setScalar(0.95 + (1 - alpha) * 0.42);
+      swipeRef.current.position.set(px, 1.10, pz);
+      swipeRef.current.rotation.set(Math.PI / 2, 0, -d.rot + Math.PI / 2);
+      swipeRef.current.scale.setScalar(1.05 + (1 - alpha) * 0.45);
     }
     if (matRef.current) {
       matRef.current.opacity = alpha;
@@ -2426,9 +2426,9 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
         />
       </mesh>
       <group ref={swipeRef} visible={false}>
-        {[-0.24, 0, 0.24].map((x, i) => (
-          <mesh key={i} position={[x, 0, 0]} rotation={[0, 0.18 - i * 0.18, -0.35]} scale={[0.10, 0.06, 0.82]}>
-            <boxGeometry args={[1, 1, 1]} />
+        {[-0.22, 0, 0.22].map((z, i) => (
+          <mesh key={i} position={[0, 0, z]} rotation={[0, 0, -0.22 + i * 0.04]} scale={[1.0, 1.0, 1.0]}>
+            <torusGeometry args={[0.54 + i * 0.08, 0.026, 8, 26, Math.PI * 0.82]} />
             <meshStandardMaterial
               ref={(mat) => {
                 if (mat) swipeMatRefs.current[i] = mat;
