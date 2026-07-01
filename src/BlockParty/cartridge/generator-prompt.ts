@@ -209,6 +209,14 @@ Do not leave a human gun, humanoid boss, or street props in the output when the
 sentence clearly asks for an animal/appliance/home scenario. The names, copy,
 heroes, enemies, bossLadder, palette, and visuals must all tell the same story.
 
+Be bold. The generated game should feel like it truly belongs to the user's
+sentence, not like a cautious reskin. If the existing visual enums are too
+narrow for the theme, choose the closest valid enum in JSON and write names/copy
+that expose the gap clearly; a developer/agent should then add a new visual
+family or feel preset instead of forcing the theme back into the zombie/street
+baseline. The standard is: a user should recognize their premise from the first
+gameplay screenshot without reading the title.
+
 FEEL (optional, recommended when the theme implies a different verb feel):
 {
   "combatProfile": "survivor-shooter" | "close-swipe"
@@ -219,6 +227,11 @@ This is NOT raw tuning. It picks an engine-owned, hand-tested preset.
 - close-swipe: short range, wider hit area, quicker cadence, for claws/punches/bites/taps.
 Use close-swipe for cats, animals, boxing, melee toys, or any theme where visible long-range bullets would feel wrong.
 Do not invent HP, damage, speed, spawn-rate, or cooldown numbers.
+
+If a theme needs a feel that neither preset covers, do not pretend the old feel
+is good enough. Output the closest valid preset, then a human/agent should add a
+new named preset in the engine. Good future presets might include dodge-only,
+beam-channel, rhythm-hop, orbiting-magic, bumper-car, or stealth-sneak.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PALETTE GUIDANCE

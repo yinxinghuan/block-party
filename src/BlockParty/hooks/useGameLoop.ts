@@ -2085,7 +2085,7 @@ export function useGameLoop(p: GameLoopParams) {
         pierceLeft: d.perkPierce,
         hitIds: new Set<number>(),
       });
-      d.muzzleFlashT = 0.07;
+      d.muzzleFlashT = CARTRIDGE.visuals?.actionStyle === 'cat-swipe' ? 0.18 : 0.07;
       emitFx(d, 'muzzle_flash', d.pos.x + gunWorldDx, d.pos.z + gunWorldDz);
       p.playSfx('shoot');
       d.pendingShots.splice(i, 1);

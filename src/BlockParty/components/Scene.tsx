@@ -2365,18 +2365,19 @@ const CAT_SWIPE_LOOK: MuzzleLook = { tint: 0xff5fa2, size: 0.42, lightInt: 24 };
 
 function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const swipeRef = useRef<THREE.Mesh>(null);
+  const swipeRef = useRef<THREE.Group>(null);
   const lightRef = useRef<THREE.PointLight>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
-  const swipeMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  const swipeMatRefs = useRef<THREE.MeshStandardMaterial[]>([]);
   const tmpColor = useMemo(() => new THREE.Color(), []);
   useFrame(() => {
     const d = state.current;
     const t = d.muzzleFlashT;
-    const alpha = t > 0 ? Math.min(1, t / 0.07) : 0;
+    const catSwipe = CARTRIDGE.visuals?.actionStyle === 'cat-swipe';
+    const flashLife = catSwipe ? 0.18 : 0.07;
+    const alpha = t > 0 ? Math.min(1, t / flashLife) : 0;
     const px = d.pos.x + Math.sin(d.rot) * 0.95;
     const pz = d.pos.z + Math.cos(d.rot) * 0.95;
-    const catSwipe = CARTRIDGE.visuals?.actionStyle === 'cat-swipe';
     const look = catSwipe
       ? CAT_SWIPE_LOOK
       : (MUZZLE_LOOK[d.currentWeaponId] || MUZZLE_LOOK.pistol);
@@ -2387,8 +2388,8 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
     if (swipeRef.current) {
       swipeRef.current.visible = catSwipe && alpha > 0;
       swipeRef.current.position.set(px, 1.08, pz);
-      swipeRef.current.rotation.set(Math.PI / 2, 0, -d.rot);
-      swipeRef.current.scale.setScalar(0.75 + (1 - alpha) * 0.35);
+      swipeRef.current.rotation.set(0, d.rot, 0);
+      swipeRef.current.scale.setScalar(0.95 + (1 - alpha) * 0.42);
     }
     if (matRef.current) {
       matRef.current.opacity = alpha;
@@ -2396,12 +2397,12 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
       matRef.current.emissive.copy(tmpColor);
       matRef.current.color.copy(tmpColor);
     }
-    if (swipeMatRef.current) {
-      swipeMatRef.current.opacity = alpha * 0.85;
-      tmpColor.setHex(0xffd6e8);
-      swipeMatRef.current.color.copy(tmpColor);
-      tmpColor.setHex(0xff5fa2);
-      swipeMatRef.current.emissive.copy(tmpColor);
+    for (const mat of swipeMatRefs.current) {
+      mat.opacity = alpha * 0.95;
+      tmpColor.setHex(0xfff2f8);
+      mat.color.copy(tmpColor);
+      tmpColor.setHex(0xff4fa3);
+      mat.emissive.copy(tmpColor);
     }
     if (lightRef.current) {
       lightRef.current.intensity = look.lightInt * alpha;
@@ -2424,19 +2425,25 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
           depthWrite={false}
         />
       </mesh>
-      <mesh ref={swipeRef} visible={false}>
-        <torusGeometry args={[0.64, 0.045, 8, 28, Math.PI * 0.92]} />
-        <meshStandardMaterial
-          ref={swipeMatRef}
-          color="#ffd6e8"
-          emissive="#ff5fa2"
-          emissiveIntensity={2.4}
-          transparent
-          opacity={0}
-          toneMapped={false}
-          depthWrite={false}
-        />
-      </mesh>
+      <group ref={swipeRef} visible={false}>
+        {[-0.24, 0, 0.24].map((x, i) => (
+          <mesh key={i} position={[x, 0, 0]} rotation={[0, 0.18 - i * 0.18, -0.35]} scale={[0.10, 0.06, 0.82]}>
+            <boxGeometry args={[1, 1, 1]} />
+            <meshStandardMaterial
+              ref={(mat) => {
+                if (mat) swipeMatRefs.current[i] = mat;
+              }}
+              color="#fff2f8"
+              emissive="#ff4fa3"
+              emissiveIntensity={3.8}
+              transparent
+              opacity={0}
+              toneMapped={false}
+              depthWrite={false}
+            />
+          </mesh>
+        ))}
+      </group>
       <pointLight ref={lightRef} color="#ffce4a" intensity={0} distance={6} decay={2} />
     </>
   );

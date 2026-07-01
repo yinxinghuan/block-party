@@ -104,12 +104,12 @@ function goalLabel(hud: HudState): string {
   if (goal > 0) {
     return `${Math.min(hud.killsThisNight, goal)} / ${goal} ${cat ? 'VACUUMS' : 'KILLS'}`;
   }
-  return cat ? 'CLEAR BIG VACUUM' : 'KILL THE BOSS';
+  return cat ? 'CLEAR BIG HAZARD' : 'KILL THE BOSS';
 }
 
 function progressLabel(hud: HudState): string {
   const elapsed = Math.floor(60 - hud.timeLeft);
-  return `${hud.kills} ${isCatSwipeTheme() ? 'vacuums' : 'kills'} · ${elapsed >= 0 ? `${elapsed}s` : ''}`;
+  return `${hud.kills} ${isCatSwipeTheme() ? 'hazards' : 'kills'} · ${elapsed >= 0 ? `${elapsed}s` : ''}`;
 }
 
 export function BlockParty() {

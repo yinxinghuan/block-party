@@ -39,6 +39,23 @@ function roomba(scale = 1): ZombieGroup {
   return g;
 }
 
+function yarnBall(): ZombieGroup {
+  const g = applianceGroup();
+  g.add(new THREE.Mesh(
+    new THREE.SphereGeometry(0.42, 14, 10),
+    new THREE.MeshStandardMaterial({ color: 0xff8fc6, roughness: 0.95, emissive: 0xff4f9d, emissiveIntensity: 0.12 }),
+  ));
+  for (let i = 0; i < 5; i++) {
+    const strand = box(0.05, 0.05, 0.92, i % 2 ? 0xffd7eb : 0xf7eee8, 0, 0.42, 0);
+    strand.rotation.y = i * 0.72;
+    strand.rotation.z = (i - 2) * 0.18;
+    g.add(strand);
+  }
+  finish(g);
+  g.scale.setScalar(0.72);
+  return g;
+}
+
 function stickVac(): ZombieGroup {
   const g = applianceGroup();
   g.add(box(0.34, 0.22, 0.78, BLACK, 0, 0.22, 0.08));
@@ -48,6 +65,19 @@ function stickVac(): ZombieGroup {
   g.add(box(0.72, 0.10, 0.18, BLACK, 0, 1.82, -0.14));
   finish(g);
   g.scale.setScalar(0.76);
+  return g;
+}
+
+function toyTrain(): ZombieGroup {
+  const g = applianceGroup();
+  g.add(box(0.88, 0.32, 0.46, 0x6cc6ff, 0, 0.26, 0, { e: BLUE, ei: 0.2 }));
+  g.add(box(0.36, 0.44, 0.40, 0xffd060, -0.18, 0.58, -0.02, { e: P.gold, ei: 0.25 }));
+  g.add(cyl(0.16, 0.16, 0.18, 12, BLACK, 0.36, 0.48, 0.00));
+  for (const x of [-0.34, 0.34]) {
+    for (const z of [-0.22, 0.22]) g.add(wheel(x, z));
+  }
+  finish(g);
+  g.scale.setScalar(0.72);
   return g;
 }
 
@@ -94,6 +124,18 @@ function laundryBasket(): ZombieGroup {
   return g;
 }
 
+function ottoman(): ZombieGroup {
+  const g = applianceGroup();
+  g.add(box(1.10, 0.56, 0.96, 0xb98362, 0, 0.34, 0));
+  g.add(box(1.20, 0.20, 1.06, 0x6e493e, 0, 0.76, 0));
+  for (const x of [-0.42, 0.42]) {
+    for (const z of [-0.34, 0.34]) g.add(box(0.12, 0.20, 0.12, BLACK, x, 0.10, z));
+  }
+  finish(g);
+  g.scale.setScalar(0.82);
+  return g;
+}
+
 function carpetCleaner(): ZombieGroup {
   const g = applianceGroup();
   g.add(box(0.90, 0.26, 0.46, BODY_D, 0, 0.20, 0.36));
@@ -103,6 +145,18 @@ function carpetCleaner(): ZombieGroup {
   g.add(box(0.76, 0.10, 0.16, BLACK, 0, 1.68, -0.42));
   finish(g);
   g.scale.setScalar(0.80);
+  return g;
+}
+
+function laserPointer(): ZombieGroup {
+  const g = applianceGroup();
+  g.add(cyl(0.18, 0.22, 0.70, 14, BODY_D, 0, 0.48, 0));
+  g.children[0].rotation.x = Math.PI / 2;
+  g.add(box(0.18, 0.20, 0.16, BLACK, 0, 0.48, 0.42));
+  g.add(box(0.08, 0.08, 0.10, 0xff2040, 0, 0.48, 0.78, { e: 0xff2040, ei: 1.4 }));
+  g.add(cyl(0.28, 0.36, 0.12, 14, BODY, 0, 0.12, -0.10));
+  finish(g);
+  g.scale.setScalar(0.74);
   return g;
 }
 
@@ -149,6 +203,17 @@ function hairDryer(): ZombieGroup {
   return g;
 }
 
+function sprayBottle(): ZombieGroup {
+  const g = applianceGroup();
+  g.add(box(0.38, 0.70, 0.30, GLASS, 0, 0.44, 0, { e: BLUE, ei: 0.22 }));
+  g.add(box(0.30, 0.18, 0.26, PINK, 0, 0.88, 0, { e: PINK, ei: 0.35 }));
+  g.add(box(0.58, 0.10, 0.14, BODY_D, 0.18, 0.96, 0.10));
+  g.add(box(0.12, 0.26, 0.12, BLACK, -0.10, 0.76, 0));
+  finish(g);
+  g.scale.setScalar(0.78);
+  return g;
+}
+
 function featherDuster(): ZombieGroup {
   const g = applianceGroup();
   g.add(box(0.12, 0.18, 0.82, BODY_D, 0, 0.44, -0.16));
@@ -158,6 +223,17 @@ function featherDuster(): ZombieGroup {
     feather.rotation.z = (i - 3) * 0.16;
     g.add(feather);
   }
+  finish(g);
+  g.scale.setScalar(0.76);
+  return g;
+}
+
+function paperBag(): ZombieGroup {
+  const g = applianceGroup();
+  g.add(box(0.58, 0.74, 0.46, 0xc99a5a, 0, 0.46, 0));
+  g.add(box(0.42, 0.08, 0.34, 0x7b5637, 0, 0.88, 0));
+  g.add(box(0.24, 0.10, 0.06, BLACK, -0.12, 0.54, 0.25));
+  g.add(box(0.24, 0.10, 0.06, BLACK, 0.12, 0.54, 0.25));
   finish(g);
   g.scale.setScalar(0.76);
   return g;
@@ -177,6 +253,10 @@ function dockBoss(): ZombieGroup {
   return g;
 }
 
+function pick<T>(items: Array<() => T>): T {
+  return items[Math.floor(Math.random() * items.length)]();
+}
+
 export function makeVacuumEnemy(role: ZombieTier, set: 'vacuum' | 'household' = 'vacuum'): ZombieGroup {
   if (set === 'vacuum') {
     switch (role) {
@@ -191,13 +271,13 @@ export function makeVacuumEnemy(role: ZombieTier, set: 'vacuum' | 'household' = 
     }
   }
   switch (role) {
-    case 'runner': return toyCar();
-    case 'brute': return laundryBasket();
-    case 'stalker': return floorFan();
-    case 'exploder': return hairDryer();
-    case 'ghost': return featherDuster();
+    case 'runner': return pick([toyCar, toyTrain]);
+    case 'brute': return pick([laundryBasket, ottoman]);
+    case 'stalker': return pick([floorFan, laserPointer]);
+    case 'exploder': return pick([hairDryer, sprayBottle]);
+    case 'ghost': return pick([featherDuster, paperBag]);
     case 'boss': return dockBoss();
-    case 'lurker':
+    case 'lurker': return pick([() => roomba(0.72), yarnBall]);
     default: return roomba(0.72);
   }
 }
