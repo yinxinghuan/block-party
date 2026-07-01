@@ -58,9 +58,16 @@ export interface HeroSkin {
 
 export interface CartridgeVisuals {
   heroKind?: 'survivor' | 'cat';
-  enemySet?: 'creature' | 'vacuum';
+  enemySet?: 'creature' | 'vacuum' | 'household';
   actionStyle?: 'weapon' | 'cat-swipe';
   worldProps?: 'street' | 'living-room';
+  debrisStyle?: 'gore' | 'household';
+}
+
+export interface CartridgeFeel {
+  /** Bounded, engine-owned feel preset. This may change range/cadence/hit
+   *  width, but not expose raw tuning knobs to users. */
+  combatProfile?: 'survivor-shooter' | 'close-swipe';
 }
 
 export interface ArcadeCartridge {
@@ -100,6 +107,10 @@ export interface ArcadeCartridge {
   /** Visual semantics. These fields do not tune gameplay; they only select
    *  presentation families for hero, enemies, action VFX, and world props. */
   visuals?: CartridgeVisuals;
+
+  /** Optional theme feel preset. The engine maps this to hand-tuned bounded
+   *  numbers so a theme can feel right without letting users break balance. */
+  feel?: CartridgeFeel;
 
   /** Player roster surfaced in the store / splash (visual only). */
   heroes: HeroSkin[];

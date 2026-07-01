@@ -23,6 +23,7 @@ import type { BloodSplat, Bullet, Crystal, EnemyProjectile, ExitStone, FxEvent, 
 import { getPerk, rollOnePerk } from '../perks';
 import { DROPPABLE_WEAPONS, weaponEffectiveSpec, WEAPON_LEVEL_MAX } from '../builders/weapons';
 import type { WeaponId } from '../builders/weapons';
+import { CARTRIDGE } from '../cartridge';
 import type { HeroId } from '../cartridge';
 
 const WEAPON_DROP_INTERVAL = 11;     // 2026-06-16 v2 — 16→11s between drops, weapon-level-up should be near-continuous now
@@ -229,6 +230,15 @@ function emitFx(d: GameRef, type: FxEvent['type'], x: number, z: number) {
 // (e.g. along the bullet direction) so blood SHOOTS out instead of just
 // puddling around.
 const BLOOD_SPLAT_MAX = 220;
+function rollDebrisKind(isBone: boolean) {
+  if (CARTRIDGE.visuals?.debrisStyle !== 'household') return isBone ? 'bone' : 'blood';
+  const r = Math.random();
+  if (r < 0.36) return 'dust';
+  if (r < 0.62) return 'fur';
+  if (r < 0.84) return 'spark';
+  return 'confetti';
+}
+
 function spawnBloodSplats(
   d: GameRef,
   x: number, z: number,
@@ -246,6 +256,7 @@ function spawnBloodSplats(
     const baseSpeed = 5 + Math.random() * 7 * intensity;
     const lateral = 0.55 + Math.random() * 0.65;
     const isBone = Math.random() < 0.20;
+    const kind = rollDebrisKind(isBone);
     d.bloodSplats.push({
       id: nextId(),
       position: new THREE.Vector3(x, 0.85 + Math.random() * 0.6, z),
@@ -255,9 +266,10 @@ function spawnBloodSplats(
         Math.cos(angle) * baseSpeed * lateral,
       ),
       bornAt: d.time,
-      life: 1.0 + Math.random() * 0.8,
+      life: CARTRIDGE.visuals?.debrisStyle === 'household' ? 0.75 + Math.random() * 0.65 : 1.0 + Math.random() * 0.8,
       scale: 0.08 + Math.random() * (isBone ? 0.10 : 0.16) * intensity,
       isBone,
+      kind,
     });
   }
   if (d.bloodSplats.length > BLOOD_SPLAT_MAX) {

@@ -106,9 +106,13 @@ const WORKED_EXAMPLE = JSON.stringify(
     photoHero: true,
     visuals: {
       heroKind: 'cat',
-      enemySet: 'vacuum',
+      enemySet: 'household',
       actionStyle: 'cat-swipe',
       worldProps: 'living-room',
+      debrisStyle: 'household',
+    },
+    feel: {
+      combatProfile: 'close-swipe',
     },
   },
   null,
@@ -135,7 +139,8 @@ SCHEMA — every field you must output
   "heroUnlockPrice": number,       // typically 200
   "audioMood": number,             // 0..1, default 0.3 (0=quiet, 1=constant)
   "photoHero": true,               // always true unless the theme has no face
-  "visuals": {...}                 // semantic presentation family, see below
+  "visuals": {...},                // semantic presentation family, see below
+  "feel": {...}                    // bounded hand-tuned feel preset, see below
 }
 
 COPY FIELDS (8 per locale — en AND zh required):
@@ -185,9 +190,10 @@ Each hero: { "id": string, "label": string, "tint": string }
 VISUALS (required for semantic themes, optional only for ordinary human-vs-creature themes):
 {
   "heroKind": "survivor" | "cat",
-  "enemySet": "creature" | "vacuum",
+  "enemySet": "creature" | "vacuum" | "household",
   "actionStyle": "weapon" | "cat-swipe",
-  "worldProps": "street" | "living-room"
+  "worldProps": "street" | "living-room",
+  "debrisStyle": "gore" | "household"
 }
 
 This is the v2 semantic layer. Use it whenever the sentence implies a non-human hero,
@@ -195,12 +201,24 @@ a non-creature enemy family, or a non-street setting. It changes ONLY presentati
 never gameplay tuning.
 - Cat / kitten / pet hero → heroKind "cat", actionStyle "cat-swipe".
 - Robot vacuum / Roomba / cleaner appliance enemies → enemySet "vacuum".
+- Cat-at-home scenarios with varied household hazards → enemySet "household" and debrisStyle "household".
 - Home / apartment / couch / carpet / nap-spot premise → worldProps "living-room".
 - Human survivor with monsters in a city/street → survivor + creature + weapon + street.
 
 Do not leave a human gun, humanoid boss, or street props in the output when the
 sentence clearly asks for an animal/appliance/home scenario. The names, copy,
 heroes, enemies, bossLadder, palette, and visuals must all tell the same story.
+
+FEEL (optional, recommended when the theme implies a different verb feel):
+{
+  "combatProfile": "survivor-shooter" | "close-swipe"
+}
+
+This is NOT raw tuning. It picks an engine-owned, hand-tested preset.
+- survivor-shooter: default ranged auto-fire survival feel.
+- close-swipe: short range, wider hit area, quicker cadence, for claws/punches/bites/taps.
+Use close-swipe for cats, animals, boxing, melee toys, or any theme where visible long-range bullets would feel wrong.
+Do not invent HP, damage, speed, spawn-rate, or cooldown numbers.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PALETTE GUIDANCE
@@ -241,7 +259,7 @@ ${WORKED_EXAMPLE}
 Notice how the example:
 - Maps each NonBossRole to a creature + themed name + recolor (same creature can appear twice with different recolors)
 - Boss ladder separates behaviour from skin, so "Dyson Beast" can use safe vampire melee behaviour with a mech visual
-- Adds visuals.heroKind/enemySet/actionStyle/worldProps so the player sees a cat, vacuum enemies, paw-swipe VFX, and living-room props
+- Adds visuals + feel.combatProfile so the player sees a cat, household hazards, paw-swipe VFX, living-room props, non-gory debris, and short-range swipe feel
 - Palette progresses warm sunbeam → dusty afternoon → red-alert evening
 - Heroes are cat breeds — short ALL-CAPS labels, kebab-case ids, coat-matching tints
 - Copy is playful, short, ALL-CAPS for buttons, descriptive for rules

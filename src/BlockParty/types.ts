@@ -182,9 +182,9 @@ export interface Pillar {
   variant: PillarVariant;
 }
 
-// Short-lived blood splat / bone chunk thrown by a bullet hit. Carries its
-// own velocity so it arcs (gravity in useFrame). Scene.tsx pools these
-// through an InstancedMesh.
+// Short-lived impact debris thrown by a hit/kill. Older code called these
+// blood splats; cartridges can now map the same physics to softer materials.
+export type DebrisKind = 'blood' | 'bone' | 'dust' | 'spark' | 'fur' | 'confetti';
 export interface BloodSplat {
   id: number;
   position: THREE.Vector3;
@@ -193,6 +193,7 @@ export interface BloodSplat {
   life: number;       // seconds before it pops out
   scale: number;      // box edge length
   isBone: boolean;    // bone fragments render cream; otherwise blood red
+  kind?: DebrisKind;
 }
 
 export interface FxEvent {

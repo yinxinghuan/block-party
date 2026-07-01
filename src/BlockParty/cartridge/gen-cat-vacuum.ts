@@ -205,8 +205,12 @@ export const genCatVacuumSpec: CartridgeSpec = {
   "photoHero": true,
   "visuals": {
     "heroKind": "cat",
-    "enemySet": "vacuum",
+    "enemySet": "household",
     "actionStyle": "cat-swipe",
-    "worldProps": "living-room"
+    "worldProps": "living-room",
+    "debrisStyle": "household"
+  },
+  "feel": {
+    "combatProfile": "close-swipe"
   }
 };

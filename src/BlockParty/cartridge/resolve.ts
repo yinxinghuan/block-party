@@ -24,9 +24,14 @@ const ROLE_SCALE: Record<NonBossRole, number> = {
 
 const VISUAL_ENUMS = {
   heroKind: ['survivor', 'cat'],
-  enemySet: ['creature', 'vacuum'],
+  enemySet: ['creature', 'vacuum', 'household'],
   actionStyle: ['weapon', 'cat-swipe'],
   worldProps: ['street', 'living-room'],
+  debrisStyle: ['gore', 'household'],
+} as const;
+
+const FEEL_ENUMS = {
+  combatProfile: ['survivor-shooter', 'close-swipe'],
 } as const;
 
 /** Validate an untrusted spec (e.g. fresh LLM output). Returns the list of
@@ -68,6 +73,14 @@ export function validateSpec(s: unknown): string[] {
       }
     }
   }
+  if (spec.feel) {
+    for (const [key, valid] of Object.entries(FEEL_ENUMS)) {
+      const value = spec.feel[key as keyof typeof FEEL_ENUMS];
+      if (value && !(valid as readonly string[]).includes(value)) {
+        errs.push(`feel.${key} "${value}" not in [${valid.join(', ')}]`);
+      }
+    }
+  }
   return errs;
 }
 
@@ -79,9 +92,13 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
   const baseFor = (i: number) => SURVIVOR_IDS[i % SURVIVOR_IDS.length];
   const visuals = {
     heroKind: spec.visuals?.heroKind ?? (spec.id === 'cat-vacuum' ? 'cat' : 'survivor'),
-    enemySet: spec.visuals?.enemySet ?? (spec.id === 'cat-vacuum' ? 'vacuum' : 'creature'),
+    enemySet: spec.visuals?.enemySet ?? (spec.id === 'cat-vacuum' ? 'household' : 'creature'),
     actionStyle: spec.visuals?.actionStyle ?? (spec.id === 'cat-vacuum' ? 'cat-swipe' : 'weapon'),
     worldProps: spec.visuals?.worldProps ?? (spec.id === 'cat-vacuum' ? 'living-room' : 'street'),
+    debrisStyle: spec.visuals?.debrisStyle ?? (spec.id === 'cat-vacuum' ? 'household' : 'gore'),
+  } as const;
+  const feel = {
+    combatProfile: spec.feel?.combatProfile ?? (spec.id === 'cat-vacuum' ? 'close-swipe' : 'survivor-shooter'),
   } as const;
 
   // Pre-load sprite textures for every enemy role that has a spriteUrl.
@@ -106,7 +123,7 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
     }),
 
     buildEnemy: (role: EnemyRole, bossSkin) => {
-      if (visuals.enemySet === 'vacuum') return makeVacuumEnemy(role);
+      if (visuals.enemySet === 'vacuum' || visuals.enemySet === 'household') return makeVacuumEnemy(role, visuals.enemySet);
       if (role === 'boss') return makeMonster('boss', bossSkin);
 
       // Sprite path — unique gen-image visual for this role
@@ -140,6 +157,7 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
     buildHeroFromPhoto: spec.photoHero === false ? undefined : (tex) => makeSurvivorWithFace(tex),
     hideWeaponProps: visuals.actionStyle === 'cat-swipe',
     visuals,
+    feel,
 
     audioMood: spec.audioMood,
   };

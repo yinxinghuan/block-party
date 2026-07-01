@@ -680,16 +680,15 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
   return <group ref={rootRef} />;
 }
 
-// Blood splats + bone chunks thrown by bullet hits and kills. We use two
-// separate InstancedMeshes so each can carry a FIXED material color —
-// per-instance colors via vertexColors on a single mesh was rendering as
-// pure black, almost certainly because the InstancedBufferAttribute we
-// assigned by hand wasn't being picked up by the shader the way the
-// docs suggest. Two pools is simpler and bulletproof.
+// Impact debris thrown by hits and kills. The game loop owns the same physics
+// for every cartridge; the active theme chooses whether the pieces read as
+// gore, dust, fur, sparks, or toy-paper confetti.
 function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
   const POOL = 220;
   const bloodRef = useRef<THREE.InstancedMesh>(null);
   const boneRef = useRef<THREE.InstancedMesh>(null);
+  const softRef = useRef<THREE.InstancedMesh>(null);
+  const sparkRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const hidden = useMemo(() => {
     const o = new THREE.Object3D();
@@ -702,31 +701,48 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
     const d = state.current;
     const blood = bloodRef.current;
     const bone = boneRef.current;
-    if (!blood || !bone) return;
+    const soft = softRef.current;
+    const spark = sparkRef.current;
+    if (!blood || !bone || !soft || !spark) return;
     let bloodI = 0;
     let boneI = 0;
+    let softI = 0;
+    let sparkI = 0;
     for (const s of d.bloodSplats) {
-      if (bloodI >= POOL && boneI >= POOL) break;
+      if (bloodI >= POOL && boneI >= POOL && softI >= POOL && sparkI >= POOL) break;
       const age = d.time - s.bornAt;
       const fade = Math.max(0, 1 - age / s.life);
       const sc = s.scale * (0.55 + fade * 0.55);
       dummy.position.set(s.position.x, s.position.y, s.position.z);
       dummy.rotation.set(age * 4, age * 3, age * 5);
-      dummy.scale.setScalar(sc);
+      const kind = s.kind ?? (s.isBone ? 'bone' : 'blood');
+      if (kind === 'fur') dummy.scale.set(sc * 1.2, sc * 0.45, sc * 0.55);
+      else if (kind === 'spark') dummy.scale.set(sc * 0.55, sc * 0.55, sc * 1.65);
+      else dummy.scale.setScalar(sc);
       dummy.updateMatrix();
-      if (s.isBone) {
+      if (kind === 'bone') {
         if (boneI < POOL) { bone.setMatrixAt(boneI, dummy.matrix); boneI++; }
-      } else {
+      } else if (kind === 'blood') {
         if (bloodI < POOL) { blood.setMatrixAt(bloodI, dummy.matrix); bloodI++; }
+      } else if (kind === 'spark') {
+        if (sparkI < POOL) { spark.setMatrixAt(sparkI, dummy.matrix); sparkI++; }
+      } else {
+        if (softI < POOL) { soft.setMatrixAt(softI, dummy.matrix); softI++; }
       }
     }
     // Collapse unused slots so old positions don't linger.
     for (let i = bloodI; i < POOL; i++) blood.setMatrixAt(i, hidden.matrix);
     for (let i = boneI; i < POOL; i++) bone.setMatrixAt(i, hidden.matrix);
+    for (let i = softI; i < POOL; i++) soft.setMatrixAt(i, hidden.matrix);
+    for (let i = sparkI; i < POOL; i++) spark.setMatrixAt(i, hidden.matrix);
     blood.instanceMatrix.needsUpdate = true;
     bone.instanceMatrix.needsUpdate = true;
+    soft.instanceMatrix.needsUpdate = true;
+    spark.instanceMatrix.needsUpdate = true;
     blood.count = POOL;
     bone.count = POOL;
+    soft.count = POOL;
+    spark.count = POOL;
   });
   return (
     <>
@@ -737,6 +753,14 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
       <instancedMesh ref={boneRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial color="#e7dfc6" roughness={0.7} toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh ref={softRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#f1ddc5" emissive="#ffd7ef" emissiveIntensity={0.18} roughness={0.9} toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh ref={sparkRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#fff3a8" emissive="#7ee8ff" emissiveIntensity={1.5} roughness={0.35} toneMapped={false} />
       </instancedMesh>
     </>
   );
@@ -2262,7 +2286,7 @@ const BULLET_LOOK: Record<string, BulletLook> = {
 function Bullets({ state }: { state: React.MutableRefObject<GameRef> }) {
   const [, force] = useState(0);
   const lastCount = useRef(0);
-  const refs = useRef<Map<number, THREE.Mesh>>(new Map());
+  const refs = useRef<Map<number, THREE.Group>>(new Map());
   useFrame(() => {
     const d = state.current;
     if (d.bullets.length !== lastCount.current) {
@@ -2280,25 +2304,45 @@ function Bullets({ state }: { state: React.MutableRefObject<GameRef> }) {
   return (
     <>
       {d.bullets.map(b => {
-        const look = CARTRIDGE.visuals?.actionStyle === 'cat-swipe'
-          ? { color: '#ffd3e6', emissive: '#ff5fa2', ei: 6.8, size: [0.26, 0.07, 0.30] as [number, number, number] }
-          : (BULLET_LOOK[b.weaponId] || BULLET_LOOK.pistol);
+        const catSwipe = CARTRIDGE.visuals?.actionStyle === 'cat-swipe';
+        const look = BULLET_LOOK[b.weaponId] || BULLET_LOOK.pistol;
         return (
-          <mesh
+          <group
             key={b.id}
             ref={(el) => {
               if (el) refs.current.set(b.id, el);
               else refs.current.delete(b.id);
             }}
           >
-            <boxGeometry args={look.size} />
-            <meshStandardMaterial
-              color={look.color}
-              emissive={look.emissive}
-              emissiveIntensity={look.ei}
-              toneMapped={false}
-            />
-          </mesh>
+            {catSwipe ? (
+              <>
+                <mesh position={[0, 0, 0.02]} scale={[0.22, 0.045, 0.16]}>
+                  <sphereGeometry args={[1, 12, 8]} />
+                  <meshStandardMaterial color="#ffd6e8" emissive="#ff5fa2" emissiveIntensity={2.2} transparent opacity={0.9} toneMapped={false} />
+                </mesh>
+                {[-0.18, 0, 0.18].map((x, i) => (
+                  <mesh key={i} position={[x, 0.015, 0.24]} scale={[0.09, 0.032, 0.10]}>
+                    <sphereGeometry args={[1, 10, 6]} />
+                    <meshStandardMaterial color="#fff0f7" emissive="#ff7fbd" emissiveIntensity={2.4} transparent opacity={0.92} toneMapped={false} />
+                  </mesh>
+                ))}
+                <mesh position={[0, -0.005, -0.08]} rotation={[Math.PI / 2, 0, 0]} scale={[0.56, 0.18, 0.56]}>
+                  <torusGeometry args={[0.46, 0.035, 8, 24, Math.PI * 0.78]} />
+                  <meshStandardMaterial color="#fff6d8" emissive="#ff9acb" emissiveIntensity={1.8} transparent opacity={0.72} toneMapped={false} />
+                </mesh>
+              </>
+            ) : (
+              <mesh>
+                <boxGeometry args={look.size} />
+                <meshStandardMaterial
+                  color={look.color}
+                  emissive={look.emissive}
+                  emissiveIntensity={look.ei}
+                  toneMapped={false}
+                />
+              </mesh>
+            )}
+          </group>
         );
       })}
     </>
@@ -2321,8 +2365,10 @@ const CAT_SWIPE_LOOK: MuzzleLook = { tint: 0xff5fa2, size: 0.42, lightInt: 24 };
 
 function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
   const meshRef = useRef<THREE.Mesh>(null);
+  const swipeRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  const swipeMatRef = useRef<THREE.MeshStandardMaterial>(null);
   const tmpColor = useMemo(() => new THREE.Color(), []);
   useFrame(() => {
     const d = state.current;
@@ -2330,18 +2376,32 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
     const alpha = t > 0 ? Math.min(1, t / 0.07) : 0;
     const px = d.pos.x + Math.sin(d.rot) * 0.95;
     const pz = d.pos.z + Math.cos(d.rot) * 0.95;
-    const look = CARTRIDGE.visuals?.actionStyle === 'cat-swipe'
+    const catSwipe = CARTRIDGE.visuals?.actionStyle === 'cat-swipe';
+    const look = catSwipe
       ? CAT_SWIPE_LOOK
       : (MUZZLE_LOOK[d.currentWeaponId] || MUZZLE_LOOK.pistol);
     if (meshRef.current) {
       meshRef.current.position.set(px, 1.0, pz);
-      meshRef.current.scale.setScalar((look.size + (1 - alpha) * 0.20) * 1.7);
+      meshRef.current.scale.setScalar((look.size + (1 - alpha) * 0.20) * (catSwipe ? 2.4 : 1.7));
+    }
+    if (swipeRef.current) {
+      swipeRef.current.visible = catSwipe && alpha > 0;
+      swipeRef.current.position.set(px, 1.08, pz);
+      swipeRef.current.rotation.set(Math.PI / 2, 0, -d.rot);
+      swipeRef.current.scale.setScalar(0.75 + (1 - alpha) * 0.35);
     }
     if (matRef.current) {
       matRef.current.opacity = alpha;
       tmpColor.setHex(look.tint);
       matRef.current.emissive.copy(tmpColor);
       matRef.current.color.copy(tmpColor);
+    }
+    if (swipeMatRef.current) {
+      swipeMatRef.current.opacity = alpha * 0.85;
+      tmpColor.setHex(0xffd6e8);
+      swipeMatRef.current.color.copy(tmpColor);
+      tmpColor.setHex(0xff5fa2);
+      swipeMatRef.current.emissive.copy(tmpColor);
     }
     if (lightRef.current) {
       lightRef.current.intensity = look.lightInt * alpha;
@@ -2358,6 +2418,19 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
           color="#fff5b8"
           emissive="#ffce4a"
           emissiveIntensity={6}
+          transparent
+          opacity={0}
+          toneMapped={false}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh ref={swipeRef} visible={false}>
+        <torusGeometry args={[0.64, 0.045, 8, 28, Math.PI * 0.92]} />
+        <meshStandardMaterial
+          ref={swipeMatRef}
+          color="#ffd6e8"
+          emissive="#ff5fa2"
+          emissiveIntensity={2.4}
           transparent
           opacity={0}
           toneMapped={false}

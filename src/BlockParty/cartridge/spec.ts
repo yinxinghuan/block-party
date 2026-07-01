@@ -49,11 +49,18 @@ export interface VisualSpec {
   /** visual-only hero builder family; does not change player stats */
   heroKind?: 'survivor' | 'cat';
   /** visual-only enemy builder family; does not change enemy stats */
-  enemySet?: 'creature' | 'vacuum';
+  enemySet?: 'creature' | 'vacuum' | 'household';
   /** visual-only attack language; engine auto-fire math stays unchanged */
   actionStyle?: 'weapon' | 'cat-swipe';
   /** visual-only world prop family; collision positions stay unchanged */
   worldProps?: 'street' | 'living-room';
+  /** visual-only hit/kill debris material; physics stays unchanged */
+  debrisStyle?: 'gore' | 'household';
+}
+
+export interface FeelSpec {
+  /** Bounded engine feel preset; no raw HP/speed/damage numbers in specs. */
+  combatProfile?: 'survivor-shooter' | 'close-swipe';
 }
 
 export interface CartridgeSpec {
@@ -74,6 +81,8 @@ export interface CartridgeSpec {
   photoHero?: boolean;
   /** v2 semantic visuals — what the player actually sees, not gameplay math. */
   visuals?: VisualSpec;
+  /** v3 feel preset — theme-appropriate hand-tuned combat feel. */
+  feel?: FeelSpec;
 }
 
 /** The non-boss roles a valid spec must define, in display order. */

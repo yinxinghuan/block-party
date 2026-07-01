@@ -47,6 +47,8 @@ export const CAMERA_FOV = 55;
 // the first dark-hand attempts a strike (which itself needs ~1.2s telegraph).
 export const GRACE_PERIOD = 3.0;
 
+const COMBAT_PROFILE = CARTRIDGE.feel?.combatProfile ?? 'survivor-shooter';
+
 // ===== EXIT GOAL (replaces wave timer) =====
 // Each level clears when the player walks into a violet exit beacon.
 // Batch B refactor — EVERY level is a boss level now (one new boss kind
@@ -106,15 +108,15 @@ export function getKillGoal(_level: number): number {
 // ===== AUTO-FIRE (Vampire Survivors / Brotato model) =====
 // Hero auto-locks the nearest non-fleeing monster within AIM_RANGE and fires
 // every FIRE_COOLDOWN seconds. The bullet is a fast linear projectile.
-export const AIM_RANGE = 14.0;
+export const AIM_RANGE = COMBAT_PROFILE === 'close-swipe' ? 6.8 : 14.0;
 // Forward fire cone — only zombies within ±55° of body facing can be
 // targeted. Body turns toward the locked target each shot, so to engage a
 // zombie behind you, you must move/face that way first.
-export const FIRE_ARC_HALF = (110 * Math.PI / 180) / 2;
-export const FIRE_COOLDOWN = 0.32;     // seconds between shots — feels lively at ~3/s
-export const BULLET_SPEED = 28;        // world units / sec
-export const BULLET_TTL = 1.2;         // seconds before despawn
-export const BULLET_RADIUS = 0.30;     // collision against monsters
+export const FIRE_ARC_HALF = ((COMBAT_PROFILE === 'close-swipe' ? 150 : 110) * Math.PI / 180) / 2;
+export const FIRE_COOLDOWN = COMBAT_PROFILE === 'close-swipe' ? 0.24 : 0.32;
+export const BULLET_SPEED = COMBAT_PROFILE === 'close-swipe' ? 22 : 28;
+export const BULLET_TTL = COMBAT_PROFILE === 'close-swipe' ? 0.30 : 1.2;
+export const BULLET_RADIUS = COMBAT_PROFILE === 'close-swipe' ? 0.62 : 0.30;
 export const BULLET_DMG = 1;           // baseline damage per shot
 
 // Per-tier monster HP — 7 tiers now.
