@@ -117,6 +117,27 @@ async function uploadToR2(filePath: string): Promise<string> {
 type NonBossRole = 'lurker' | 'runner' | 'brute' | 'stalker' | 'exploder' | 'ghost';
 const NON_BOSS_ROLES: NonBossRole[] = ['lurker', 'runner', 'brute', 'stalker', 'exploder', 'ghost'];
 
+const ROLE_SPRITE_BRIEFS: Record<NonBossRole, string> = {
+  lurker: 'small basic enemy, simple readable silhouette, cautious pose',
+  runner: 'lean fast enemy, dynamic forward-leaning pose, long narrow silhouette',
+  brute: 'large heavy enemy, broad shoulders, chunky powerful silhouette',
+  stalker: 'ranged enemy, alert aiming pose, sharp watchful silhouette',
+  exploder: 'round volatile enemy, unstable core, compact explosive silhouette',
+  ghost: 'airy spectral enemy, translucent edges, floating silhouette',
+};
+
+function buildSpritePrompt(role: NonBossRole, name: string, theme: string): string {
+  return [
+    `single isolated low-poly voxel game enemy sprite: "${name}"`,
+    `theme: ${theme}`,
+    `gameplay role: ${role}; ${ROLE_SPRITE_BRIEFS[role]}`,
+    'three-quarter front view, full body, centered, square composition',
+    'clean transparent-looking cutout on solid #222222 background',
+    'high contrast readable silhouette, distinct from the other enemy roles',
+    'game asset only, no environment, no scene, no poster, no text, no watermark, no logo, no UI',
+  ].join(', ');
+}
+
 async function generateSprites(
   spec: Record<string, unknown>,
   slug: string,
@@ -131,12 +152,7 @@ async function generateSprites(
     const enemy = enemies[role];
     if (!enemy) continue;
     const name = enemy.name || role;
-    const prompt = [
-      `low-poly voxel game sprite of a "${name}", ${theme} theme,`,
-      'front view, full body centered, standing pose,',
-      'clean solid #222222 dark background,',
-      'game asset, no text, no watermark, no logo, no UI',
-    ].join(' ');
+    const prompt = buildSpritePrompt(role, name, theme);
 
     console.log(`  🎨  Generating sprite for ${role} (${name})...`);
     let tempUrl: string;
