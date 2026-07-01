@@ -19,19 +19,16 @@
 import type * as THREE from 'three';
 import type { CharacterGroup } from '../builders/characters';
 import type { ZombieGroup, ZombieTier, BossKind } from '../builders/monsters';
-import type { LevelPalette } from '../constants';
+import type { BossBehavior, BossLadderEntry, BossSkin, LevelPalette } from '../constants';
 
 /** A gameplay ROLE the engine schedules and tunes. The cartridge supplies a
  *  visual + label per role; the engine owns HP/speed/score/knockback for it. */
 export type EnemyRole = ZombieTier; // lurker|runner|brute|stalker|exploder|ghost|boss
 
-/** A boss-behaviour archetype the engine implements (charge / beam / shield /
- *  summon / burstfire / blink / flank / rage / melee). The cartridge picks
- *  WHICH behaviours form its ladder and supplies the matching visual through
- *  `buildEnemy('boss', kind)`. NOTE: today BossKind couples behaviour + visual
- *  inside builders/monsters.ts; splitting "behaviour" from "skin" so a reskin
- *  can reuse a behaviour under a new look is the next seam (see README). */
-export type { BossKind };
+/** Boss behaviour is the engine-owned AI archetype. Boss skin is the visual
+ *  builder key. A cartridge can pair them differently, e.g. `{ behavior:
+ *  'mech', skin: 'firefighter' }` = beam boss wearing firefighter visuals. */
+export type { BossBehavior, BossKind, BossLadderEntry, BossSkin };
 
 /** Localized, user-visible copy. Generic chrome (score/best/leaderboard) stays
  *  in the engine i18n; the cartridge only overrides the themed strings. */
@@ -71,13 +68,13 @@ export interface ArcadeCartridge {
   palette: { name: string; colors: LevelPalette }[];
 
   /** Build the visual for a gameplay role. For role 'boss' the engine passes
-   *  the scheduled behaviour kind so the cartridge returns the right variant. */
-  buildEnemy: (role: EnemyRole, bossKind?: BossKind) => ZombieGroup;
+   *  the scheduled skin; behaviour stays in the game loop. */
+  buildEnemy: (role: EnemyRole, bossSkin?: BossSkin) => ZombieGroup;
 
   /** Ordered boss ladder — index = (level-1) unlock for the first N levels,
    *  then rotated. The engine owns the schedule; the cartridge owns which
    *  themed boss fills each rung. */
-  bossLadder: BossKind[];
+  bossLadder: BossLadderEntry[];
 
   /** Build the player's visual for a chosen hero id. */
   buildHero: (heroId: HeroId) => CharacterGroup;

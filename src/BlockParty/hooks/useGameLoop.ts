@@ -15,8 +15,9 @@ import {
   EXIT_PICKUP_RADIUS, EXIT_MIN_DIST, getKillGoal,
   pickBossKinds,
   MONSTER_HP, SCORE_KILL,
+  normalizeBossLoadout,
 } from '../constants';
-import type { BossKind } from '../constants';
+import type { BossBehavior, BossKind, BossLoadout } from '../constants';
 import type { CrystalType, LevelTuning } from '../constants';
 import type { BloodSplat, Bullet, Crystal, EnemyProjectile, ExitStone, FxEvent, Monster, MonsterTier, PerkDrop, Pillar, PillarVariant, Stick } from '../types';
 import { getPerk, rollOnePerk } from '../perks';
@@ -332,13 +333,28 @@ function randomSpawnPos(d: GameRef, minDistFromPlayer: number, marginFromEdge: n
   return new THREE.Vector3((Math.random() - 0.5) * PLAYFIELD * 0.8, 0, (Math.random() - 0.5) * PLAYFIELD * 0.8);
 }
 
-function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, explicitBossKind?: BossKind) {
+function skillKindForBoss(kind: BossBehavior): NonNullable<Monster['skill']>['kind'] {
+  return kind === 'minotaur'    ? 'charge'
+    : kind === 'punk'           ? 'pounce'
+    : kind === 'mech'           ? 'beam'
+    : kind === 'viking'         ? 'shield'
+    : kind === 'swat'           ? 'shield'
+    : kind === 'cop'            ? 'summon'
+    : kind === 'cowboy'         ? 'burstfire'
+    : kind === 'goth'           ? 'blink'
+    : kind === 'biker'          ? 'flank'
+    : kind === 'firefighter'    ? 'rage'
+    :                             'shield';
+}
+
+function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, explicitBoss?: BossKind | BossLoadout) {
   if (d.monsters.length >= tuning.monsterMax) return;
   const minDist = tier === 'boss' ? 18 : 14;
   const pos = randomSpawnPos(d, minDist, 2);
   let hp = MONSTER_HP[tier];
   let scaleMul: number | undefined;
-  let bossKind: BossKind | undefined;
+  let bossKind: BossBehavior | undefined;
+  let bossSkin: BossKind | undefined;
   let skill: Monster['skill'];
   if (tier === 'boss') {
     // 2026-06-16 v4 strengthen — bump slope 0.12→0.15 and cap 6.5×→8×
@@ -353,7 +369,9 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
     scaleMul = Math.min(1.75, 1.5 + Math.floor((tuning.level - 1) / 3) * 0.05);
     // Boss variant — caller (startLevel) passes the kind via
     // pickBossKinds(). Fallback for safety = vampire (the L1 boss).
-    bossKind = explicitBossKind ?? 'vampire';
+    const loadout = normalizeBossLoadout(explicitBoss);
+    bossKind = loadout.behavior;
+    bossSkin = loadout.skin;
     if (bossKind !== 'vampire') {
       // Skill family per kind:
       //   minotaur / punk      → charge
@@ -364,18 +382,7 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
       //   goth                 → blink   (teleport behind player)
       //   biker                → flank   (passive perpendicular orbit)
       //   firefighter          → rage    (speed boost + KB immune)
-      const skillKind: NonNullable<Monster['skill']>['kind'] =
-        bossKind === 'minotaur'    ? 'charge'
-        : bossKind === 'punk'      ? 'pounce'
-        : bossKind === 'mech'      ? 'beam'
-        : bossKind === 'viking'    ? 'shield'
-        : bossKind === 'swat'      ? 'shield'
-        : bossKind === 'cop'       ? 'summon'
-        : bossKind === 'cowboy'    ? 'burstfire'
-        : bossKind === 'goth'      ? 'blink'
-        : bossKind === 'biker'     ? 'flank'
-        : bossKind === 'firefighter' ? 'rage'
-        :                            'shield';
+      const skillKind = skillKindForBoss(bossKind);
       skill = {
         kind: skillKind,
         phase: 'idle',
@@ -422,6 +429,7 @@ function spawnMonsterTier(d: GameRef, tuning: LevelTuning, tier: MonsterTier, ex
     isBoss: tier === 'boss',
     scaleMul,
     bossKind,
+    bossSkin,
     skill,
   });
 }
@@ -511,16 +519,7 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
     : kind === 'biker'     ? 'runner'
     : kind === 'firefighter' ? 'brute'
     :                        'lurker';  // viking + swat + cop
-  const skillKind: NonNullable<Monster['skill']>['kind'] =
-    kind === 'minotaur'    ? 'charge'
-    : kind === 'punk'      ? 'pounce'
-    : kind === 'mech'      ? 'beam'
-    : kind === 'cop'       ? 'summon'
-    : kind === 'cowboy'    ? 'burstfire'
-    : kind === 'goth'      ? 'blink'
-    : kind === 'biker'     ? 'flank'
-    : kind === 'firefighter' ? 'rage'
-    :                        'shield';   // viking + swat
+  const skillKind = skillKindForBoss(kind);
   const pos = randomSpawnPos(d, 14, 2);
   // 3× tier baseline HP — meaty for an ambient, but well below boss
   // (boss = 14× at L15). Same per-level scaling as everyone else.
@@ -562,6 +561,7 @@ function spawnAmbientElite(d: GameRef, tuning: LevelTuning, kind: BossKind) {
     // immediately distinguishable on the battlefield.
     scaleMul: 1.0,
     bossKind: kind,
+    bossSkin: kind,
     skill: {
       kind: skillKind,
       phase: 'idle',

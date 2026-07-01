@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { CrystalType } from './constants';
+import type { BossBehavior, BossSkin, CrystalType } from './constants';
 
 export type Phase = 'splash' | 'playing' | 'gameover';
 
@@ -62,12 +62,10 @@ export interface Monster {
    *  spawner to scale the body with the cycle (bigger boss = stronger
    *  boss as a readable cue). Defaults to 1.0 in the renderer. */
   scaleMul?: number;
-  /** Boss variant — controls which model + which AI skill the boss
-   *  carries. 'vampire' = original melee, 'mech' = beam, 'minotaur' =
-   *  big charge, 'viking' = shield, 'punk' = fast charge. ('swat' kept
-   *  for backwards compat — no longer in active rotation.) */
-  bossKind?: 'vampire' | 'swat' | 'mech' | 'minotaur' | 'viking' | 'punk'
-           | 'cop' | 'cowboy' | 'goth' | 'biker' | 'firefighter';
+  /** Boss behaviour archetype — controls AI skill only. */
+  bossKind?: BossBehavior;
+  /** Boss skin archetype — controls visual builder only. Defaults to bossKind. */
+  bossSkin?: BossSkin;
   /** Skill state machine — populated for elite/boss kinds with unique
    *  behaviors. The AI loop branches on `skill.kind` and runs the
    *  appropriate signature move. */

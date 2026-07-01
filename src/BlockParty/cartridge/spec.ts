@@ -8,7 +8,7 @@
 //  every field author-able from one sentence.
 // ============================================================================
 
-import type { CartridgeCopy, EnemyRole, BossKind } from './types';
+import type { BossBehavior, BossKind, BossSkin, CartridgeCopy, EnemyRole } from './types';
 import type { LevelPalette } from '../constants';
 import type { CreatureKey } from '../builders/registry';
 
@@ -29,8 +29,12 @@ export interface EnemySpec {
 }
 
 export interface BossSpec {
-  /** engine behaviour archetype (also selects the boss visual for now) */
-  kind: BossKind;
+  /** Back-compat shorthand: old specs used one key for behaviour + visual. */
+  kind?: BossKind;
+  /** engine-owned AI archetype */
+  behavior?: BossBehavior;
+  /** cartridge-owned visual skin */
+  skin?: BossSkin;
   /** themed display name */
   name: string;
 }

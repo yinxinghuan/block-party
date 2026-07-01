@@ -88,18 +88,20 @@ export const catVacuumSpec: CartridgeSpec = {
     ghost:    { creature: 'zombie',   name: 'Handheld Turbo',  recolor: '#a8c8e8' }, // pale blue mini
   },
 
-  // Boss ladder — same behaviour archetypes as zombie, renamed for the theme.
+  // Boss ladder — behaviour is engine-owned; skin is cartridge-owned. This
+  // proves a reskin can keep a proven boss move while choosing a more fitting
+  // visual silhouette for the new theme.
   bossLadder: [
-    { kind: 'vampire',     name: 'Dyson Beast' },
-    { kind: 'minotaur',    name: 'Industrial Scrubber' },
-    { kind: 'mech',        name: 'Wet/Dry Titan' },
-    { kind: 'viking',      name: 'ShopVac Warrior' },
-    { kind: 'punk',        name: 'Handheld Turbo' },
-    { kind: 'cop',         name: 'RoboMop Squad' },
-    { kind: 'cowboy',      name: 'Steam Cleaner' },
-    { kind: 'goth',        name: 'Auto-Empty Dock' },
-    { kind: 'biker',       name: 'Cordless Stick' },
-    { kind: 'firefighter', name: 'Wet Floor Bot' },
+    { behavior: 'vampire',     skin: 'mech',        name: 'Dyson Beast' },
+    { behavior: 'minotaur',    skin: 'firefighter', name: 'Industrial Scrubber' },
+    { behavior: 'mech',        skin: 'mech',        name: 'Wet/Dry Titan' },
+    { behavior: 'viking',      skin: 'swat',        name: 'ShopVac Warrior' },
+    { behavior: 'punk',        skin: 'biker',       name: 'Handheld Turbo' },
+    { behavior: 'cop',         skin: 'cop',         name: 'RoboMop Squad' },
+    { behavior: 'cowboy',      skin: 'cowboy',      name: 'Steam Cleaner' },
+    { behavior: 'goth',        skin: 'goth',        name: 'Auto-Empty Dock' },
+    { behavior: 'biker',       skin: 'biker',       name: 'Cordless Stick' },
+    { behavior: 'firefighter', skin: 'firefighter', name: 'Wet Floor Bot' },
   ],
 
   // Cat-themed hero roster — labels + swatches; visuals reuse house-style

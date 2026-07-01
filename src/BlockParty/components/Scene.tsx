@@ -1593,7 +1593,7 @@ function Monsters({ state }: { state: React.MutableRefObject<GameRef> }) {
       live.add(m.id);
       let slot = slots.current.get(m.id);
       if (!slot) {
-        const group = CARTRIDGE.buildEnemy(m.tier as ZombieTier, m.bossKind);
+        const group = CARTRIDGE.buildEnemy(m.tier as ZombieTier, m.bossSkin ?? m.bossKind);
         // Strike-warning ground ring — bright red disc, only visible during
         // bite windup. Kept separate so the zombie body can scale freely.
         const ringGeom = new THREE.RingGeometry(0.7, 0.95, 32);

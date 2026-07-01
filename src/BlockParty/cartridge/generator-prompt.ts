@@ -79,16 +79,16 @@ const WORKED_EXAMPLE = JSON.stringify(
       ghost: { creature: 'zombie', name: 'Handheld Turbo', recolor: '#a8c8e8' },
     },
     bossLadder: [
-      { kind: 'vampire', name: 'Dyson Beast' },
-      { kind: 'minotaur', name: 'Industrial Scrubber' },
-      { kind: 'mech', name: 'Wet/Dry Titan' },
-      { kind: 'viking', name: 'ShopVac Warrior' },
-      { kind: 'punk', name: 'Handheld Turbo' },
-      { kind: 'cop', name: 'RoboMop Squad' },
-      { kind: 'cowboy', name: 'Steam Cleaner' },
-      { kind: 'goth', name: 'Auto-Empty Dock' },
-      { kind: 'biker', name: 'Cordless Stick' },
-      { kind: 'firefighter', name: 'Wet Floor Bot' },
+      { behavior: 'vampire', skin: 'mech', name: 'Dyson Beast' },
+      { behavior: 'minotaur', skin: 'firefighter', name: 'Industrial Scrubber' },
+      { behavior: 'mech', skin: 'mech', name: 'Wet/Dry Titan' },
+      { behavior: 'viking', skin: 'swat', name: 'ShopVac Warrior' },
+      { behavior: 'punk', skin: 'biker', name: 'Handheld Turbo' },
+      { behavior: 'cop', skin: 'cop', name: 'RoboMop Squad' },
+      { behavior: 'cowboy', skin: 'cowboy', name: 'Steam Cleaner' },
+      { behavior: 'goth', skin: 'goth', name: 'Auto-Empty Dock' },
+      { behavior: 'biker', skin: 'biker', name: 'Cordless Stick' },
+      { behavior: 'firefighter', skin: 'firefighter', name: 'Wet Floor Bot' },
     ],
     heroes: [
       { id: 'tabby', label: 'TABBY', tint: '#c8a050' },
@@ -160,10 +160,14 @@ Each enemy: { "creature": string, "name": string, "recolor"?: string }
 - recolor: optional hex to hue-shift the creature toward the theme
 
 BOSS LADDER (at least 1, recommended 10 rungs):
-Valid boss kinds: "vampire" | "swat" | "mech" | "minotaur" | "viking" | "punk" | "cop" | "cowboy" | "goth" | "biker" | "firefighter"
-Each rung: { "kind": string, "name": string }
-Order from weakest/earliest boss to strongest/latest. Each kind should appear at most once (unless you intentionally repeat).
-The kind determines the boss's BEHAVIOUR (charge/beam/shield/summon/etc.) and visual. The name is the themed label.
+Valid boss behaviours: "vampire" | "swat" | "mech" | "minotaur" | "viking" | "punk" | "cop" | "cowboy" | "goth" | "biker" | "firefighter"
+Valid boss skins: same list as behaviours.
+Each rung: { "behavior": string, "skin": string, "name": string }
+Order from weakest/earliest boss to strongest/latest. Each behavior should appear at most once unless you intentionally repeat.
+- behavior controls the engine-owned AI move: melee / charge / beam / shield / summon / burstfire / blink / flank / rage.
+- skin controls only the visual builder.
+- name is the themed display label.
+Back-compat note: old specs may use { "kind": "mech", "name": "..." }, but new specs should use behavior + skin.
 
 HEROES (at least 1, recommended 6-8):
 Each hero: { "id": string, "label": string, "tint": string }
@@ -209,7 +213,7 @@ ${WORKED_EXAMPLE}
 
 Notice how the example:
 - Maps each NonBossRole to a creature + themed name + recolor (same creature can appear twice with different recolors)
-- Boss ladder escalates from "Dyson Beast" (personal vacuum) to "Wet Floor Bot" (industrial cleaner)
+- Boss ladder separates behaviour from skin, so "Dyson Beast" can use safe vampire melee behaviour with a mech visual
 - Palette progresses warm sunbeam → dusty afternoon → red-alert evening
 - Heroes are cat breeds — short ALL-CAPS labels, kebab-case ids, coat-matching tints
 - Copy is playful, short, ALL-CAPS for buttons, descriptive for rules

@@ -17,8 +17,8 @@ import {
   type ZombieGroup,
 } from './monsters';
 
-/** Non-boss creatures a spec can assign to a gameplay role. (Bosses still go
- *  through makeMonster — boss behaviour + visual are coupled for now.) */
+/** Non-boss creatures a spec can assign to a gameplay role. Boss visuals are
+ *  selected separately from boss behaviour via CartridgeSpec.bossLadder.skin. */
 export type CreatureKey = 'zombie' | 'werewolf' | 'skeleton' | 'mummy' | 'ghost';
 
 export const CREATURE_BUILDERS: Record<CreatureKey, () => ZombieGroup> = {

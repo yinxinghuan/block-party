@@ -12,6 +12,7 @@ import { CREATURE_BUILDERS, CREATURE_KEYS, recolorGroup } from '../builders/regi
 import { makeMonster } from '../builders/monsters';
 import { makeSurvivor, makeSurvivorWithFace, SURVIVOR_IDS } from '../builders/characters';
 import { makeSpriteBillboard } from '../builders/sprites';
+import type { BossLadderEntry } from '../constants';
 
 // Per-role visual scale — mirrors makeMonster's non-boss targets so a generated
 // creature sits at the same size its role expects. Boss is built via makeMonster
@@ -42,6 +43,11 @@ export function validateSpec(s: unknown): string[] {
   }
   if (!Array.isArray(spec.bossLadder) || spec.bossLadder.length < 1) {
     errs.push('bossLadder must have at least 1 entry');
+  } else {
+    spec.bossLadder.forEach((b, i) => {
+      if (!b.kind && !b.behavior) errs.push(`bossLadder[${i}] missing kind or behavior`);
+      if (!b.name) errs.push(`bossLadder[${i}] missing name`);
+    });
   }
   if (!Array.isArray(spec.heroes) || spec.heroes.length < 1) {
     errs.push('heroes must have at least 1 entry');
@@ -72,10 +78,13 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
     id: spec.id,
     copy: spec.copy,
     palette: spec.palette,
-    bossLadder: spec.bossLadder.map((b) => b.kind),
+    bossLadder: spec.bossLadder.map((b): BossLadderEntry => {
+      const behavior = b.behavior ?? b.kind!;
+      return { behavior, skin: b.skin ?? b.kind ?? behavior, name: b.name };
+    }),
 
-    buildEnemy: (role: EnemyRole, bossKind) => {
-      if (role === 'boss') return makeMonster('boss', bossKind);
+    buildEnemy: (role: EnemyRole, bossSkin) => {
+      if (role === 'boss') return makeMonster('boss', bossSkin);
 
       // Sprite path — unique gen-image visual for this role
       const tex = spriteTextures.get(role as NonBossRole);

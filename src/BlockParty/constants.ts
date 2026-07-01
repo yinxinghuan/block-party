@@ -66,19 +66,34 @@ export function getBossCount(level: number): number {
 
 export type BossKind = 'vampire' | 'minotaur' | 'mech' | 'viking' | 'punk' | 'swat'
                      | 'cop' | 'cowboy' | 'goth' | 'biker' | 'firefighter';
+export type BossBehavior = BossKind;
+export type BossSkin = BossKind;
+export interface BossLoadout {
+  behavior: BossBehavior;
+  skin: BossSkin;
+  name?: string;
+}
+export type BossLadderEntry = BossBehavior | BossLoadout;
+
+export function normalizeBossLoadout(entry: BossLadderEntry | undefined): BossLoadout {
+  if (!entry) return { behavior: 'vampire', skin: 'vampire' };
+  return typeof entry === 'string'
+    ? { behavior: entry, skin: entry }
+    : { behavior: entry.behavior, skin: entry.skin ?? entry.behavior, name: entry.name };
+}
 
 /** The boss unlock ladder is THEME — which themed boss fills each rung lives
  *  in the cartridge (CARTRIDGE.bossLadder). The engine owns only the SCHEDULE
  *  below: L1-N ship the rung kind alone (one new behaviour per level), L(N+1)+
  *  ship getBossCount(level) bosses rotated through the roster so two adjacent
  *  levels don't show the same combo. */
-export function pickBossKinds(level: number): BossKind[] {
+export function pickBossKinds(level: number): BossLoadout[] {
   if (level < 1) return [];
   const ladder = CARTRIDGE.bossLadder;
-  if (level <= ladder.length) return [ladder[level - 1]];
+  if (level <= ladder.length) return [normalizeBossLoadout(ladder[level - 1])];
   const count = getBossCount(level);
   return Array.from({ length: count }, (_, i) =>
-    ladder[(level - ladder.length - 1 + i) % ladder.length]
+    normalizeBossLoadout(ladder[(level - ladder.length - 1 + i) % ladder.length])
   );
 }
 
