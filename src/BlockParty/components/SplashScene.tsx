@@ -19,17 +19,28 @@ export interface SplashSceneProps {
 // joystick listener — otherwise tapping a chip would also start the game.
 function stop(e: PointerEvent) { e.nativeEvent.stopPropagation(); }
 
+function titleLines(title: string): [string, string] {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return [words[0], words.slice(1).join(' ')];
+  const only = words[0] ?? title.trim();
+  const cut = Math.max(1, Math.ceil(only.length / 2));
+  return [only.slice(0, cut), only.slice(cut)];
+}
+
 export function SplashScene({ onOpenStore, onOpenLeaderboard, highScore, picked, champion }: SplashSceneProps) {
   const survivorLabel = picked === 'random'
     ? 'RANDOM'
     : (CARTRIDGE.heroes.find(h => h.id === picked)?.label ?? 'RANDOM');
+  const [titleTop, titleBottom] = titleLines(CARTRIDGE.copy.en.title);
 
   return (
     <div className="bp-splash">
-      {/* Title — anchored top-center, dim purple/red */}
+      {/* Title — cartridge-driven wordmark anchored top-center. */}
       <div className="bp-splash__title">
-        <span className="bp-splash__title-mark bp-splash__title-mark--block">BLOCK</span>
-        <span className="bp-splash__title-mark bp-splash__title-mark--party">PARTY</span>
+        <span className="bp-splash__title-mark bp-splash__title-mark--primary">{titleTop}</span>
+        {titleBottom && (
+          <span className="bp-splash__title-mark bp-splash__title-mark--accent">{titleBottom}</span>
+        )}
       </div>
 
       {/* Top-left: loadout chip → store */}
