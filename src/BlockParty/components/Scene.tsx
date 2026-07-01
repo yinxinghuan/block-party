@@ -445,6 +445,62 @@ function PerkDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
 // Each drop tracks one entry in d.weaponDrops; we re-render the JSX list
 // when the COUNT changes (cheap) and animate positions/rotations in
 // useFrame (per-instance refs).
+function makeCatToyDrop(weaponId: WeaponId): THREE.Group {
+  const g = new THREE.Group();
+  const tint = new THREE.Color(WEAPONS[weaponId].tint);
+  const mat = new THREE.MeshStandardMaterial({
+    color: tint,
+    roughness: 0.62,
+    metalness: 0.02,
+    emissive: tint,
+    emissiveIntensity: 0.18,
+  });
+  const cream = new THREE.MeshStandardMaterial({ color: 0xfff1d6, roughness: 0.75 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2024, roughness: 0.7 });
+
+  if (weaponId === 'syringe') {
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), mat));
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.82, 8), cream);
+    stem.rotation.z = Math.PI / 2;
+    stem.position.x = 0.18;
+    g.add(stem);
+    return g;
+  }
+
+  if (weaponId === 'shotgun') {
+    g.add(new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.055, 8, 18), mat));
+    const feather = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.38, 8), cream);
+    feather.rotation.z = -0.7;
+    feather.position.set(0.34, 0.03, 0.06);
+    g.add(feather);
+    return g;
+  }
+
+  if (weaponId === 'smg') {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.26, 14, 10), mat);
+    g.add(ball);
+    for (const x of [-0.16, 0.16]) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.44, 0.06), cream);
+      stripe.position.x = x;
+      g.add(stripe);
+    }
+    return g;
+  }
+
+  if (weaponId === 'magnum') {
+    const fish = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.20, 0.30), mat);
+    g.add(fish);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.30, 3), dark);
+    tail.rotation.z = Math.PI / 2;
+    tail.position.x = -0.40;
+    g.add(tail);
+    return g;
+  }
+
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), mat));
+  return g;
+}
+
 function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
   type Slot = {
     group: THREE.Group;
@@ -520,11 +576,10 @@ function WeaponDrops({ state }: { state: React.MutableRefObject<GameRef> }) {
         );
         twinkle.position.y = 7.0;
         group.add(twinkle);
-        // Weapon prop — 60% bigger than the previous baseline so the
-        // silhouette over the halo reads as "obviously different" vs the
-        // small spinning octahedrons of XP gems and perk drops.
-        const prop = makeWeapon(drop.weaponId);
-        prop.scale.setScalar(2.2);
+        const prop = CARTRIDGE.visuals?.actionStyle === 'cat-swipe'
+          ? makeCatToyDrop(drop.weaponId)
+          : makeWeapon(drop.weaponId);
+        prop.scale.setScalar(CARTRIDGE.visuals?.actionStyle === 'cat-swipe' ? 1.9 : 2.2);
         prop.position.set(0, 1.1, 0);
         group.add(prop);
         const halo = new THREE.Mesh(
@@ -702,6 +757,7 @@ function Player({ state, survivorId, heroPhotoUrl }: { state: React.MutableRefOb
   // d.currentWeaponId changes so the visible model matches what's firing.
   const currentWeaponPropRef = useRef<THREE.Group | null>(null);
   const currentWeaponIdRef = useRef<WeaponId>('pistol');
+  const hideWeaponProps = !!CARTRIDGE.hideWeaponProps;
 
   useEffect(() => {
     const root = rootRef.current;
@@ -720,15 +776,19 @@ function Player({ state, survivorId, heroPhotoUrl }: { state: React.MutableRefOb
       // (target tracking) is applied AFTER rotation.x (forward lift),
       // letting the gun swing left/right inside the firing arc.
       survivor.userData.rig.armR.rotation.order = 'YXZ';
-      const weapon = makeWeapon('pistol');
-      weapon.position.set(0.03, -0.95, 0.15);
-      survivor.userData.rig.armR.add(weapon);
-      currentWeaponPropRef.current = weapon;
+      if (!hideWeaponProps) {
+        const weapon = makeWeapon('pistol');
+        weapon.position.set(0.03, -0.95, 0.15);
+        survivor.userData.rig.armR.add(weapon);
+        currentWeaponPropRef.current = weapon;
+      } else {
+        currentWeaponPropRef.current = null;
+      }
       currentWeaponIdRef.current = 'pistol';
 
       // Left arm — flashlight prop. The model is just visual; the actual
       // "hero light" is an omnidirectional PointLight attached at the lens.
-      const flashlight = makeFlashlight();
+      const flashlight = hideWeaponProps ? new THREE.Group() : makeFlashlight();
       flashlight.position.set(0, -1.0, 0);
       survivor.userData.rig.armL.add(flashlight);
 
@@ -770,7 +830,7 @@ function Player({ state, survivorId, heroPhotoUrl }: { state: React.MutableRefOb
       survivorRef.current = null;
       heroLightRef.current = null;
     };
-  }, [survivorId, heroPhotoUrl]);
+  }, [survivorId, heroPhotoUrl, hideWeaponProps]);
 
   useFrame(({ clock }) => {
     const d = state.current;
@@ -792,10 +852,14 @@ function Player({ state, survivorId, heroPhotoUrl }: { state: React.MutableRefOb
           if (mesh.isMesh) mesh.geometry.dispose();
         });
       }
-      const next = makeWeapon(d.currentWeaponId);
-      next.position.set(0.03, -0.95, 0.15);
-      armR.add(next);
-      currentWeaponPropRef.current = next;
+      if (!hideWeaponProps) {
+        const next = makeWeapon(d.currentWeaponId);
+        next.position.set(0.03, -0.95, 0.15);
+        armR.add(next);
+        currentWeaponPropRef.current = next;
+      } else {
+        currentWeaponPropRef.current = null;
+      }
       currentWeaponIdRef.current = d.currentWeaponId;
     }
 
@@ -1269,6 +1333,18 @@ const PILLAR_MATS = {
   cruiserBarBlue:  stdMat('#fff0c0', { emissive: '#3060ff', emissiveIntensity: 2.0, roughness: 0.3 }),
   cruiserBarRed:   stdMat('#fff0c0', { emissive: '#ff3040', emissiveIntensity: 2.0, roughness: 0.3 }),
   skidMark:        stdMat('#0a0a0e', { roughness: 1 }),
+  sofaBase:        stdMat('#a86f58', { roughness: 0.9 }),
+  sofaCushion:     stdMat('#c99072', { roughness: 0.92 }),
+  sofaDark:        stdMat('#6e493e', { roughness: 0.95 }),
+  rugRed:          stdMat('#b7505a', { roughness: 0.95, side: THREE.DoubleSide }),
+  rugCream:        stdMat('#f0dfc4', { roughness: 0.95, side: THREE.DoubleSide }),
+  tableWood:       stdMat('#7b5637', { roughness: 0.85 }),
+  tableDark:       stdMat('#4d3524', { roughness: 0.9 }),
+  scratchPost:     stdMat('#caa46a', { roughness: 0.9 }),
+  scratchBase:     stdMat('#81613e', { roughness: 0.9 }),
+  yarnPink:        stdMat('#ff80b8', { roughness: 0.85, emissive: '#ff4f9d', emissiveIntensity: 0.25 }),
+  dockPlastic:     stdMat('#262832', { roughness: 0.75 }),
+  dockLight:       stdMat('#bff0ff', { roughness: 0.35, emissive: '#65c8ff', emissiveIntensity: 1.2 }),
 } as const;
 
 type SubMeshDef = {
@@ -1385,6 +1461,72 @@ const BLUEPRINTS: Record<PillarVariant, SubMeshDef[]> = {
   ],
 };
 
+const LIVING_ROOM_BLUEPRINTS: Record<PillarVariant, SubMeshDef[]> = {
+  spike: [
+    { geom: new THREE.CylinderGeometry(0.16, 0.22, 1.40, 12), mat: PILLAR_MATS.scratchPost, pos: [0, 0.74, 0] },
+    { geom: new THREE.CylinderGeometry(0.46, 0.50, 0.12, 16), mat: PILLAR_MATS.scratchBase, pos: [0, 0.06, 0] },
+    { geom: new THREE.BoxGeometry(0.66, 0.10, 0.42), mat: PILLAR_MATS.scratchBase, pos: [0.20, 1.50, 0] },
+    { geom: new THREE.SphereGeometry(0.18, 10, 8), mat: PILLAR_MATS.yarnPink, pos: [-0.30, 0.24, 0.36] },
+  ],
+  dome: [
+    { geom: new THREE.BoxGeometry(2.20, 0.56, 1.00), mat: PILLAR_MATS.sofaBase, pos: [0, 0.34, 0] },
+    { geom: new THREE.BoxGeometry(2.35, 0.72, 0.28), mat: PILLAR_MATS.sofaDark, pos: [0, 0.72, -0.48] },
+    { geom: new THREE.BoxGeometry(0.68, 0.18, 0.86), mat: PILLAR_MATS.sofaCushion, pos: [-0.72, 0.72, 0.06] },
+    { geom: new THREE.BoxGeometry(0.68, 0.18, 0.86), mat: PILLAR_MATS.sofaCushion, pos: [0, 0.72, 0.06] },
+    { geom: new THREE.BoxGeometry(0.68, 0.18, 0.86), mat: PILLAR_MATS.sofaCushion, pos: [0.72, 0.72, 0.06] },
+    { geom: new THREE.BoxGeometry(0.22, 0.70, 1.04), mat: PILLAR_MATS.sofaDark, pos: [-1.20, 0.48, 0] },
+    { geom: new THREE.BoxGeometry(0.22, 0.70, 1.04), mat: PILLAR_MATS.sofaDark, pos: [1.20, 0.48, 0] },
+  ],
+  cluster: [
+    { geom: new THREE.BoxGeometry(1.35, 0.16, 1.05), mat: PILLAR_MATS.tableWood, pos: [0, 0.76, 0] },
+    { geom: new THREE.BoxGeometry(0.16, 0.74, 0.16), mat: PILLAR_MATS.tableDark, pos: [-0.52, 0.38, -0.38] },
+    { geom: new THREE.BoxGeometry(0.16, 0.74, 0.16), mat: PILLAR_MATS.tableDark, pos: [0.52, 0.38, -0.38] },
+    { geom: new THREE.BoxGeometry(0.16, 0.74, 0.16), mat: PILLAR_MATS.tableDark, pos: [-0.52, 0.38, 0.38] },
+    { geom: new THREE.BoxGeometry(0.16, 0.74, 0.16), mat: PILLAR_MATS.tableDark, pos: [0.52, 0.38, 0.38] },
+    { geom: new THREE.CylinderGeometry(0.22, 0.18, 0.26, 12), mat: PILLAR_MATS.rugCream, pos: [0.30, 0.95, 0.10] },
+  ],
+  burnBarrel: [
+    { geom: new THREE.CircleGeometry(0.92, 28), mat: PILLAR_MATS.rugRed, pos: [0, 0.025, 0], rot: [-Math.PI / 2, 0, 0] },
+    { geom: new THREE.RingGeometry(0.62, 0.72, 28), mat: PILLAR_MATS.rugCream, pos: [0, 0.03, 0], rot: [-Math.PI / 2, 0, 0] },
+    { geom: new THREE.SphereGeometry(0.22, 10, 8), mat: PILLAR_MATS.yarnPink, pos: [0.24, 0.20, -0.18] },
+  ],
+  wreckTruck: [
+    { geom: new THREE.BoxGeometry(1.80, 1.15, 0.48), mat: PILLAR_MATS.dockPlastic, pos: [0, 0.58, -0.20] },
+    { geom: new THREE.BoxGeometry(1.32, 0.26, 0.06), mat: PILLAR_MATS.dockLight, pos: [0, 1.05, 0.06] },
+    { geom: new THREE.CylinderGeometry(0.66, 0.70, 0.22, 24), mat: PILLAR_MATS.sedanBody, pos: [0, 0.16, 0.54] },
+  ],
+  steamGrate: [
+    { geom: new THREE.CircleGeometry(0.96, 28), mat: PILLAR_MATS.rugCream, pos: [0, 0.025, 0], rot: [-Math.PI / 2, 0, 0] },
+    { geom: new THREE.RingGeometry(0.46, 0.56, 24), mat: PILLAR_MATS.rugRed, pos: [0, 0.03, 0], rot: [-Math.PI / 2, 0, 0] },
+  ],
+  bodyBag: [
+    { geom: new THREE.SphereGeometry(0.32, 10, 8), mat: PILLAR_MATS.yarnPink, pos: [-0.22, 0.28, 0] },
+    { geom: new THREE.SphereGeometry(0.24, 10, 8), mat: PILLAR_MATS.rugCream, pos: [0.22, 0.22, 0.10] },
+    { geom: new THREE.BoxGeometry(0.82, 0.08, 0.08), mat: PILLAR_MATS.scratchBase, pos: [0, 0.14, 0.32], rot: [0, 0, 0.28] },
+  ],
+  barricade: [
+    { geom: new THREE.BoxGeometry(1.44, 0.10, 0.12), mat: PILLAR_MATS.tableWood, pos: [0, 0.60, 0], rot: [0, 0, 0.20] },
+    { geom: new THREE.BoxGeometry(1.44, 0.10, 0.12), mat: PILLAR_MATS.tableWood, pos: [0, 0.94, 0], rot: [0, 0, -0.16] },
+    { geom: new THREE.BoxGeometry(0.12, 0.95, 0.12), mat: PILLAR_MATS.tableDark, pos: [-0.58, 0.48, 0] },
+    { geom: new THREE.BoxGeometry(0.12, 0.95, 0.12), mat: PILLAR_MATS.tableDark, pos: [0.58, 0.48, 0] },
+  ],
+  boardedShop: [
+    { geom: new THREE.BoxGeometry(1.86, 0.32, 1.20), mat: PILLAR_MATS.sofaBase, pos: [0, 0.18, 0] },
+    { geom: new THREE.BoxGeometry(1.54, 0.22, 0.90), mat: PILLAR_MATS.sofaCushion, pos: [0, 0.44, 0] },
+    { geom: new THREE.BoxGeometry(1.80, 0.16, 0.20), mat: PILLAR_MATS.sofaDark, pos: [0, 0.68, -0.46] },
+  ],
+  tippedDumpster: [
+    { geom: new THREE.BoxGeometry(1.30, 0.20, 0.92), mat: PILLAR_MATS.rugCream, pos: [0, 0.12, 0], rot: [0.18, 0, 0] },
+    { geom: new THREE.BoxGeometry(0.86, 0.12, 0.18), mat: PILLAR_MATS.rugRed, pos: [-0.18, 0.28, 0.20], rot: [0, 0, 0.32] },
+    { geom: new THREE.SphereGeometry(0.18, 10, 8), mat: PILLAR_MATS.yarnPink, pos: [0.50, 0.24, -0.26] },
+  ],
+  wreckCruiser: [
+    { geom: new THREE.BoxGeometry(1.92, 0.70, 1.22), mat: PILLAR_MATS.sofaDark, pos: [0, 0.36, 0] },
+    { geom: new THREE.BoxGeometry(1.50, 0.20, 0.92), mat: PILLAR_MATS.sofaCushion, pos: [0, 0.78, 0.10] },
+    { geom: new THREE.BoxGeometry(1.78, 0.30, 0.18), mat: PILLAR_MATS.sofaBase, pos: [0, 0.96, -0.50] },
+  ],
+};
+
 // Build the merged Group for the current pillar list. Called once per
 // startLevel (whenever d.pillars reference changes). Each material →
 // one merged BufferGeometry → one draw call.
@@ -1401,7 +1543,7 @@ function buildPillarGroup(pillars: Pillar[]): { group: THREE.Group; geoms: THREE
   const tmpEuler = new THREE.Euler();
 
   for (const pillar of pillars) {
-    const bp = BLUEPRINTS[pillar.variant];
+    const bp = (CARTRIDGE.visuals?.worldProps === 'living-room' ? LIVING_ROOM_BLUEPRINTS : BLUEPRINTS)[pillar.variant];
     if (!bp) continue;
     // Pillar root = (position_xz, rot_y, uniform scale)
     tmpPos.set(pillar.position.x, 0, pillar.position.z);
@@ -2138,7 +2280,9 @@ function Bullets({ state }: { state: React.MutableRefObject<GameRef> }) {
   return (
     <>
       {d.bullets.map(b => {
-        const look = BULLET_LOOK[b.weaponId] || BULLET_LOOK.pistol;
+        const look = CARTRIDGE.visuals?.actionStyle === 'cat-swipe'
+          ? { color: '#ffd3e6', emissive: '#ff5fa2', ei: 6.8, size: [0.26, 0.07, 0.30] as [number, number, number] }
+          : (BULLET_LOOK[b.weaponId] || BULLET_LOOK.pistol);
         return (
           <mesh
             key={b.id}
@@ -2173,6 +2317,8 @@ const MUZZLE_LOOK: Record<string, MuzzleLook> = {
   magnum:  { tint: 0xa040ff, size: 0.62, lightInt: 60 },   // big purple punch
 };
 
+const CAT_SWIPE_LOOK: MuzzleLook = { tint: 0xff5fa2, size: 0.42, lightInt: 24 };
+
 function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
@@ -2184,7 +2330,9 @@ function MuzzleFlash({ state }: { state: React.MutableRefObject<GameRef> }) {
     const alpha = t > 0 ? Math.min(1, t / 0.07) : 0;
     const px = d.pos.x + Math.sin(d.rot) * 0.95;
     const pz = d.pos.z + Math.cos(d.rot) * 0.95;
-    const look = MUZZLE_LOOK[d.currentWeaponId] || MUZZLE_LOOK.pistol;
+    const look = CARTRIDGE.visuals?.actionStyle === 'cat-swipe'
+      ? CAT_SWIPE_LOOK
+      : (MUZZLE_LOOK[d.currentWeaponId] || MUZZLE_LOOK.pistol);
     if (meshRef.current) {
       meshRef.current.position.set(px, 1.0, pz);
       meshRef.current.scale.setScalar((look.size + (1 - alpha) * 0.20) * 1.7);

@@ -237,6 +237,57 @@ export function makeSurvivor(id: SurvivorId = 'cop'): CharacterGroup {
   return g;
 }
 
+/** Low-poly cat hero for cartridge themes where the player should clearly be
+ *  an animal rather than a human survivor. It keeps the same rig keys so the
+ *  engine walk loop can animate it without learning a new skeleton. */
+export function makeCatHero(tint: string | number = '#c8a050'): CharacterGroup {
+  const color = typeof tint === 'string'
+    ? new THREE.Color(tint).getHex()
+    : tint;
+  const dark = darken(color, 0.35);
+  const light = darken(color, -0.18);
+  const nose = 0xff9ab8;
+
+  const g = new THREE.Group() as CharacterGroup;
+  const legL = new THREE.Group();
+  const legR = new THREE.Group();
+  const armL = new THREE.Group();
+  const armR = new THREE.Group();
+
+  // Body is long on Z so the silhouette reads as a cat from the top camera.
+  g.add(box(0.72, 0.36, 1.12, color, 0, 0.62, -0.04));
+  g.add(box(0.50, 0.42, 0.46, color, 0, 0.72, 0.62));
+
+  // Ears, snout, eyes.
+  g.add(box(0.16, 0.26, 0.14, dark, -0.20, 1.02, 0.62));
+  g.add(box(0.16, 0.26, 0.14, dark,  0.20, 1.02, 0.62));
+  g.add(box(0.28, 0.16, 0.16, light, 0, 0.67, 0.86));
+  g.add(box(0.08, 0.06, 0.04, nose, 0, 0.70, 0.95, { e: nose, ei: 0.5 }));
+  g.add(box(0.07, 0.08, 0.04, EYE, -0.13, 0.80, 0.86));
+  g.add(box(0.07, 0.08, 0.04, EYE,  0.13, 0.80, 0.86));
+
+  // Tail curling upward behind the body.
+  g.add(box(0.16, 0.16, 0.56, color, 0, 0.76, -0.78));
+  g.add(box(0.14, 0.44, 0.14, color, 0, 1.02, -1.00));
+  g.add(box(0.20, 0.14, 0.14, color, 0.10, 1.28, -0.98));
+
+  const paw = (group: THREE.Group, x: number, z: number) => {
+    group.position.set(x, 0.42, z);
+    group.add(box(0.18, 0.42, 0.18, dark, 0, -0.18, 0));
+    group.add(box(0.22, 0.08, 0.24, light, 0, -0.43, 0.03));
+    g.add(group);
+  };
+  paw(armL, -0.30, 0.34);
+  paw(armR,  0.30, 0.34);
+  paw(legL, -0.28, -0.48);
+  paw(legR,  0.28, -0.48);
+
+  finish(g);
+  g.userData = { rig: { legL, legR, armL, armR } };
+  g.scale.setScalar(0.86);
+  return g;
+}
+
 // Maglite-style flashlight prop — short stubby barrel + a hot emissive lens
 // at the tip. Lives in the survivor's left hand and points along +Z so a
 // SpotLight attached at the lens position throws its cone forward.

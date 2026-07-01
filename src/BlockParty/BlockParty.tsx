@@ -79,6 +79,39 @@ function hudShallowEqual(a: HudState, b: HudState): boolean {
     && a.timeLeft === b.timeLeft;
 }
 
+const CAT_ACTION_LABELS: Record<WeaponId, string> = {
+  pistol: 'PAWS',
+  shotgun: 'POUNCE',
+  smg: 'ZOOMIES',
+  syringe: 'CATNIP',
+  magnum: 'BIG CLAW',
+};
+
+function actionLabel(id: WeaponId): string {
+  return CARTRIDGE.visuals?.actionStyle === 'cat-swipe'
+    ? CAT_ACTION_LABELS[id]
+    : WEAPONS[id].label;
+}
+
+function isCatSwipeTheme(): boolean {
+  return CARTRIDGE.visuals?.actionStyle === 'cat-swipe';
+}
+
+function goalLabel(hud: HudState): string {
+  const cat = isCatSwipeTheme();
+  if (hud.exitOpen) return cat ? '★ FIND NAP SPOT' : '★ FIND EXIT';
+  const goal = getKillGoal(hud.level);
+  if (goal > 0) {
+    return `${Math.min(hud.killsThisNight, goal)} / ${goal} ${cat ? 'VACUUMS' : 'KILLS'}`;
+  }
+  return cat ? 'CLEAR BIG VACUUM' : 'KILL THE BOSS';
+}
+
+function progressLabel(hud: HudState): string {
+  const elapsed = Math.floor(60 - hud.timeLeft);
+  return `${hud.kills} ${isCatSwipeTheme() ? 'vacuums' : 'kills'} · ${elapsed >= 0 ? `${elapsed}s` : ''}`;
+}
+
 export function BlockParty() {
   const [phase, setPhase] = useState<Phase>('splash');
   // Single consolidated HUD state — see HudState above for the rationale.
@@ -522,7 +555,7 @@ export function BlockParty() {
               className="bp__hud-weapon"
               style={{ ['--weapon-tint' as string]: WEAPONS[hud.currentWeaponId].tint }}
             >
-              <span className="bp__hud-weapon-name">{WEAPONS[hud.currentWeaponId].label}</span>
+              <span className="bp__hud-weapon-name">{actionLabel(hud.currentWeaponId)}</span>
               {hud.currentWeaponId !== 'pistol' && (
                 <span className="bp__hud-weapon-stars" aria-label={`level ${hud.currentWeaponLevel}`}>
                   {'★'.repeat(hud.currentWeaponLevel)}{'·'.repeat(5 - hud.currentWeaponLevel)}
@@ -543,17 +576,8 @@ export function BlockParty() {
           {/* Corner label — NIGHT + goal/kill progress packed together. */}
           <div className="bp__hud-corner">
             <span className="bp__hud-corner-night">N{hud.level} · {getLevelTuning(hud.level).name.toUpperCase()}</span>
-            {(() => {
-              if (hud.exitOpen) {
-                return <span className="bp__hud-corner-goal bp__hud-corner-goal--open">★ FIND EXIT</span>;
-              }
-              const goal = getKillGoal(hud.level);
-              if (goal > 0) {
-                return <span className="bp__hud-corner-goal">{Math.min(hud.killsThisNight, goal)} / {goal} KILLS</span>;
-              }
-              return <span className="bp__hud-corner-goal">KILL THE BOSS</span>;
-            })()}
-            <span className="bp__hud-corner-kills">{hud.kills} kills · {Math.floor(60 - hud.timeLeft) >= 0 ? `${Math.floor(60 - hud.timeLeft)}s` : ''}</span>
+            <span className={`bp__hud-corner-goal${hud.exitOpen ? ' bp__hud-corner-goal--open' : ''}`}>{goalLabel(hud)}</span>
+            <span className="bp__hud-corner-kills">{progressLabel(hud)}</span>
           </div>
 
         </div>
@@ -704,10 +728,13 @@ export function BlockParty() {
       {weaponToast && (() => {
         const w = WEAPONS[weaponToast.id];
         const stars = '★'.repeat(weaponToast.level);
-        const headline = weaponToast.kind === 'levelup' ? 'LEVEL UP' : 'EQUIPPED';
+        const catAction = CARTRIDGE.visuals?.actionStyle === 'cat-swipe';
+        const headline = catAction
+          ? (weaponToast.kind === 'levelup' ? 'SHARPER' : 'NEW TOY')
+          : (weaponToast.kind === 'levelup' ? 'LEVEL UP' : 'EQUIPPED');
         const sub = weaponToast.kind === 'levelup'
-          ? `${w.label} ${stars}`
-          : `${w.label} ${stars}`;
+          ? `${actionLabel(weaponToast.id)} ${stars}`
+          : `${actionLabel(weaponToast.id)} ${stars}`;
         return (
           <div
             key={`wt-${weaponToast.key}`}
@@ -721,11 +748,13 @@ export function BlockParty() {
       })()}
 
       {weaponDowngrade && (() => {
-        const w = WEAPONS[weaponDowngrade.id];
         const stars = weaponDowngrade.id === 'pistol'
           ? '·····'
           : '★'.repeat(weaponDowngrade.level) + '·'.repeat(5 - weaponDowngrade.level);
-        const headline = weaponDowngrade.id === 'pistol' ? 'WEAPON LOST' : 'WEAPON WEAKENED';
+        const catAction = CARTRIDGE.visuals?.actionStyle === 'cat-swipe';
+        const headline = catAction
+          ? (weaponDowngrade.id === 'pistol' ? 'PAWS TIRED' : 'TOY LOST')
+          : (weaponDowngrade.id === 'pistol' ? 'WEAPON LOST' : 'WEAPON WEAKENED');
         return (
           <div
             key={`wd-${weaponDowngrade.key}`}
@@ -733,7 +762,7 @@ export function BlockParty() {
             aria-live="polite"
           >
             <span className="bp__weapon-downgrade-headline">{headline}</span>
-            <span className="bp__weapon-downgrade-sub">{w.label} {stars}</span>
+            <span className="bp__weapon-downgrade-sub">{actionLabel(weaponDowngrade.id)} {stars}</span>
           </div>
         );
       })()}

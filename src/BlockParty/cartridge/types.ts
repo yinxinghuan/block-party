@@ -56,6 +56,13 @@ export interface HeroSkin {
   build: () => CharacterGroup;
 }
 
+export interface CartridgeVisuals {
+  heroKind?: 'survivor' | 'cat';
+  enemySet?: 'creature' | 'vacuum';
+  actionStyle?: 'weapon' | 'cat-swipe';
+  worldProps?: 'street' | 'living-room';
+}
+
 export interface ArcadeCartridge {
   /** stable slug — also the localStorage / asset namespace for this theme */
   id: string;
@@ -85,6 +92,14 @@ export interface ArcadeCartridge {
    *  returned group MUST expose the same `userData.rig` as buildHero so the
    *  engine can attach weapons/lights to it. */
   buildHeroFromPhoto?: (faceTex: THREE.Texture) => CharacterGroup;
+
+  /** Visual-only: themes like cat-vacuum should not show human gun props even
+   *  though the locked engine still uses the same auto-attack math. */
+  hideWeaponProps?: boolean;
+
+  /** Visual semantics. These fields do not tune gameplay; they only select
+   *  presentation families for hero, enemies, action VFX, and world props. */
+  visuals?: CartridgeVisuals;
 
   /** Player roster surfaced in the store / splash (visual only). */
   heroes: HeroSkin[];

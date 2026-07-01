@@ -104,6 +104,12 @@ const WORKED_EXAMPLE = JSON.stringify(
     heroUnlockPrice: 200,
     audioMood: 0.25,
     photoHero: true,
+    visuals: {
+      heroKind: 'cat',
+      enemySet: 'vacuum',
+      actionStyle: 'cat-swipe',
+      worldProps: 'living-room',
+    },
   },
   null,
   2,
@@ -128,7 +134,8 @@ SCHEMA — every field you must output
   "starterHeroIds": [...],         // subset of hero ids, 2-3 recommended
   "heroUnlockPrice": number,       // typically 200
   "audioMood": number,             // 0..1, default 0.3 (0=quiet, 1=constant)
-  "photoHero": true                // always true unless the theme has no face
+  "photoHero": true,               // always true unless the theme has no face
+  "visuals": {...}                 // semantic presentation family, see below
 }
 
 COPY FIELDS (8 per locale — en AND zh required):
@@ -175,6 +182,26 @@ Each hero: { "id": string, "label": string, "tint": string }
 - label: short ALL-CAPS display name (1-2 words)
 - tint: hex swatch used in the store chip — pick a color that matches the label
 
+VISUALS (required for semantic themes, optional only for ordinary human-vs-creature themes):
+{
+  "heroKind": "survivor" | "cat",
+  "enemySet": "creature" | "vacuum",
+  "actionStyle": "weapon" | "cat-swipe",
+  "worldProps": "street" | "living-room"
+}
+
+This is the v2 semantic layer. Use it whenever the sentence implies a non-human hero,
+a non-creature enemy family, or a non-street setting. It changes ONLY presentation,
+never gameplay tuning.
+- Cat / kitten / pet hero → heroKind "cat", actionStyle "cat-swipe".
+- Robot vacuum / Roomba / cleaner appliance enemies → enemySet "vacuum".
+- Home / apartment / couch / carpet / nap-spot premise → worldProps "living-room".
+- Human survivor with monsters in a city/street → survivor + creature + weapon + street.
+
+Do not leave a human gun, humanoid boss, or street props in the output when the
+sentence clearly asks for an animal/appliance/home scenario. The names, copy,
+heroes, enemies, bossLadder, palette, and visuals must all tell the same story.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PALETTE GUIDANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -214,6 +241,7 @@ ${WORKED_EXAMPLE}
 Notice how the example:
 - Maps each NonBossRole to a creature + themed name + recolor (same creature can appear twice with different recolors)
 - Boss ladder separates behaviour from skin, so "Dyson Beast" can use safe vampire melee behaviour with a mech visual
+- Adds visuals.heroKind/enemySet/actionStyle/worldProps so the player sees a cat, vacuum enemies, paw-swipe VFX, and living-room props
 - Palette progresses warm sunbeam → dusty afternoon → red-alert evening
 - Heroes are cat breeds — short ALL-CAPS labels, kebab-case ids, coat-matching tints
 - Copy is playful, short, ALL-CAPS for buttons, descriptive for rules

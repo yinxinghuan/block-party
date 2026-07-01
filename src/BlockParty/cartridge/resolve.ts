@@ -10,7 +10,8 @@ import type { CartridgeSpec, NonBossRole } from './spec';
 import { NON_BOSS_ROLES } from './spec';
 import { CREATURE_BUILDERS, CREATURE_KEYS, recolorGroup } from '../builders/registry';
 import { makeMonster } from '../builders/monsters';
-import { makeSurvivor, makeSurvivorWithFace, SURVIVOR_IDS } from '../builders/characters';
+import { makeVacuumEnemy } from '../builders/appliances';
+import { makeCatHero, makeSurvivor, makeSurvivorWithFace, SURVIVOR_IDS } from '../builders/characters';
 import { makeSpriteBillboard } from '../builders/sprites';
 import type { BossLadderEntry } from '../constants';
 
@@ -20,6 +21,13 @@ import type { BossLadderEntry } from '../constants';
 const ROLE_SCALE: Record<NonBossRole, number> = {
   lurker: 0.66, runner: 0.62, brute: 0.78, stalker: 0.72, exploder: 0.66, ghost: 0.70,
 };
+
+const VISUAL_ENUMS = {
+  heroKind: ['survivor', 'cat'],
+  enemySet: ['creature', 'vacuum'],
+  actionStyle: ['weapon', 'cat-swipe'],
+  worldProps: ['street', 'living-room'],
+} as const;
 
 /** Validate an untrusted spec (e.g. fresh LLM output). Returns the list of
  *  problems; empty array = good to resolve. Cheap structural checks only. */
@@ -52,6 +60,14 @@ export function validateSpec(s: unknown): string[] {
   if (!Array.isArray(spec.heroes) || spec.heroes.length < 1) {
     errs.push('heroes must have at least 1 entry');
   }
+  if (spec.visuals) {
+    for (const [key, valid] of Object.entries(VISUAL_ENUMS)) {
+      const value = spec.visuals[key as keyof typeof VISUAL_ENUMS];
+      if (value && !(valid as readonly string[]).includes(value)) {
+        errs.push(`visuals.${key} "${value}" not in [${valid.join(', ')}]`);
+      }
+    }
+  }
   return errs;
 }
 
@@ -61,6 +77,12 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
   if (errs.length) throw new Error(`invalid cartridge spec:\n- ${errs.join('\n- ')}`);
 
   const baseFor = (i: number) => SURVIVOR_IDS[i % SURVIVOR_IDS.length];
+  const visuals = {
+    heroKind: spec.visuals?.heroKind ?? (spec.id === 'cat-vacuum' ? 'cat' : 'survivor'),
+    enemySet: spec.visuals?.enemySet ?? (spec.id === 'cat-vacuum' ? 'vacuum' : 'creature'),
+    actionStyle: spec.visuals?.actionStyle ?? (spec.id === 'cat-vacuum' ? 'cat-swipe' : 'weapon'),
+    worldProps: spec.visuals?.worldProps ?? (spec.id === 'cat-vacuum' ? 'living-room' : 'street'),
+  } as const;
 
   // Pre-load sprite textures for every enemy role that has a spriteUrl.
   // TextureLoader.load returns immediately (empty texture) and fills async —
@@ -84,6 +106,7 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
     }),
 
     buildEnemy: (role: EnemyRole, bossSkin) => {
+      if (visuals.enemySet === 'vacuum') return makeVacuumEnemy(role);
       if (role === 'boss') return makeMonster('boss', bossSkin);
 
       // Sprite path — unique gen-image visual for this role
@@ -102,18 +125,21 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
     // shows through labels + palette + copy, and identity through the photo hero.
     buildHero: (id) => {
       const i = Math.max(0, spec.heroes.findIndex((h) => h.id === id));
+      if (visuals.heroKind === 'cat') return makeCatHero(spec.heroes[i]?.tint ?? '#c8a050');
       return makeSurvivor(baseFor(i));
     },
     heroes: spec.heroes.map((h, i) => ({
       id: h.id,
       label: h.label,
       tint: h.tint,
-      build: () => makeSurvivor(baseFor(i)),
+      build: () => visuals.heroKind === 'cat' ? makeCatHero(h.tint) : makeSurvivor(baseFor(i)),
     })),
     starterHeroIds: spec.starterHeroIds.length ? spec.starterHeroIds : [spec.heroes[0].id],
     heroUnlockPrice: spec.heroUnlockPrice,
 
     buildHeroFromPhoto: spec.photoHero === false ? undefined : (tex) => makeSurvivorWithFace(tex),
+    hideWeaponProps: visuals.actionStyle === 'cat-swipe',
+    visuals,
 
     audioMood: spec.audioMood,
   };

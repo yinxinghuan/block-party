@@ -14,8 +14,9 @@
 // ============================================================================
 
 import type { ArcadeCartridge } from './types';
-import { zombieCartridge } from './zombie';
+import { specToCartridge } from './resolve';
+import { genCatVacuumSpec } from './gen-cat-vacuum';
 
-export const CARTRIDGE: ArcadeCartridge = zombieCartridge;
+export const CARTRIDGE: ArcadeCartridge = specToCartridge(genCatVacuumSpec);
 
 export type { ArcadeCartridge, EnemyRole, HeroId, HeroSkin, CartridgeCopy, BossKind } from './types';

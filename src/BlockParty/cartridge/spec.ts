@@ -45,6 +45,17 @@ export interface HeroSpec {
   tint: string;   // swatch hex for the store chip
 }
 
+export interface VisualSpec {
+  /** visual-only hero builder family; does not change player stats */
+  heroKind?: 'survivor' | 'cat';
+  /** visual-only enemy builder family; does not change enemy stats */
+  enemySet?: 'creature' | 'vacuum';
+  /** visual-only attack language; engine auto-fire math stays unchanged */
+  actionStyle?: 'weapon' | 'cat-swipe';
+  /** visual-only world prop family; collision positions stay unchanged */
+  worldProps?: 'street' | 'living-room';
+}
+
 export interface CartridgeSpec {
   id: string;
   copy: Record<'en' | 'zh', CartridgeCopy>;
@@ -61,6 +72,8 @@ export interface CartridgeSpec {
   audioMood?: number;
   /** identity games: offer "play as me" (face on the hero). Default true. */
   photoHero?: boolean;
+  /** v2 semantic visuals — what the player actually sees, not gameplay math. */
+  visuals?: VisualSpec;
 }
 
 /** The non-boss roles a valid spec must define, in display order. */
