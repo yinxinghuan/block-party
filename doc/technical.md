@@ -60,8 +60,10 @@
 
 ## 3. 核心模块
 
-- 状态管理与节奏：通过 React 状态与定时器处理倒计时、阶段推进或生成节奏。
-- 渲染方式：Canvas/WebGL，样式由 CSS/Less 和组件结构共同完成。
+- 状态管理与节奏：`src/BlockParty/hooks/useGameLoop.ts` 用 `useFrame` 驱动高频物理、怪物 AI、子弹、掉落物、碰撞和关卡推进；`src/BlockParty/BlockParty.tsx` 只用 250ms 轮询同步 HUD、toast、结算等低频 React 状态。
+- 输入性能：`src/BlockParty/hooks/useJoystick.ts` 将摇杆物理输入写入 `stickRef`，视觉摇杆位置通过 `requestAnimationFrame` 节流到每帧最多一次 React 状态更新，避免拖动时触发超高频整树重渲染。
+- 渲染方式：`src/BlockParty/components/Scene.tsx` 使用 React Three Fiber + Three.js Canvas/WebGL；怪物、玩家、关卡道具、粒子和灯源在 R3F 场景中渲染，HUD/弹层使用 React DOM + Less。
+- 性能结构：XP 宝石、碎片和敌方投射物使用固定容量 `InstancedMesh` 池，并按活跃实例数设置 `mesh.count`；街灯和宝石光源使用固定小数组选最近的 4/3 个目标，避免每帧 `filter/map/sort` 产生 GC 抖动；静态街区道具按材质合并为少量 `BufferGeometry`。
 - 碰撞 / 更新：源码包含命中、距离、边界或重叠判断，结果会影响得分、生命或阶段。
 - 音频：包含程序化音频或音频文件播放，按交互事件触发。
 - 多语言：包含 i18n / locale 检测或 `t()` 文案函数。

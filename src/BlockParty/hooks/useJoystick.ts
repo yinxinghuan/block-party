@@ -9,6 +9,20 @@ export function useJoystick(enabled: boolean) {
   const [view, setView] = useState({ active: false, ox: 0, oy: 0, x: 0, y: 0 });
   const pointerId = useRef<number | null>(null);
   const origin = useRef({ x: 0, y: 0 });
+  const rafId = useRef<number | null>(null);
+  const pendingView = useRef(view);
+
+  const flushView = () => {
+    rafId.current = null;
+    setView(pendingView.current);
+  };
+
+  const scheduleView = (next: typeof view) => {
+    pendingView.current = next;
+    if (rafId.current == null) {
+      rafId.current = window.requestAnimationFrame(flushView);
+    }
+  };
 
   useEffect(() => {
     if (!enabled) {
@@ -19,6 +33,10 @@ export function useJoystick(enabled: boolean) {
       stickRef.current.active = false;
       stickRef.current.x = 0;
       stickRef.current.y = 0;
+      if (rafId.current != null) {
+        window.cancelAnimationFrame(rafId.current);
+        rafId.current = null;
+      }
       setView(v => ({ ...v, active: false }));
       return;
     }
@@ -30,7 +48,7 @@ export function useJoystick(enabled: boolean) {
       stickRef.current.active = true;
       stickRef.current.x = 0;
       stickRef.current.y = 0;
-      setView({ active: true, ox: e.clientX, oy: e.clientY, x: 0, y: 0 });
+      scheduleView({ active: true, ox: e.clientX, oy: e.clientY, x: 0, y: 0 });
     };
     const onMove = (e: PointerEvent) => {
       if (pointerId.current !== e.pointerId) return;
@@ -46,7 +64,7 @@ export function useJoystick(enabled: boolean) {
       // Screen-right ≈ world +x, screen-down ≈ world +z (toward camera). So pass-through.
       stickRef.current.x = ux;
       stickRef.current.y = uy;
-      setView({ active: true, ox: origin.current.x, oy: origin.current.y, x: nx, y: ny });
+      scheduleView({ active: true, ox: origin.current.x, oy: origin.current.y, x: nx, y: ny });
     };
     const onUp = (e: PointerEvent) => {
       if (pointerId.current !== e.pointerId) return;
@@ -54,7 +72,7 @@ export function useJoystick(enabled: boolean) {
       stickRef.current.active = false;
       stickRef.current.x = 0;
       stickRef.current.y = 0;
-      setView(v => ({ ...v, active: false }));
+      scheduleView({ ...pendingView.current, active: false });
     };
 
     window.addEventListener('pointerdown', onDown);
@@ -62,6 +80,10 @@ export function useJoystick(enabled: boolean) {
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
     return () => {
+      if (rafId.current != null) {
+        window.cancelAnimationFrame(rafId.current);
+        rafId.current = null;
+      }
       window.removeEventListener('pointerdown', onDown);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);

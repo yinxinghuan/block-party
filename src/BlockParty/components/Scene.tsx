@@ -349,14 +349,8 @@ function EnemyProjectiles({ state }: { state: React.MutableRefObject<GameRef> })
       dummy.updateMatrix();
       m.setMatrixAt(i, dummy.matrix);
     }
-    for (let i = n; i < POOL; i++) {
-      dummy.position.set(0, -100, 0);
-      dummy.scale.setScalar(0);
-      dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
-    }
     m.instanceMatrix.needsUpdate = true;
-    m.count = POOL;
+    m.count = n;
   });
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, POOL]}>
@@ -690,13 +684,6 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
   const softRef = useRef<THREE.InstancedMesh>(null);
   const sparkRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const hidden = useMemo(() => {
-    const o = new THREE.Object3D();
-    o.position.set(0, -100, 0);
-    o.scale.setScalar(0);
-    o.updateMatrix();
-    return o;
-  }, []);
   useFrame(() => {
     const d = state.current;
     const blood = bloodRef.current;
@@ -730,19 +717,14 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
         if (softI < POOL) { soft.setMatrixAt(softI, dummy.matrix); softI++; }
       }
     }
-    // Collapse unused slots so old positions don't linger.
-    for (let i = bloodI; i < POOL; i++) blood.setMatrixAt(i, hidden.matrix);
-    for (let i = boneI; i < POOL; i++) bone.setMatrixAt(i, hidden.matrix);
-    for (let i = softI; i < POOL; i++) soft.setMatrixAt(i, hidden.matrix);
-    for (let i = sparkI; i < POOL; i++) spark.setMatrixAt(i, hidden.matrix);
     blood.instanceMatrix.needsUpdate = true;
     bone.instanceMatrix.needsUpdate = true;
     soft.instanceMatrix.needsUpdate = true;
     spark.instanceMatrix.needsUpdate = true;
-    blood.count = POOL;
-    bone.count = POOL;
-    soft.count = POOL;
-    spark.count = POOL;
+    blood.count = bloodI;
+    bone.count = boneI;
+    soft.count = softI;
+    spark.count = sparkI;
   });
   return (
     <>
@@ -1059,13 +1041,6 @@ function Crystals({ state }: { state: React.MutableRefObject<GameRef> }) {
   const octRef = useRef<THREE.InstancedMesh>(null);
   const haloRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const hidden = useMemo(() => {
-    const m = new THREE.Object3D();
-    m.position.set(0, -1000, 0);
-    m.scale.setScalar(0);
-    m.updateMatrix();
-    return m.matrix;
-  }, []);
 
   useFrame(({ clock }) => {
     const d = state.current;
@@ -1090,15 +1065,10 @@ function Crystals({ state }: { state: React.MutableRefObject<GameRef> }) {
       dummy.updateMatrix();
       halo.setMatrixAt(i, dummy.matrix);
     }
-    // Collapse unused slots so stale positions don't draw.
-    for (let i = n; i < POOL; i++) {
-      oct.setMatrixAt(i, hidden);
-      halo.setMatrixAt(i, hidden);
-    }
     oct.instanceMatrix.needsUpdate = true;
     halo.instanceMatrix.needsUpdate = true;
-    oct.count = POOL;
-    halo.count = POOL;
+    oct.count = n;
+    halo.count = n;
   });
 
   return (
@@ -1122,26 +1092,38 @@ function CrystalLights({ state }: { state: React.MutableRefObject<GameRef> }) {
   const CULL_D2 = 200;
   const refs = useRef<(THREE.PointLight | null)[]>([]);
   const tmpVec = useMemo(() => new THREE.Vector3(), []);
+  const nearest = useMemo(
+    () => Array.from({ length: POOL }, () => ({ c: null as GameRef['crystals'][number] | null, d2: Infinity })),
+    [],
+  );
   useFrame(() => {
     const d = state.current;
     if (d.crystals.length === 0) {
       for (const l of refs.current) if (l) l.intensity = 0;
       return;
     }
-    // Sort crystals by distance² to player (cheap — typical N is ~18-26)
-    const sorted = d.crystals
-      .map(c => ({
-        c,
-        d2: (c.position.x - d.pos.x) ** 2 + (c.position.z - d.pos.z) ** 2,
-      }))
-      .sort((a, b) => a.d2 - b.d2)
-      .slice(0, POOL);
+    for (let i = 0; i < POOL; i++) {
+      nearest[i].c = null;
+      nearest[i].d2 = Infinity;
+    }
+    for (const c of d.crystals) {
+      const d2 = (c.position.x - d.pos.x) ** 2 + (c.position.z - d.pos.z) ** 2;
+      if (d2 >= nearest[POOL - 1].d2) continue;
+      let insert = POOL - 1;
+      while (insert > 0 && d2 < nearest[insert - 1].d2) {
+        nearest[insert].c = nearest[insert - 1].c;
+        nearest[insert].d2 = nearest[insert - 1].d2;
+        insert--;
+      }
+      nearest[insert].c = c;
+      nearest[insert].d2 = d2;
+    }
 
     for (let i = 0; i < POOL; i++) {
       const light = refs.current[i];
       if (!light) continue;
-      const entry = sorted[i];
-      if (!entry) { light.intensity = 0; continue; }
+      const entry = nearest[i];
+      if (!entry.c) { light.intensity = 0; continue; }
       // Hard cull — distant gems contribute nothing.
       if (entry.d2 > CULL_D2) { light.intensity = 0; continue; }
       const c = entry.c;
@@ -1188,29 +1170,35 @@ function StreetlampLights({ state }: { state: React.MutableRefObject<GameRef> })
   const refs = useRef<(THREE.PointLight | null)[]>([]);
   const tmpVec = useMemo(() => new THREE.Vector3(), []);
   const tmpColor = useMemo(() => new THREE.Color(), []);
+  const nearest = useMemo(
+    () => Array.from({ length: POOL }, () => ({ p: null as Pillar | null, d2: Infinity })),
+    [],
+  );
   useFrame(({ clock }) => {
     const d = state.current;
-    const lit = d.pillars.filter(p =>
-      p.variant === 'spike' || p.variant === 'burnBarrel' || p.variant === 'wreckCruiser'
-    );
-    if (lit.length === 0) {
-      for (const l of refs.current) if (l) l.intensity = 0;
-      return;
+    for (let i = 0; i < POOL; i++) {
+      nearest[i].p = null;
+      nearest[i].d2 = Infinity;
     }
-    // Sort by squared distance to the player.
-    const sorted = lit
-      .map(p => ({
-        p,
-        d2: (p.position.x - d.pos.x) ** 2 + (p.position.z - d.pos.z) ** 2,
-      }))
-      .sort((a, b) => a.d2 - b.d2)
-      .slice(0, POOL);
+    for (const p of d.pillars) {
+      if (p.variant !== 'spike' && p.variant !== 'burnBarrel' && p.variant !== 'wreckCruiser') continue;
+      const d2 = (p.position.x - d.pos.x) ** 2 + (p.position.z - d.pos.z) ** 2;
+      if (d2 >= nearest[POOL - 1].d2) continue;
+      let insert = POOL - 1;
+      while (insert > 0 && d2 < nearest[insert - 1].d2) {
+        nearest[insert].p = nearest[insert - 1].p;
+        nearest[insert].d2 = nearest[insert - 1].d2;
+        insert--;
+      }
+      nearest[insert].p = p;
+      nearest[insert].d2 = d2;
+    }
     const t = clock.getElapsedTime();
     for (let i = 0; i < POOL; i++) {
       const light = refs.current[i];
       if (!light) continue;
-      const entry = sorted[i];
-      if (!entry) { light.intensity = 0; continue; }
+      const entry = nearest[i];
+      if (!entry.p) { light.intensity = 0; continue; }
       // Hard distance cull — anything past CULL_D2 contributes nothing.
       if (entry.d2 > CULL_D2) { light.intensity = 0; continue; }
       const v = entry.p.variant;
