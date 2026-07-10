@@ -683,6 +683,7 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
   const boneRef = useRef<THREE.InstancedMesh>(null);
   const softRef = useRef<THREE.InstancedMesh>(null);
   const sparkRef = useRef<THREE.InstancedMesh>(null);
+  const natureRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   useFrame(() => {
     const d = state.current;
@@ -690,13 +691,15 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
     const bone = boneRef.current;
     const soft = softRef.current;
     const spark = sparkRef.current;
-    if (!blood || !bone || !soft || !spark) return;
+    const nature = natureRef.current;
+    if (!blood || !bone || !soft || !spark || !nature) return;
     let bloodI = 0;
     let boneI = 0;
     let softI = 0;
     let sparkI = 0;
+    let natureI = 0;
     for (const s of d.bloodSplats) {
-      if (bloodI >= POOL && boneI >= POOL && softI >= POOL && sparkI >= POOL) break;
+      if (bloodI >= POOL && boneI >= POOL && softI >= POOL && sparkI >= POOL && natureI >= POOL) break;
       const age = d.time - s.bornAt;
       const fade = Math.max(0, 1 - age / s.life);
       const sc = s.scale * (0.55 + fade * 0.55);
@@ -705,6 +708,8 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
       const kind = s.kind ?? (s.isBone ? 'bone' : 'blood');
       if (kind === 'fur') dummy.scale.set(sc * 1.2, sc * 0.45, sc * 0.55);
       else if (kind === 'spark') dummy.scale.set(sc * 0.55, sc * 0.55, sc * 1.65);
+      else if (kind === 'leaf') dummy.scale.set(sc * 1.45, sc * 0.22, sc * 0.72);
+      else if (kind === 'twig') dummy.scale.set(sc * 0.28, sc * 0.28, sc * 1.8);
       else dummy.scale.setScalar(sc);
       dummy.updateMatrix();
       if (kind === 'bone') {
@@ -713,6 +718,8 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
         if (bloodI < POOL) { blood.setMatrixAt(bloodI, dummy.matrix); bloodI++; }
       } else if (kind === 'spark') {
         if (sparkI < POOL) { spark.setMatrixAt(sparkI, dummy.matrix); sparkI++; }
+      } else if (kind === 'leaf' || kind === 'twig') {
+        if (natureI < POOL) { nature.setMatrixAt(natureI, dummy.matrix); natureI++; }
       } else {
         if (softI < POOL) { soft.setMatrixAt(softI, dummy.matrix); softI++; }
       }
@@ -721,10 +728,12 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
     bone.instanceMatrix.needsUpdate = true;
     soft.instanceMatrix.needsUpdate = true;
     spark.instanceMatrix.needsUpdate = true;
+    nature.instanceMatrix.needsUpdate = true;
     blood.count = bloodI;
     bone.count = boneI;
     soft.count = softI;
     spark.count = sparkI;
+    nature.count = natureI;
   });
   return (
     <>
@@ -743,6 +752,10 @@ function BloodSplats({ state }: { state: React.MutableRefObject<GameRef> }) {
       <instancedMesh ref={sparkRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial color="#fff3a8" emissive="#7ee8ff" emissiveIntensity={1.5} roughness={0.35} toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh ref={natureRef} args={[undefined, undefined, POOL]} castShadow={false} receiveShadow={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#74a83e" emissive="#b9d85d" emissiveIntensity={0.2} roughness={0.9} toneMapped={false} />
       </instancedMesh>
     </>
   );
@@ -1357,6 +1370,15 @@ const PILLAR_MATS = {
   yarnPink:        stdMat('#ff80b8', { roughness: 0.85, emissive: '#ff4f9d', emissiveIntensity: 0.25 }),
   dockPlastic:     stdMat('#262832', { roughness: 0.75 }),
   dockLight:       stdMat('#bff0ff', { roughness: 0.35, emissive: '#65c8ff', emissiveIntensity: 1.2 }),
+  treeTrunk:       stdMat('#604226', { roughness: 1 }),
+  treeBark:        stdMat('#3f2c1b', { roughness: 1 }),
+  leafLight:       stdMat('#6f9f43', { roughness: 0.96 }),
+  leafDark:        stdMat('#345b32', { roughness: 0.98 }),
+  forestStone:     stdMat('#687267', { roughness: 1 }),
+  forestMoss:      stdMat('#87a74b', { roughness: 1 }),
+  mushroomStem:    stdMat('#e7d9b6', { roughness: 0.95 }),
+  mushroomCap:     stdMat('#d95d45', { roughness: 0.9 }),
+  wildflower:      stdMat('#f3cf58', { emissive: '#d9a928', emissiveIntensity: 0.2, roughness: 0.9 }),
 } as const;
 
 type SubMeshDef = {
@@ -1539,6 +1561,65 @@ const LIVING_ROOM_BLUEPRINTS: Record<PillarVariant, SubMeshDef[]> = {
   ],
 };
 
+const FOREST_BLUEPRINTS: Record<PillarVariant, SubMeshDef[]> = {
+  spike: [
+    { geom: new THREE.CylinderGeometry(0.28, 0.42, 2.80, 9), mat: PILLAR_MATS.treeTrunk, pos: [0, 1.40, 0] },
+    { geom: new THREE.ConeGeometry(1.10, 1.80, 9), mat: PILLAR_MATS.leafDark, pos: [0, 2.45, 0] },
+    { geom: new THREE.ConeGeometry(0.88, 1.50, 9), mat: PILLAR_MATS.leafLight, pos: [0, 3.28, 0] },
+  ],
+  dome: [
+    { geom: new THREE.DodecahedronGeometry(0.82, 0), mat: PILLAR_MATS.forestStone, pos: [0, 0.55, 0], scale: [1.25, 0.82, 1.05] },
+    { geom: new THREE.DodecahedronGeometry(0.42, 0), mat: PILLAR_MATS.forestMoss, pos: [-0.48, 0.34, 0.38] },
+  ],
+  cluster: [
+    { geom: new THREE.SphereGeometry(0.72, 9, 7), mat: PILLAR_MATS.leafDark, pos: [0, 0.58, 0] },
+    { geom: new THREE.SphereGeometry(0.54, 9, 7), mat: PILLAR_MATS.leafLight, pos: [-0.58, 0.42, 0.30] },
+    { geom: new THREE.SphereGeometry(0.48, 9, 7), mat: PILLAR_MATS.leafLight, pos: [0.62, 0.38, -0.24] },
+  ],
+  burnBarrel: [
+    { geom: new THREE.CylinderGeometry(0.72, 0.84, 0.58, 12), mat: PILLAR_MATS.treeTrunk, pos: [0, 0.29, 0] },
+    { geom: new THREE.CylinderGeometry(0.58, 0.62, 0.05, 12), mat: PILLAR_MATS.mushroomStem, pos: [0, 0.60, 0] },
+    { geom: new THREE.SphereGeometry(0.16, 8, 6), mat: PILLAR_MATS.mushroomCap, pos: [0.62, 0.22, 0.20] },
+  ],
+  wreckTruck: [
+    { geom: new THREE.CylinderGeometry(0.48, 0.58, 3.20, 10), mat: PILLAR_MATS.treeTrunk, pos: [0, 0.48, 0], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.38, 0.42, 0.08, 10), mat: PILLAR_MATS.mushroomStem, pos: [-1.62, 0.48, 0], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.SphereGeometry(0.42, 8, 6), mat: PILLAR_MATS.forestMoss, pos: [0.45, 0.78, 0.18], scale: [1.4, 0.35, 0.7] },
+  ],
+  steamGrate: [
+    { geom: new THREE.CylinderGeometry(0.12, 0.16, 0.42, 8), mat: PILLAR_MATS.mushroomStem, pos: [-0.28, 0.21, 0] },
+    { geom: new THREE.SphereGeometry(0.30, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat: PILLAR_MATS.mushroomCap, pos: [-0.28, 0.42, 0] },
+    { geom: new THREE.CylinderGeometry(0.10, 0.13, 0.32, 8), mat: PILLAR_MATS.mushroomStem, pos: [0.34, 0.16, 0.16] },
+    { geom: new THREE.SphereGeometry(0.24, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat: PILLAR_MATS.wildflower, pos: [0.34, 0.32, 0.16] },
+  ],
+  bodyBag: [
+    { geom: new THREE.ConeGeometry(0.20, 0.72, 5), mat: PILLAR_MATS.leafLight, pos: [-0.30, 0.34, 0], rot: [0, 0, -0.42] },
+    { geom: new THREE.ConeGeometry(0.20, 0.78, 5), mat: PILLAR_MATS.leafDark, pos: [0.02, 0.38, 0.08], rot: [0, 0, 0.18] },
+    { geom: new THREE.ConeGeometry(0.18, 0.62, 5), mat: PILLAR_MATS.leafLight, pos: [0.34, 0.30, -0.08], rot: [0, 0, 0.48] },
+  ],
+  barricade: [
+    { geom: new THREE.CylinderGeometry(0.12, 0.16, 1.75, 8), mat: PILLAR_MATS.treeBark, pos: [0, 0.48, 0], rot: [0, 0, Math.PI / 2] },
+    { geom: new THREE.CylinderGeometry(0.10, 0.13, 1.42, 8), mat: PILLAR_MATS.treeTrunk, pos: [0.08, 0.75, 0.04], rot: [0.16, 0, Math.PI / 2.3] },
+  ],
+  boardedShop: [
+    { geom: new THREE.CylinderGeometry(0.62, 0.86, 2.40, 10), mat: PILLAR_MATS.treeTrunk, pos: [0, 1.20, 0] },
+    { geom: new THREE.CylinderGeometry(0.18, 0.24, 1.30, 8), mat: PILLAR_MATS.treeBark, pos: [-0.44, 0.52, 0], rot: [0, 0, 0.62] },
+    { geom: new THREE.CylinderGeometry(0.18, 0.24, 1.30, 8), mat: PILLAR_MATS.treeBark, pos: [0.44, 0.52, 0], rot: [0, 0, -0.62] },
+    { geom: new THREE.SphereGeometry(0.78, 9, 7), mat: PILLAR_MATS.leafDark, pos: [0, 2.45, 0] },
+  ],
+  tippedDumpster: [
+    { geom: new THREE.SphereGeometry(0.74, 9, 7), mat: PILLAR_MATS.leafDark, pos: [0, 0.52, 0] },
+    { geom: new THREE.SphereGeometry(0.46, 9, 7), mat: PILLAR_MATS.leafLight, pos: [0.56, 0.34, 0.24] },
+    { geom: new THREE.SphereGeometry(0.10, 8, 6), mat: PILLAR_MATS.wildflower, pos: [-0.46, 0.30, 0.48] },
+  ],
+  wreckCruiser: [
+    { geom: new THREE.DodecahedronGeometry(0.92, 0), mat: PILLAR_MATS.forestStone, pos: [0, 0.58, 0], scale: [1.45, 0.82, 0.92] },
+    { geom: new THREE.BoxGeometry(0.18, 1.30, 0.18), mat: PILLAR_MATS.treeBark, pos: [0, 1.06, 0], rot: [0, 0, 0.18] },
+    { geom: new THREE.BoxGeometry(0.18, 1.00, 0.18), mat: PILLAR_MATS.treeBark, pos: [0, 1.02, 0], rot: [0, 0, Math.PI / 2.4] },
+    { geom: new THREE.SphereGeometry(0.34, 8, 6), mat: PILLAR_MATS.forestMoss, pos: [-0.48, 0.84, 0.30], scale: [1.3, 0.28, 0.8] },
+  ],
+};
+
 // Build the merged Group for the current pillar list. Called once per
 // startLevel (whenever d.pillars reference changes). Each material →
 // one merged BufferGeometry → one draw call.
@@ -1555,7 +1636,12 @@ function buildPillarGroup(pillars: Pillar[]): { group: THREE.Group; geoms: THREE
   const tmpEuler = new THREE.Euler();
 
   for (const pillar of pillars) {
-    const bp = (CARTRIDGE.visuals?.worldProps === 'living-room' ? LIVING_ROOM_BLUEPRINTS : BLUEPRINTS)[pillar.variant];
+    const worldBlueprints = CARTRIDGE.visuals?.worldProps === 'living-room'
+      ? LIVING_ROOM_BLUEPRINTS
+      : CARTRIDGE.visuals?.worldProps === 'forest'
+        ? FOREST_BLUEPRINTS
+        : BLUEPRINTS;
+    const bp = worldBlueprints[pillar.variant];
     if (!bp) continue;
     // Pillar root = (position_xz, rot_y, uniform scale)
     tmpPos.set(pillar.position.x, 0, pillar.position.z);
@@ -1645,6 +1731,28 @@ function Altar() {
     const pulse = 0.32 + (Math.sin(t * 0.7) * 0.5 + 0.5) * 0.18;
     if (steamMat.current) steamMat.current.opacity = pulse;
   });
+  if (CARTRIDGE.visuals?.worldProps === 'forest') {
+    return (
+      <group position={[0, 0, 0]}>
+        <mesh position={[0, 0.20, 0]} receiveShadow>
+          <cylinderGeometry args={[1.05, 1.18, 0.40, 14]} />
+          <meshStandardMaterial color="#62462b" roughness={1} />
+        </mesh>
+        <mesh position={[0, 0.42, 0]} receiveShadow>
+          <cylinderGeometry args={[0.88, 0.92, 0.06, 14]} />
+          <meshStandardMaterial color="#d2b47c" roughness={0.92} />
+        </mesh>
+        <mesh position={[0, 0.46, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.34, 0.43, 24]} />
+          <meshStandardMaterial color="#8d7046" roughness={1} />
+        </mesh>
+        <mesh position={[0.74, 0.18, 0.38]}>
+          <sphereGeometry args={[0.28, 10, 7]} />
+          <meshStandardMaterial color="#789c43" roughness={1} />
+        </mesh>
+      </group>
+    );
+  }
   return (
     <group position={[0, 0, 0]}>
       {/* manhole disc — slightly raised iron lid */}
@@ -2453,6 +2561,12 @@ export function Scene(props: SceneProps) {
   });
 
   const palette = getLevelTuning(props.level).palette;
+  const isStreetWorld = !CARTRIDGE.visuals?.worldProps || CARTRIDGE.visuals.worldProps === 'street';
+  const boundaryColor = CARTRIDGE.visuals?.worldProps === 'forest'
+    ? '#17351f'
+    : CARTRIDGE.visuals?.worldProps === 'living-room'
+      ? '#4a352d'
+      : '#100a08';
   return (
     <>
       <FollowCamera state={state} />
@@ -2483,7 +2597,7 @@ export function Scene(props: SceneProps) {
       {/* Yellow center stripes — laid lengthwise along Z, evenly spaced
           across X so the asphalt reads as a road grid. Slight emissive so
           they catch the moonlight even in the dimmest palette. */}
-      {[-21, -7, 7, 21].map((xPos) => (
+      {isStreetWorld && [-21, -7, 7, 21].map((xPos) => (
         Array.from({ length: 10 }).map((_, i) => (
           <mesh
             key={`stripe-${xPos}-${i}`}
@@ -2500,7 +2614,7 @@ export function Scene(props: SceneProps) {
       {/* Sidewalk strips along the 4 inside edges of the arena. Slightly
           raised + lighter than asphalt so the playfield has a sense of
           edge instead of just fading into wall darkness. */}
-      {[
+      {isStreetWorld && [
         { pos: [0, 0.06, -ARENA_HALF + 1.0] as [number, number, number], size: [ARENA_HALF * 2, 2] as [number, number] },
         { pos: [0, 0.06,  ARENA_HALF - 1.0] as [number, number, number], size: [ARENA_HALF * 2, 2] as [number, number] },
         { pos: [-ARENA_HALF + 1.0, 0.06, 0] as [number, number, number], size: [2, ARENA_HALF * 2] as [number, number] },
@@ -2515,11 +2629,11 @@ export function Scene(props: SceneProps) {
       {/* Neon perimeter signs — bright emissive boxes on the inside face
           of each wall. Colors vary by side so the player can orient by
           the dominant neon glow even at the edge of vision. */}
-      <NeonSigns />
+      {isStreetWorld && <NeonSigns />}
 
       {/* Crosswalk stripes — white parallel rectangles flanking the
           central street crossings, adds urban detail to the asphalt. */}
-      {[-12, 0, 12].map(zPos => (
+      {isStreetWorld && [-12, 0, 12].map(zPos => (
         [-3, -1.2, 0.6, 2.4].map((xPos, i) => (
           <mesh
             key={`crosswalk-${zPos}-${i}`}
@@ -2536,19 +2650,19 @@ export function Scene(props: SceneProps) {
       {/* Cave walls (outer ring) — taller dark cylinders around perimeter */}
       <mesh position={[0, 1.5, -ARENA_HALF - 0.5]} castShadow>
         <boxGeometry args={[ARENA_HALF * 2.4, 6, 1]} />
-        <meshStandardMaterial color="#100a08" roughness={1} />
+        <meshStandardMaterial color={boundaryColor} roughness={1} />
       </mesh>
       <mesh position={[0, 1.5,  ARENA_HALF + 0.5]} castShadow>
         <boxGeometry args={[ARENA_HALF * 2.4, 6, 1]} />
-        <meshStandardMaterial color="#100a08" roughness={1} />
+        <meshStandardMaterial color={boundaryColor} roughness={1} />
       </mesh>
       <mesh position={[-ARENA_HALF - 0.5, 1.5, 0]} castShadow>
         <boxGeometry args={[1, 6, ARENA_HALF * 2.4]} />
-        <meshStandardMaterial color="#100a08" roughness={1} />
+        <meshStandardMaterial color={boundaryColor} roughness={1} />
       </mesh>
       <mesh position={[ ARENA_HALF + 0.5, 1.5, 0]} castShadow>
         <boxGeometry args={[1, 6, ARENA_HALF * 2.4]} />
-        <meshStandardMaterial color="#100a08" roughness={1} />
+        <meshStandardMaterial color={boundaryColor} roughness={1} />
       </mesh>
 
       <Altar />

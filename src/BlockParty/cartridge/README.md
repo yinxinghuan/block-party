@@ -48,6 +48,19 @@ returns the matching visual from `buildEnemy('boss', kind)`.
 
 ## How to make a new game from this engine
 
+The one-sentence path writes and activates the generated cartridge in one step:
+
+```bash
+npx tsx scripts/gen-cartridge.ts --sentence "an orange cat survives in a forest" --sprites
+npm run dev
+```
+
+Use `--no-activate` only when generating a candidate for review without changing
+the currently active local cartridge. `--dry-run` writes and activates nothing.
+
+The manual path is still available when a theme needs new engine presentation
+families or hand-authored 3D builders:
+
 1. Copy `zombie.ts` → `mytheme.ts`.
 2. Write `copy` (en + zh) — title, subtitle, the three rule lines, button labels.
 3. Pick a 3-step `palette` that reads at a glance (e.g. dawn → noon → storm).

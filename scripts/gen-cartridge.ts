@@ -25,24 +25,65 @@ interface Args {
   retries: number;
   dryRun: boolean;
   sprites: boolean;
+  activate: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { sentence: '', retries: 3, dryRun: false, sprites: false };
+  const args: Args = { sentence: '', retries: 3, dryRun: false, sprites: false, activate: true };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--sentence' && i + 1 < argv.length) args.sentence = argv[++i];
     else if (argv[i] === '--retries' && i + 1 < argv.length) args.retries = Math.max(1, parseInt(argv[++i], 10) || 3);
     else if (argv[i] === '--dry-run') args.dryRun = true;
     else if (argv[i] === '--sprites') args.sprites = true;
+    else if (argv[i] === '--no-activate') args.activate = false;
   }
   if (!args.sentence) {
     console.error('Usage: npx tsx scripts/gen-cartridge.ts --sentence "a sentence describing a survival scenario"');
     console.error('  --retries N   max LLM retries on validation failure (default 3)');
     console.error('  --sprites     generate unique sprites for each enemy via gen-image + R2 upload');
+    console.error('  --no-activate write the cartridge without switching the game to it');
     console.error('  --dry-run     validate but do not write the output file');
     process.exit(1);
   }
   return args;
+}
+
+function activateCartridge(slug: string, varName: string): void {
+  const indexPath = path.join(CARTRIDGE_DIR, 'index.ts');
+  const source = fs.readFileSync(indexPath, 'utf-8');
+  const importBlock = [
+    '// @cartridge-generator-import:start',
+    `import { specToCartridge } from './resolve';`,
+    `import { ${varName} } from './gen-${slug}';`,
+    '// @cartridge-generator-import:end',
+  ].join('\n');
+  const activeBlock = [
+    '// @cartridge-generator-active:start',
+    `export const CARTRIDGE: ArcadeCartridge = specToCartridge(${varName});`,
+    '// @cartridge-generator-active:end',
+  ].join('\n');
+
+  if (
+    !source.includes('// @cartridge-generator-import:start') ||
+    !source.includes('// @cartridge-generator-active:start')
+  ) {
+    throw new Error('Could not activate generated cartridge: index.ts activation markers are missing');
+  }
+
+  const next = source
+    .replace(
+      /\/\/ @cartridge-generator-import:start[\s\S]*?\/\/ @cartridge-generator-import:end/,
+      importBlock,
+    )
+    .replace(
+      /\/\/ @cartridge-generator-active:start[\s\S]*?\/\/ @cartridge-generator-active:end/,
+      activeBlock,
+    );
+
+  if (!next.includes(`specToCartridge(${varName})`)) {
+    throw new Error('Could not activate generated cartridge: activation output is invalid');
+  }
+  if (next !== source) fs.writeFileSync(indexPath, next, 'utf-8');
 }
 
 // ─── LLM ─────────────────────────────────────────────────────────────────────
@@ -131,10 +172,24 @@ function buildSpritePrompt(role: NonBossRole, name: string, theme: string): stri
     `single isolated low-poly voxel game enemy sprite: "${name}"`,
     `theme: ${theme}`,
     `gameplay role: ${role}; ${ROLE_SPRITE_BRIEFS[role]}`,
-    'three-quarter front view, full body, centered, square composition',
-    'clean transparent-looking cutout on solid #222222 background',
+    'three-quarter front view, full body, centered, character fills about 80 percent of the square',
+    'true transparent PNG background with alpha, isolated cutout only',
     'high contrast readable silhouette, distinct from the other enemy roles',
-    'game asset only, no environment, no scene, no poster, no text, no watermark, no logo, no UI',
+    'game sprite asset, not a poster and not a trading card',
+    'no frame, no border, no title, no letters, no numbers, no text, no watermark, no logo, no UI, no scenery',
+  ].join(', ');
+}
+
+function buildBossSpritePrompt(name: string, theme: string): string {
+  return [
+    `single isolated low-poly voxel game boss sprite: "${name}"`,
+    `theme: ${theme}`,
+    'large imposing themed creature or object, clearly non-human unless the theme explicitly asks for a human',
+    'three-quarter front view, full body, centered, character fills about 80 percent of the square',
+    'true transparent PNG background with alpha, isolated cutout only',
+    'high contrast readable silhouette, visibly larger and more elaborate than ordinary enemies',
+    'game sprite asset, not a poster and not a trading card',
+    'no frame, no border, no title, no letters, no numbers, no text, no watermark, no logo, no UI, no scenery',
   ].join(', ');
 }
 
@@ -147,7 +202,8 @@ async function generateSprites(
   const theme = copy?.en?.title ?? slug;
   const spriteDir = path.join(ROOT, 'public', 'sprites', slug);
 
-  let count = 0;
+  let readyCount = 0;
+  let permanentCount = 0;
   for (const role of NON_BOSS_ROLES) {
     const enemy = enemies[role];
     if (!enemy) continue;
@@ -167,6 +223,8 @@ async function generateSprites(
     try {
       await downloadImage(tempUrl, localPath);
       console.log(`     📥  Downloaded → ${path.relative(ROOT, localPath)}`);
+      enemy.spriteUrl = `/sprites/${slug}/${role}.png`;
+      readyCount++;
     } catch (e) {
       console.error(`     ⚠️  Download failed for ${role}: ${e}. Skipping.`);
       continue;
@@ -175,20 +233,42 @@ async function generateSprites(
     console.log(`     ☁️  Uploading to R2...`);
     try {
       const permanentUrl = await uploadToR2(localPath);
-      enemy.spriteUrl = permanentUrl;
       console.log(`     ✅  R2: ${permanentUrl.slice(0, 60)}...`);
-      count++;
+      permanentCount++;
     } catch (e) {
       console.error(`     ⚠️  Upload failed for ${role}: ${e}. Keeping local only.`);
-      // Fallback: use relative path for local dev
-      enemy.spriteUrl = `/sprites/${slug}/${role}.png`;
     }
 
     // Rate-limit safety: ~1 req/sec natural pacing (each call takes 3-10s)
   }
 
-  console.log(`  🖼️  ${count}/${NON_BOSS_ROLES.length} sprites generated and uploaded.`);
-  if (count < NON_BOSS_ROLES.length) {
+  const bosses = (spec.bossLadder ?? []) as Array<{ name?: string; spriteUrl?: string }>;
+  if (bosses.length > 0) {
+    const bossName = bosses[0].name || 'Theme Boss';
+    console.log(`  🎨  Generating shared boss sprite (${bossName})...`);
+    try {
+      const tempUrl = await genImage(buildBossSpritePrompt(bossName, theme));
+      const localPath = path.join(spriteDir, 'boss.png');
+      await downloadImage(tempUrl, localPath);
+      console.log(`     📥  Downloaded → ${path.relative(ROOT, localPath)}`);
+      const bossUrl = `/sprites/${slug}/boss.png`;
+      readyCount++;
+      try {
+        const permanentUrl = await uploadToR2(localPath);
+        permanentCount++;
+        console.log(`     ✅  R2: ${permanentUrl.slice(0, 60)}...`);
+      } catch (e) {
+        console.error(`     ⚠️  Boss upload failed: ${e}. Keeping local only.`);
+      }
+      for (const boss of bosses) boss.spriteUrl = bossUrl;
+    } catch (e) {
+      console.error(`     ⚠️  Boss sprite generation failed: ${e}. Using built-in boss fallback.`);
+    }
+  }
+
+  const requestedCount = NON_BOSS_ROLES.length + (bosses.length > 0 ? 1 : 0);
+  console.log(`  🖼️  ${readyCount}/${requestedCount} sprites ready (${permanentCount} uploaded).`);
+  if (permanentCount < requestedCount) {
     console.log(`  📁  Local sprites saved to public/sprites/${slug}/`);
   }
 }
@@ -270,6 +350,8 @@ async function main() {
   console.log(`📝  Sentence: "${args.sentence}"`);
   console.log(`🔄  Max retries: ${args.retries}`);
   if (args.dryRun) console.log('🧪  Dry run — will NOT write file');
+  else if (args.activate) console.log('⚡  Activation: generated theme will become the active local cartridge');
+  else console.log('📄  Activation: disabled (--no-activate)');
   console.log();
 
   // Dynamic imports so tsx resolves .ts paths relative to the script
@@ -342,7 +424,7 @@ async function main() {
 
   // ── Sprite generation ──────────────────────────────────────────────────
   if (args.sprites) {
-    console.log(`\n🖼️  Generating sprites for ${NON_BOSS_ROLES.length} enemy roles...`);
+    console.log(`\n🖼️  Generating sprites for ${NON_BOSS_ROLES.length} enemy roles + 1 shared boss...`);
     await generateSprites(spec, slug);
   }
 
@@ -372,6 +454,10 @@ async function main() {
   fs.writeFileSync(outPath, tsContent, 'utf-8');
   console.log(`\n📄  Written: ${path.relative(ROOT, outPath)}`);
   console.log(`    Export: ${varName}`);
+  if (args.activate) {
+    activateCartridge(slug, varName);
+    console.log(`⚡  Activated: ${path.relative(ROOT, outPath)}`);
+  }
   console.log();
 
   // Summary
@@ -395,9 +481,11 @@ async function main() {
   console.log(`📸  PhotoHero: ${spec.photoHero}`);
   console.log('━'.repeat(60));
   console.log();
-  console.log('To play: update src/BlockParty/cartridge/index.ts:');
-  console.log(`  import { ${varName} } from './gen-${slug}';`);
-  console.log(`  export const CARTRIDGE = specToCartridge(${varName});`);
+  if (args.activate) {
+    console.log('✅  Ready to play. Run: npm run dev');
+  } else {
+    console.log('ℹ️  Cartridge written but not activated. Re-run without --no-activate to switch the game.');
+  }
 }
 
 main().catch((err) => {

@@ -14,8 +14,13 @@
 // ============================================================================
 
 import type { ArcadeCartridge } from './types';
-import { zombieCartridge } from './zombie';
 
+// @cartridge-generator-import:start
+import { zombieCartridge } from './zombie';
+// @cartridge-generator-import:end
+
+// @cartridge-generator-active:start
 export const CARTRIDGE: ArcadeCartridge = zombieCartridge;
+// @cartridge-generator-active:end
 
 export type { ArcadeCartridge, EnemyRole, HeroId, HeroSkin, CartridgeCopy, BossKind } from './types';

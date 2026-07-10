@@ -60,8 +60,8 @@ export interface CartridgeVisuals {
   heroKind?: 'survivor' | 'cat';
   enemySet?: 'creature' | 'vacuum' | 'household';
   actionStyle?: 'weapon' | 'cat-swipe';
-  worldProps?: 'street' | 'living-room';
-  debrisStyle?: 'gore' | 'household';
+  worldProps?: 'street' | 'living-room' | 'forest';
+  debrisStyle?: 'gore' | 'household' | 'nature';
 }
 
 export interface CartridgeFeel {

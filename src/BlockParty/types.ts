@@ -184,7 +184,7 @@ export interface Pillar {
 
 // Short-lived impact debris thrown by a hit/kill. Older code called these
 // blood splats; cartridges can now map the same physics to softer materials.
-export type DebrisKind = 'blood' | 'bone' | 'dust' | 'spark' | 'fur' | 'confetti';
+export type DebrisKind = 'blood' | 'bone' | 'dust' | 'spark' | 'fur' | 'confetti' | 'leaf' | 'twig';
 export interface BloodSplat {
   id: number;
   position: THREE.Vector3;

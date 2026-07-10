@@ -231,7 +231,14 @@ function emitFx(d: GameRef, type: FxEvent['type'], x: number, z: number) {
 // puddling around.
 const BLOOD_SPLAT_MAX = 220;
 function rollDebrisKind(isBone: boolean) {
-  if (CARTRIDGE.visuals?.debrisStyle !== 'household') return isBone ? 'bone' : 'blood';
+  const style = CARTRIDGE.visuals?.debrisStyle;
+  if (style === 'nature') {
+    const r = Math.random();
+    if (r < 0.62) return 'leaf';
+    if (r < 0.88) return 'twig';
+    return 'spark';
+  }
+  if (style !== 'household') return isBone ? 'bone' : 'blood';
   const r = Math.random();
   if (r < 0.36) return 'dust';
   if (r < 0.62) return 'fur';
@@ -266,7 +273,7 @@ function spawnBloodSplats(
         Math.cos(angle) * baseSpeed * lateral,
       ),
       bornAt: d.time,
-      life: CARTRIDGE.visuals?.debrisStyle === 'household' ? 0.75 + Math.random() * 0.65 : 1.0 + Math.random() * 0.8,
+      life: CARTRIDGE.visuals?.debrisStyle !== 'gore' ? 0.75 + Math.random() * 0.65 : 1.0 + Math.random() * 0.8,
       scale: 0.08 + Math.random() * (isBone ? 0.10 : 0.16) * intensity,
       isBone,
       kind,

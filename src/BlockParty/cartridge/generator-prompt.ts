@@ -192,8 +192,8 @@ VISUALS (required for semantic themes, optional only for ordinary human-vs-creat
   "heroKind": "survivor" | "cat",
   "enemySet": "creature" | "vacuum" | "household",
   "actionStyle": "weapon" | "cat-swipe",
-  "worldProps": "street" | "living-room",
-  "debrisStyle": "gore" | "household"
+  "worldProps": "street" | "living-room" | "forest",
+  "debrisStyle": "gore" | "household" | "nature"
 }
 
 This is the v2 semantic layer. Use it whenever the sentence implies a non-human hero,
@@ -203,6 +203,7 @@ never gameplay tuning.
 - Robot vacuum / Roomba / cleaner appliance enemies → enemySet "vacuum".
 - Cat-at-home scenarios with varied household hazards → enemySet "household" and debrisStyle "household".
 - Home / apartment / couch / carpet / nap-spot premise → worldProps "living-room".
+- Forest / woods / jungle / garden / farm premise → worldProps "forest" and debrisStyle "nature".
 - Human survivor with monsters in a city/street → survivor + creature + weapon + street.
 
 Do not leave a human gun, humanoid boss, or street props in the output when the

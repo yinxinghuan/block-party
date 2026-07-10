@@ -37,6 +37,8 @@ export interface BossSpec {
   skin?: BossSkin;
   /** themed display name */
   name: string;
+  /** optional generated visual shared by or unique to this boss rung */
+  spriteUrl?: string;
 }
 
 export interface HeroSpec {
@@ -53,9 +55,9 @@ export interface VisualSpec {
   /** visual-only attack language; engine auto-fire math stays unchanged */
   actionStyle?: 'weapon' | 'cat-swipe';
   /** visual-only world prop family; collision positions stay unchanged */
-  worldProps?: 'street' | 'living-room';
+  worldProps?: 'street' | 'living-room' | 'forest';
   /** visual-only hit/kill debris material; physics stays unchanged */
-  debrisStyle?: 'gore' | 'household';
+  debrisStyle?: 'gore' | 'household' | 'nature';
 }
 
 export interface FeelSpec {

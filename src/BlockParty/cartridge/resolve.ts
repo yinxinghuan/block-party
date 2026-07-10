@@ -22,12 +22,16 @@ const ROLE_SCALE: Record<NonBossRole, number> = {
   lurker: 0.66, runner: 0.62, brute: 0.78, stalker: 0.72, exploder: 0.66, ghost: 0.70,
 };
 
+const ROLE_SPRITE_SCALE: Record<NonBossRole, number> = {
+  lurker: 1.35, runner: 1.25, brute: 1.75, stalker: 1.45, exploder: 1.30, ghost: 1.40,
+};
+
 const VISUAL_ENUMS = {
   heroKind: ['survivor', 'cat'],
   enemySet: ['creature', 'vacuum', 'household'],
   actionStyle: ['weapon', 'cat-swipe'],
-  worldProps: ['street', 'living-room'],
-  debrisStyle: ['gore', 'household'],
+  worldProps: ['street', 'living-room', 'forest'],
+  debrisStyle: ['gore', 'household', 'nature'],
 } as const;
 
 const FEEL_ENUMS = {
@@ -112,6 +116,8 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
       spriteTextures.set(role, loader.load(es.spriteUrl));
     }
   }
+  const bossSpriteUrl = spec.bossLadder.find((boss) => boss.spriteUrl)?.spriteUrl;
+  const bossSpriteTexture = bossSpriteUrl ? loader.load(bossSpriteUrl) : null;
 
   return {
     id: spec.id,
@@ -123,12 +129,22 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
     }),
 
     buildEnemy: (role: EnemyRole, bossSkin) => {
-      if (visuals.enemySet === 'vacuum' || visuals.enemySet === 'household') return makeVacuumEnemy(role, visuals.enemySet);
-      if (role === 'boss') return makeMonster('boss', bossSkin);
+      if (role === 'boss') {
+        if (bossSpriteTexture) return makeSpriteBillboard(bossSpriteTexture, 2.8);
+        if (visuals.enemySet === 'vacuum' || visuals.enemySet === 'household') {
+          return makeVacuumEnemy(role, visuals.enemySet);
+        }
+        return makeMonster('boss', bossSkin);
+      }
 
-      // Sprite path — unique gen-image visual for this role
+      // A generated sprite is the most theme-specific visual, so it takes
+      // priority over built-in semantic families such as household/vacuum.
       const tex = spriteTextures.get(role as NonBossRole);
-      if (tex) return makeSpriteBillboard(tex, ROLE_SCALE[role as NonBossRole]);
+      if (tex) return makeSpriteBillboard(tex, ROLE_SPRITE_SCALE[role as NonBossRole]);
+
+      if (visuals.enemySet === 'vacuum' || visuals.enemySet === 'household') {
+        return makeVacuumEnemy(role, visuals.enemySet);
+      }
 
       // Fallback — house-style 3D creature + recolor
       const es = spec.enemies[role as NonBossRole];

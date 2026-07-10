@@ -21,6 +21,7 @@ export function makeSpriteBillboard(
     metalness: 0,
     side: THREE.DoubleSide,
     transparent: true,
+    alphaTest: 0.06,
     depthWrite: true,
   });
 
