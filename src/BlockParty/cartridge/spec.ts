@@ -51,7 +51,7 @@ export interface VisualSpec {
   /** visual-only hero builder family; does not change player stats */
   heroKind?: 'survivor' | 'cat';
   /** visual-only enemy builder family; does not change enemy stats */
-  enemySet?: 'creature' | 'vacuum' | 'household';
+  enemySet?: 'creature' | 'vacuum' | 'household' | 'forest';
   /** visual-only attack language; engine auto-fire math stays unchanged */
   actionStyle?: 'weapon' | 'cat-swipe';
   /** visual-only world prop family; collision positions stay unchanged */

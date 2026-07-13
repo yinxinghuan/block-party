@@ -104,6 +104,18 @@ export function cone(
   return m;
 }
 
+export function ball(
+  r: number, hex: number,
+  x: number, y: number, z: number,
+  opt?: MatOpt,
+): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), M(hex, opt));
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
 export function darken(hex: number, f = 0.66): number {
   const r = ((hex >> 16) & 255) * f;
   const g = ((hex >> 8) & 255) * f;

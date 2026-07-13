@@ -58,7 +58,7 @@ export interface HeroSkin {
 
 export interface CartridgeVisuals {
   heroKind?: 'survivor' | 'cat';
-  enemySet?: 'creature' | 'vacuum' | 'household';
+  enemySet?: 'creature' | 'vacuum' | 'household' | 'forest';
   actionStyle?: 'weapon' | 'cat-swipe';
   worldProps?: 'street' | 'living-room' | 'forest';
   debrisStyle?: 'gore' | 'household' | 'nature';

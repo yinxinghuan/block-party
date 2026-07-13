@@ -68,37 +68,37 @@ export const genCatVacuumSpec: CartridgeSpec = {
       "creature": "zombie",
       "name": "Roomba",
       "recolor": "#d0d0d8",
-      "spriteUrl": "/sprites/cat-vacuum/lurker.png"
+      "spriteUrl": "sprites/cat-vacuum/lurker.png"
     },
     "runner": {
       "creature": "werewolf",
       "name": "Stick Vac",
       "recolor": "#585860",
-      "spriteUrl": "/sprites/cat-vacuum/runner.png"
+      "spriteUrl": "sprites/cat-vacuum/runner.png"
     },
     "brute": {
       "creature": "skeleton",
       "name": "Canister Vac",
       "recolor": "#f0ece4",
-      "spriteUrl": "/sprites/cat-vacuum/brute.png"
+      "spriteUrl": "sprites/cat-vacuum/brute.png"
     },
     "stalker": {
       "creature": "mummy",
       "name": "Carpet Cleaner",
       "recolor": "#e8dcc8",
-      "spriteUrl": "/sprites/cat-vacuum/stalker.png"
+      "spriteUrl": "sprites/cat-vacuum/stalker.png"
     },
     "exploder": {
       "creature": "ghost",
       "name": "Dust Buster",
       "recolor": "#ffeae0",
-      "spriteUrl": "/sprites/cat-vacuum/exploder.png"
+      "spriteUrl": "sprites/cat-vacuum/exploder.png"
     },
     "ghost": {
       "creature": "zombie",
       "name": "Handheld Turbo",
       "recolor": "#a8c8e8",
-      "spriteUrl": "/sprites/cat-vacuum/ghost.png"
+      "spriteUrl": "sprites/cat-vacuum/ghost.png"
     }
   },
   "bossLadder": [

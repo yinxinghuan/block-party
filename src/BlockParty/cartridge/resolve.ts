@@ -11,6 +11,7 @@ import { NON_BOSS_ROLES } from './spec';
 import { CREATURE_BUILDERS, CREATURE_KEYS, recolorGroup } from '../builders/registry';
 import { makeMonster } from '../builders/monsters';
 import { makeVacuumEnemy } from '../builders/appliances';
+import { makeForestEnemy } from '../builders/nature';
 import { makeCatHero, makeSurvivor, makeSurvivorWithFace, SURVIVOR_IDS } from '../builders/characters';
 import { makeSpriteBillboard } from '../builders/sprites';
 import type { BossLadderEntry } from '../constants';
@@ -28,7 +29,7 @@ const ROLE_SPRITE_SCALE: Record<NonBossRole, number> = {
 
 const VISUAL_ENUMS = {
   heroKind: ['survivor', 'cat'],
-  enemySet: ['creature', 'vacuum', 'household'],
+  enemySet: ['creature', 'vacuum', 'household', 'forest'],
   actionStyle: ['weapon', 'cat-swipe'],
   worldProps: ['street', 'living-room', 'forest'],
   debrisStyle: ['gore', 'household', 'nature'],
@@ -88,6 +89,20 @@ export function validateSpec(s: unknown): string[] {
   return errs;
 }
 
+/** Resolve cartridge-owned public assets against the deployed game base.
+ * Vite builds with base "./", while the game service mounts each build under
+ * /{sessionId}/. Stripping a legacy leading slash keeps old generated specs
+ * inside that mount instead of accidentally requesting the server root. */
+export function resolveCartridgeAssetUrl(assetUrl: string): string {
+  if (/^(?:https?:|data:|blob:)/i.test(assetUrl) || assetUrl.startsWith('//')) {
+    return assetUrl;
+  }
+  const relative = assetUrl.replace(/^\.?\/+/, '');
+  if (typeof document === 'undefined') return `${import.meta.env.BASE_URL}${relative}`;
+  const deployedBase = new URL(import.meta.env.BASE_URL, document.baseURI);
+  return new URL(relative, deployedBase).href;
+}
+
 /** Bind a (validated) spec to a runnable cartridge. Throws if invalid. */
 export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
   const errs = validateSpec(spec);
@@ -105,19 +120,32 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
     combatProfile: spec.feel?.combatProfile ?? (spec.id === 'cat-vacuum' ? 'close-swipe' : 'survivor-shooter'),
   } as const;
 
-  // Pre-load sprite textures for every enemy role that has a spriteUrl.
+  // Older forest-cat specs predate the explicit forest enemy family. Upgrade
+  // those in the resolver so already-generated cartridges become 3D after a
+  // code update, without requiring users to regenerate their theme.
+  const enemySet =
+    visuals.heroKind === 'cat' && visuals.worldProps === 'forest' && visuals.enemySet === 'creature'
+      ? 'forest'
+      : visuals.enemySet;
+  const useSpriteVisuals = enemySet === 'creature';
+
+  // Pre-load sprite textures only when there is no semantic 3D family. Forest,
+  // vacuum, and household themes keep the house-style 3D silhouette even if an
+  // older generated spec also contains spriteUrl fields.
   // TextureLoader.load returns immediately (empty texture) and fills async —
   // the sprite pops in when loaded. The group is still a valid THREE.Group.
   const loader = new THREE.TextureLoader();
   const spriteTextures = new Map<NonBossRole, THREE.Texture | null>();
   for (const role of NON_BOSS_ROLES) {
     const es = spec.enemies[role];
-    if (es.spriteUrl) {
-      spriteTextures.set(role, loader.load(es.spriteUrl));
+    if (useSpriteVisuals && es.spriteUrl) {
+      spriteTextures.set(role, loader.load(resolveCartridgeAssetUrl(es.spriteUrl)));
     }
   }
   const bossSpriteUrl = spec.bossLadder.find((boss) => boss.spriteUrl)?.spriteUrl;
-  const bossSpriteTexture = bossSpriteUrl ? loader.load(bossSpriteUrl) : null;
+  const bossSpriteTexture = useSpriteVisuals && bossSpriteUrl
+    ? loader.load(resolveCartridgeAssetUrl(bossSpriteUrl))
+    : null;
 
   return {
     id: spec.id,
@@ -130,21 +158,23 @@ export function specToCartridge(spec: CartridgeSpec): ArcadeCartridge {
 
     buildEnemy: (role: EnemyRole, bossSkin) => {
       if (role === 'boss') {
-        if (bossSpriteTexture) return makeSpriteBillboard(bossSpriteTexture, 2.8);
-        if (visuals.enemySet === 'vacuum' || visuals.enemySet === 'household') {
-          return makeVacuumEnemy(role, visuals.enemySet);
+        if (enemySet === 'forest') return makeForestEnemy(role);
+        if (enemySet === 'vacuum' || enemySet === 'household') {
+          return makeVacuumEnemy(role, enemySet);
         }
+        if (bossSpriteTexture) return makeSpriteBillboard(bossSpriteTexture, 2.8);
         return makeMonster('boss', bossSkin);
       }
 
-      // A generated sprite is the most theme-specific visual, so it takes
-      // priority over built-in semantic families such as household/vacuum.
+      if (enemySet === 'forest') return makeForestEnemy(role);
+      if (enemySet === 'vacuum' || enemySet === 'household') {
+        return makeVacuumEnemy(role, enemySet);
+      }
+
+      // Generated billboards are a fallback for themes without a dedicated 3D
+      // family. They never replace a semantic 3D builder.
       const tex = spriteTextures.get(role as NonBossRole);
       if (tex) return makeSpriteBillboard(tex, ROLE_SPRITE_SCALE[role as NonBossRole]);
-
-      if (visuals.enemySet === 'vacuum' || visuals.enemySet === 'household') {
-        return makeVacuumEnemy(role, visuals.enemySet);
-      }
 
       // Fallback — house-style 3D creature + recolor
       const es = spec.enemies[role as NonBossRole];

@@ -40,7 +40,7 @@ function parseArgs(argv: string[]): Args {
   if (!args.sentence) {
     console.error('Usage: npx tsx scripts/gen-cartridge.ts --sentence "a sentence describing a survival scenario"');
     console.error('  --retries N   max LLM retries on validation failure (default 3)');
-    console.error('  --sprites     generate unique sprites for each enemy via gen-image + R2 upload');
+    console.error('  --sprites     generate 2D billboard fallbacks only when no semantic 3D enemy family exists');
     console.error('  --no-activate write the cartridge without switching the game to it');
     console.error('  --dry-run     validate but do not write the output file');
     process.exit(1);
@@ -223,7 +223,7 @@ async function generateSprites(
     try {
       await downloadImage(tempUrl, localPath);
       console.log(`     📥  Downloaded → ${path.relative(ROOT, localPath)}`);
-      enemy.spriteUrl = `/sprites/${slug}/${role}.png`;
+      enemy.spriteUrl = `sprites/${slug}/${role}.png`;
       readyCount++;
     } catch (e) {
       console.error(`     ⚠️  Download failed for ${role}: ${e}. Skipping.`);
@@ -251,7 +251,7 @@ async function generateSprites(
       const localPath = path.join(spriteDir, 'boss.png');
       await downloadImage(tempUrl, localPath);
       console.log(`     📥  Downloaded → ${path.relative(ROOT, localPath)}`);
-      const bossUrl = `/sprites/${slug}/boss.png`;
+      const bossUrl = `sprites/${slug}/boss.png`;
       readyCount++;
       try {
         const permanentUrl = await uploadToR2(localPath);
@@ -271,6 +271,18 @@ async function generateSprites(
   if (permanentCount < requestedCount) {
     console.log(`  📁  Local sprites saved to public/sprites/${slug}/`);
   }
+}
+
+function usesSemantic3dEnemyFamily(spec: Record<string, unknown>): boolean {
+  const visuals = (spec.visuals ?? {}) as {
+    heroKind?: string;
+    enemySet?: string;
+    worldProps?: string;
+  };
+  if (['forest', 'vacuum', 'household'].includes(visuals.enemySet ?? '')) return true;
+
+  // Backward compatibility for cartridges created before the forest family existed.
+  return visuals.heroKind === 'cat' && visuals.worldProps === 'forest';
 }
 
 // ─── JSON extraction ─────────────────────────────────────────────────────────
@@ -424,8 +436,12 @@ async function main() {
 
   // ── Sprite generation ──────────────────────────────────────────────────
   if (args.sprites) {
-    console.log(`\n🖼️  Generating sprites for ${NON_BOSS_ROLES.length} enemy roles + 1 shared boss...`);
-    await generateSprites(spec, slug);
+    if (usesSemantic3dEnemyFamily(spec)) {
+      console.log('\n🧱  Semantic 3D enemy family selected; skipping flat billboard sprite generation.');
+    } else {
+      console.log(`\n🖼️  Generating 2D billboard fallbacks for ${NON_BOSS_ROLES.length} enemy roles + 1 shared boss...`);
+      await generateSprites(spec, slug);
+    }
   }
 
   const varName = `gen${pascalCase(slug)}Spec`;
