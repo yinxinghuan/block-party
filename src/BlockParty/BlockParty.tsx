@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Leaderboard, useGameScore } from '@shared/leaderboard';
 import type { LeaderboardEntry } from '@shared/leaderboard';
-import { useGameEvent, telegramId } from '@shared/runtime';
-import { callAigramAPI, isInAigram as inAigram } from '../shared/runtime/bridge';
+import { useGameEvent, getTelegramId, isInAigramNow } from '@shared/runtime';
+import { callAigramAPI, isInAigramNow as inAigram } from '../shared/runtime/bridge';
 import { Scene } from './components/Scene';
 import { SplashScene } from './components/SplashScene';
 import { StoreScreen } from './components/StoreScreen';
@@ -137,10 +137,10 @@ export function BlockParty() {
   // it's literally one tap — no upload. Standalone, fall back to a file pick.
   const pickHeroPhoto = useCallback(async () => {
     if (heroPhotoUrl) { setHeroPhoto(null); return; }  // toggle off
-    if (inAigram && telegramId) {
+    if (inAigram() && getTelegramId()!) {
       try {
         const info = await callAigramAPI<{ head_url?: string }>(
-          `/note/telegram/user/get/info/by/telegram_id?telegram_id=${telegramId}`,
+          `/note/telegram/user/get/info/by/telegram_id?telegram_id=${getTelegramId()!}`,
         );
         if (info?.head_url) { setHeroPhoto(info.head_url); return; }
       } catch { /* fall through to file pick */ }
@@ -210,6 +210,7 @@ export function BlockParty() {
 
   useEffect(() => {
     if (phase !== 'splash') return;
+    if (!isInAigramNow()) return;
     let cancelled = false;
     fetchLeaderboard()
       .then(rows => {
@@ -233,18 +234,18 @@ export function BlockParty() {
 
   useEffect(() => {
     if (phase !== 'playing') return;
-    if (!telegramId) { preRunBestRef.current = 0; return; }
-    const meId = String(telegramId);
+    if (!getTelegramId()!) { preRunBestRef.current = 0; return; }
+    const meId = String(getTelegramId()!);
     const me = lastRowsRef.current.find(r => String(r.user_id) === meId);
     preRunBestRef.current = me ? Number(me.score) || 0 : 0;
   }, [phase]);
 
   const sendBeatNotify = useCallback(async (myScore: number) => {
-    if (!telegramId || !events.canEmit) return;
+    if (!getTelegramId()! || !events.canEmit) return;
     if (myScore <= preRunBestRef.current) return;
     try {
       const fresh = await fetchLeaderboard();
-      const meId = String(telegramId);
+      const meId = String(getTelegramId()!);
       const beaten = fresh
         .filter(r => String(r.user_id) !== meId)
         .map(r => ({ id: String(r.user_id), score: Number(r.score) || 0 }))
