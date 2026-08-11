@@ -32,18 +32,18 @@ function parseOwned(s: string | null): HeroId[] {
 
 export function loadStore(): StoreState {
   const owned = new Set<HeroId>(CARTRIDGE.starterHeroIds);
-  for (const id of parseOwned(localStorage.getItem(KEY_OWNED))) owned.add(id);
-  const balance = Number(localStorage.getItem(KEY_BALANCE) || 0) || 0;
-  const pickedRaw = localStorage.getItem(KEY_PICKED) || 'random';
+  for (const id of parseOwned(alteruLocalStorage.getItem(KEY_OWNED))) owned.add(id);
+  const balance = Number(alteruLocalStorage.getItem(KEY_BALANCE) || 0) || 0;
+  const pickedRaw = alteruLocalStorage.getItem(KEY_PICKED) || 'random';
   const picked: Selection = (pickedRaw === 'random' || isHeroId(pickedRaw))
     ? (pickedRaw as Selection) : 'random';
   return { owned: Array.from(owned), balance, picked };
 }
 
 export function saveStore(s: StoreState) {
-  localStorage.setItem(KEY_OWNED, JSON.stringify(s.owned));
-  localStorage.setItem(KEY_BALANCE, String(Math.floor(s.balance)));
-  localStorage.setItem(KEY_PICKED, s.picked);
+  alteruLocalStorage.setItem(KEY_OWNED, JSON.stringify(s.owned));
+  alteruLocalStorage.setItem(KEY_BALANCE, String(Math.floor(s.balance)));
+  alteruLocalStorage.setItem(KEY_PICKED, s.picked);
 }
 
 // Resolve the picked selection to an actual archetype id at run start.

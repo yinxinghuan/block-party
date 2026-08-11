@@ -3,7 +3,7 @@ import { CARTRIDGE } from '../cartridge';
 type Locale = 'zh' | 'en';
 
 function detectLocale(): Locale {
-  const override = localStorage.getItem('game_locale');
+  const override = alteruLocalStorage.getItem('game_locale');
   if (override === 'en' || override === 'zh') return override;
   return 'en';
 }
@@ -43,7 +43,7 @@ const dict: Record<Locale, Record<string, string>> = {
 };
 
 let cur: Locale = detectLocale();
-export function setLocale(l: Locale) { cur = l; localStorage.setItem('game_locale', l); }
+export function setLocale(l: Locale) { cur = l; alteruLocalStorage.setItem('game_locale', l); }
 export function t(key: string, vars?: { n?: number | string }): string {
   const raw = dict[cur][key] ?? dict.en[key] ?? key;
   if (!vars) return raw;

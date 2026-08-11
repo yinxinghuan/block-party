@@ -123,14 +123,14 @@ export function BlockParty() {
   // Persisted so "play as me" survives refreshes; only offered when the
   // active cartridge supports a photo hero.
   const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(
-    () => localStorage.getItem('bp_hero_photo'),
+    () => alteruLocalStorage.getItem('bp_hero_photo'),
   );
   const supportsPhotoHero = !!CARTRIDGE.buildHeroFromPhoto;
 
   const setHeroPhoto = useCallback((url: string | null) => {
     setHeroPhotoUrl(url);
-    if (url) localStorage.setItem('bp_hero_photo', url);
-    else localStorage.removeItem('bp_hero_photo');
+    if (url) alteruLocalStorage.setItem('bp_hero_photo', url);
+    else alteruLocalStorage.removeItem('bp_hero_photo');
   }, []);
 
   // Obtain the player's face image. In Aigram, pull their avatar (head_url) so
@@ -178,7 +178,7 @@ export function BlockParty() {
   // spawns an elite stalker (after the level overstays the threshold).
   const [eliteToastKey, setEliteToastKey] = useState(0);
   const lastEliteAlertRef = useRef(0);
-  const [highScore, setHighScore] = useState<number>(() => Number(localStorage.getItem(HIGH_KEY) || 0));
+  const [highScore, setHighScore] = useState<number>(() => Number(alteruLocalStorage.getItem(HIGH_KEY) || 0));
   const [finalScore, setFinalScore] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [pellets, setPellets] = useState<Pellet[]>([]);
@@ -308,7 +308,7 @@ export function BlockParty() {
     setPhase('gameover');
     stopBgm();
     if (final > highScore) {
-      localStorage.setItem(HIGH_KEY, String(final));
+      alteruLocalStorage.setItem(HIGH_KEY, String(final));
       setHighScore(final);
     }
     submitScore(final)
