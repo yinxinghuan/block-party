@@ -12,6 +12,7 @@ import {
   openAigramPost,
   type AigramResponse,
 } from '../runtime/bridge';
+import { isCrazyGamesBuild } from '../runtime/deployTarget';
 import { getGameUuid } from '../runtime/game-id';
 
 // ─── Public shapes ────────────────────────────────────────────────────────
@@ -75,7 +76,9 @@ export function useGameScore() {
 
   const submitScore = useCallback(
     async (score: number) => {
-      if (!sessionId || score <= 0) return;
+      // Crazy Games has no Aigram session. The run score is already stored
+      // on this device by the game; do not post it to the host frame.
+      if (isCrazyGamesBuild || !sessionId || score <= 0) return;
       try {
         await callAigramAPI<AigramResponse<null>>(
           '/note/aigram/ai/game/rank/score/save',
@@ -90,7 +93,7 @@ export function useGameScore() {
   );
 
   const fetchLeaderboard = useCallback(async (): Promise<LeaderboardEntry[]> => {
-    if (!sessionId) return [];
+    if (isCrazyGamesBuild || !sessionId) return [];
     try {
       const res = await callAigramAPI<AigramResponse<RankRow[]>>(
         `/note/aigram/ai/game/rank/score/list/by/session_id?session_id=${encodeURIComponent(sessionId)}`,
