@@ -16,6 +16,20 @@ function stripGuestShellPlugin(): Plugin {
   };
 }
 
+// The watermark module imports its stylesheet as a side effect, so Rollup
+// keeps that CSS even after the unused React element is tree-shaken.
+// Replace the module in the guest build before that import is followed.
+function stripGuestWatermarkPlugin(): Plugin {
+  return {
+    name: 'strip-alteru-watermark',
+    enforce: 'pre',
+    transform(_code, id) {
+      if (!id.includes('/src/BlockParty/AlteruWatermark.tsx')) return null;
+      return 'export function AlteruWatermark(){return null}\n';
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   // Relative base so the bundle loads inside a Crazy Games (or Pages) iframe
   // regardless of the host path.
@@ -23,7 +37,7 @@ export default defineConfig(({ mode }) => ({
   resolve: { alias: { '@shared': path.resolve(__dirname, 'src/shared') } },
   plugins: [
     react(),
-    ...(mode === 'crazygames' ? [stripGuestShellPlugin()] : []),
+    ...(mode === 'crazygames' ? [stripGuestShellPlugin(), stripGuestWatermarkPlugin()] : []),
   ],
   css: {
     preprocessorOptions: {

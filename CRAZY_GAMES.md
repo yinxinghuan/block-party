@@ -17,6 +17,7 @@ Crazy Games requires that guests can play and that the game does not add its own
 - Opens the splash and starts a run on the first drag. There is no account screen and no `guest-shell.js` login wall.
 - Saves the best score in `localStorage` on the device (the same best-score key the game already uses).
 - Opens the leaderboard as a local note (“best score stays on this device”) instead of “Open in AlterU” / the App Store.
+- Does not render the in-game AlterU watermark (`ln__watermark`). The default build still shows it.
 - Does not treat Crazy Games query parameters as an Aigram session.
 
 The default `npm run build` path is unchanged for GitHub Pages and any AlterU/Aigram embed. That build still includes `https://images.aiwaves.tech/alteru/guest-shell.js`.
