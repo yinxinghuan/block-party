@@ -4,6 +4,7 @@ import { Leaderboard, useGameScore } from '@shared/leaderboard';
 import type { LeaderboardEntry } from '@shared/leaderboard';
 import { useGameEvent, getTelegramId, isInAigramNow } from '@shared/runtime';
 import { callAigramAPI, isInAigramNow as inAigram } from '../shared/runtime/bridge';
+import { isCrazyGamesBuild } from '../shared/runtime/deployTarget';
 import { Scene } from './components/Scene';
 import { SplashScene } from './components/SplashScene';
 import { StoreScreen } from './components/StoreScreen';
@@ -18,7 +19,7 @@ import { getLevelTuning } from './constants';
 import { useJoystick } from './hooks/useJoystick';
 import { playSfx, setBgmTension, setHeartbeatRate, startBgm, stopBgm, stopHeartbeat, unlockAudio } from './utils/audio';
 import { t } from './i18n';
-import alteruSvg from './img/alteru.svg';
+import { AlteruWatermark } from './AlteruWatermark';
 import './BlockParty.less';
 import './SplashScene.less';
 
@@ -609,7 +610,7 @@ export function BlockParty() {
         </button>
       )}
 
-      <img className="ln__watermark" src={alteruSvg} alt="AlterU" />
+      {!isCrazyGamesBuild && <AlteruWatermark />}
 
       {/* Floating "+N" — instant satisfaction near the player */}
       {phase === 'playing' && pellets.length > 0 && (
